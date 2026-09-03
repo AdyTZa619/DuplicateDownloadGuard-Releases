@@ -102,6 +102,7 @@ func TestNameSimilarityRenamed(t *testing.T) {
 		min  int
 	}{
 		{"1920x3410_0e905198575d63a8d9e7_source.mp4", "2021-11-05_1920x3410_0e905198575d63a8d9e7.mp4", 70},
+		{"3756x6654_035cc4db82a2493862302a02a13f9024.jpg", "3756x6654_035cc4db82a2493862302a02a13f9024-D3558.jpg", 99},
 		{"holiday_clip_final.mp4", "holiday clip.mp4", 75},
 		{"completely_different.mp4", "other_file.mp4", 0},
 	}

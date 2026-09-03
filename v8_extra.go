@@ -797,29 +797,36 @@ func (a *App) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 // ---------- Persistent download queue ----------
 
 type DownloadJob struct {
-	ID           string `json:"id"`
-	ResultID     int    `json:"resultId"`
-	Name         string `json:"name"`
-	Source       string `json:"source"`
-	URL          string `json:"url,omitempty"`
-	Destination  string `json:"destination"`
-	Engine       string `json:"engine"`
-	GID          string `json:"gid,omitempty"`
-	Status       string `json:"status"` // queued/running/paused/completed/failed/cancelled
-	Priority     int    `json:"priority"`
-	BytesDone    int64  `json:"bytesDone"`
-	BytesTotal   int64  `json:"bytesTotal"`
-	SpeedBps     int64  `json:"speedBps"`
-	ETA          int64  `json:"etaSeconds"`
-	Attempts     int    `json:"attempts"`
-	MaxRetries   int    `json:"maxRetries"`
-	Error        string `json:"error,omitempty"`
-	OutputPath   string `json:"outputPath,omitempty"`
-	Verification string `json:"verification,omitempty"`
-	AddedAt      int64  `json:"addedAt"`
-	StartedAt    int64  `json:"startedAt,omitempty"`
-	FinishedAt   int64  `json:"finishedAt,omitempty"`
-	UpdatedAt    int64  `json:"updatedAt"`
+	ID            string `json:"id"`
+	ResultID      int    `json:"resultId"`
+	Name          string `json:"name"`
+	Source        string `json:"source"`
+	URL           string `json:"url,omitempty"`
+	Destination   string `json:"destination"`
+	Engine        string `json:"engine"`
+	GID           string `json:"gid,omitempty"`
+	Status        string `json:"status"` // queued/running/paused/completed/failed/cancelled/blocked
+	Priority      int    `json:"priority"`
+	BytesDone     int64  `json:"bytesDone"`
+	BytesTotal    int64  `json:"bytesTotal"`
+	SpeedBps      int64  `json:"speedBps"`
+	ETA           int64  `json:"etaSeconds"`
+	Attempts      int    `json:"attempts"`
+	MaxRetries    int    `json:"maxRetries"`
+	Error         string `json:"error,omitempty"`
+	OutputPath    string `json:"outputPath,omitempty"`
+	Verification  string `json:"verification,omitempty"`
+	GuardMode     string `json:"guardMode,omitempty"`
+	GuardVerdict  string `json:"guardVerdict,omitempty"`
+	GuardReason   string `json:"guardReason,omitempty"`
+	GuardMethod   string `json:"guardMethod,omitempty"`
+	GuardVersion  int    `json:"guardVersion,omitempty"`
+	GuardAt       int64  `json:"guardAt,omitempty"`
+	GuardOverride bool   `json:"guardOverride,omitempty"`
+	AddedAt       int64  `json:"addedAt"`
+	StartedAt     int64  `json:"startedAt,omitempty"`
+	FinishedAt    int64  `json:"finishedAt,omitempty"`
+	UpdatedAt     int64  `json:"updatedAt"`
 }
 
 type DownloadQueue struct {
@@ -847,6 +854,7 @@ func queueFor(a *App) *DownloadQueue {
 			if j.Status == "running" || j.Status == "queued" {
 				j.Status = "paused"
 				j.Error = "Pus pe pauză după repornirea aplicației; apasă Resume pentru continuare."
+				j.GuardVersion = 0
 				recoveredPaused = true
 			}
 		}
@@ -1012,6 +1020,57 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 		q.update(a, id, func(x *DownloadJob) { x.Status = "failed"; x.Error = "rezultatul sursă nu mai există" })
 		return
 	}
+	q.mu.Lock()
+	guardVersion, guardOverride, guardMode := 0, false, ""
+	if current := q.findLocked(id); current != nil {
+		guardVersion, guardOverride, guardMode = current.GuardVersion, current.GuardOverride, current.GuardMode
+	}
+	q.mu.Unlock()
+	// Jobs created by an older version, recovered after a crash, or resumed
+	// later are checked again by the backend before any downloader is started.
+	if guardVersion != downloadGuardVersion {
+		report, guardErr := a.runDownloadGuard(ctx, []Result{res}, dest, guardMode)
+		if guardErr != nil {
+			if ctx.Err() == nil {
+				q.update(a, id, func(x *DownloadJob) {
+					x.Status = "paused"
+					x.Error = "ExactGuard nu a putut verifica în siguranță: " + guardErr.Error()
+				})
+			}
+			return
+		}
+		decision := report.Decisions[0]
+		q.update(a, id, func(x *DownloadJob) {
+			x.GuardMode = report.Mode
+			x.GuardVerdict = decision.Verdict
+			x.GuardReason = decision.Reason
+			x.GuardMethod = decision.Method
+			x.GuardVersion = downloadGuardVersion
+			x.GuardAt = time.Now().Unix()
+		})
+		switch decision.Verdict {
+		case guardDuplicate:
+			q.update(a, id, func(x *DownloadJob) {
+				x.Status = "blocked"
+				x.Error = "ExactGuard: duplicat exact blocat — " + decision.Reason
+				x.Verification = "duplicat exact; 0 bytes descărcați"
+				x.FinishedAt = time.Now().Unix()
+			})
+			return
+		case guardReview:
+			if !guardOverride {
+				q.update(a, id, func(x *DownloadJob) {
+					x.Status = "paused"
+					x.Error = "ExactGuard REVIEW: " + decision.Reason
+					x.Verification = "necesită confirmare înainte de download"
+				})
+				return
+			}
+		}
+		if refreshed, exists := a.resultByID(rid); exists {
+			res = refreshed
+		}
+	}
 	engine = chooseQueueEngine(a, res, engine)
 	q.update(a, id, func(x *DownloadJob) {
 		x.Engine = engine
@@ -1167,6 +1226,8 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs                 []int `json:"ids"`
 		Destination, Engine string
+		GuardMode           string `json:"guardMode"`
+		AllowReview         bool   `json:"allowReview"`
 	}
 	if e := decodeJSON(r, &req); e != nil {
 		http.Error(w, e.Error(), 400)
@@ -1187,14 +1248,65 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	if dest == "" {
 		dest = portableDownloadsDir()
 	}
-	_ = os.MkdirAll(dest, 0755)
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	selectedRows := selectedResults(rows, req.IDs)
+	if len(selectedRows) == 0 {
+		http.Error(w, "rezultatele selectate nu mai există", 404)
+		return
+	}
+	report, err := a.runDownloadGuard(r.Context(), selectedRows, dest, req.GuardMode)
+	if err != nil {
+		http.Error(w, err.Error(), 409)
+		return
+	}
+	decisions := map[int]DownloadGuardDecision{}
+	for _, decision := range report.Decisions {
+		decisions[decision.ResultID] = decision
+	}
 	wanted := map[int]bool{}
-	for _, id := range req.IDs {
-		wanted[id] = true
+	for _, decision := range report.Decisions {
+		if decision.Verdict == guardDownload || (decision.Verdict == guardReview && req.AllowReview) {
+			wanted[decision.ResultID] = true
+		}
 	}
 	q := queueFor(a)
 	added := 0
+	ariaRemove := []string{}
 	q.mu.Lock()
+	// If the same result was left in an old queue, apply the new deterministic
+	// guard verdict immediately so a later Resume cannot bypass the protection.
+	for _, job := range q.Jobs {
+		decision, exists := decisions[job.ResultID]
+		if !exists || job.Status == "completed" || job.Status == "cancelled" || job.Status == "blocked" {
+			continue
+		}
+		if decision.Verdict == guardDuplicate {
+			if strings.EqualFold(job.Engine, "aria2") && job.GID != "" {
+				ariaRemove = append(ariaRemove, job.GID)
+				job.GID = ""
+			}
+			job.Status = "blocked"
+			job.Error = "ExactGuard: duplicat exact blocat — " + decision.Reason
+			job.Verification = "duplicat exact; 0 bytes descărcați"
+			job.FinishedAt = time.Now().Unix()
+			job.GuardVerdict, job.GuardMethod, job.GuardReason = decision.Verdict, decision.Method, decision.Reason
+			job.GuardVersion, job.GuardAt = downloadGuardVersion, time.Now().Unix()
+			if cancel := q.Cancels[job.ID]; cancel != nil {
+				cancel()
+			}
+		} else if decision.Verdict == guardReview && !req.AllowReview {
+			job.Status = "paused"
+			job.Error = "ExactGuard REVIEW: " + decision.Reason
+			job.GuardVerdict, job.GuardMethod, job.GuardReason = decision.Verdict, decision.Method, decision.Reason
+			job.GuardVersion, job.GuardAt = downloadGuardVersion, time.Now().Unix()
+			if cancel := q.Cancels[job.ID]; cancel != nil {
+				cancel()
+			}
+		}
+	}
 	for _, res := range rows {
 		if !wanted[res.ID] {
 			continue
@@ -1211,15 +1323,18 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		n := q.Seq.Add(1)
 		jid := fmt.Sprintf("%d-%d", time.Now().UnixNano(), n)
-		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Destination: dest, Engine: chooseQueueEngine(a, res, req.Engine), Status: "queued", Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries, AddedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()})
+		decision := decisions[res.ID]
+		now := time.Now().Unix()
+		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Destination: dest, Engine: chooseQueueEngine(a, res, req.Engine), Status: "queued", Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries, GuardMode: report.Mode, GuardVerdict: decision.Verdict, GuardReason: decision.Reason, GuardMethod: decision.Method, GuardVersion: downloadGuardVersion, GuardAt: now, GuardOverride: decision.Verdict == guardReview && req.AllowReview, AddedAt: now, UpdatedAt: now})
 		added++
 	}
 	q.mu.Unlock()
 	q.save(a)
-	jsonOut(w, map[string]any{"ok": true, "added": added, "destination": dest})
+	removeAriaQueueJobsAsync(a, ariaRemove)
+	jsonOut(w, map[string]any{"ok": true, "added": added, "destination": dest, "guard": report, "reviewOverride": req.AllowReview})
 }
 func queueSummary(rows []DownloadJob) map[string]any {
-	m := map[string]int{"queued": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0, "cancelled": 0}
+	m := map[string]int{"queued": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0, "cancelled": 0, "blocked": 0}
 	var done, total int64
 	for _, j := range rows {
 		m[j.Status]++
@@ -1235,6 +1350,25 @@ func (a *App) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	rows := q.snapshot()
 	jsonOut(w, map[string]any{"jobs": rows, "summary": queueSummary(rows), "downloadDir": func() string { a.mu.RLock(); defer a.mu.RUnlock(); return a.cfg.DownloadDir }()})
 }
+
+func removeAriaQueueJobsAsync(a *App, gids []string) {
+	if len(gids) == 0 {
+		return
+	}
+	go func(gids []string) {
+		time.Sleep(150 * time.Millisecond)
+		m, err := ariaRPCFor(a)
+		if err != nil {
+			return
+		}
+		for _, gid := range gids {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = m.remove(ctx, gid)
+			cancel()
+		}
+	}(append([]string(nil), gids...))
+}
+
 func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs    []string `json:"ids"`
@@ -1253,11 +1387,13 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 	q.mu.Lock()
 	now := time.Now().Unix()
 	switch strings.ToLower(req.Action) {
-	case "pause":
+	case "pause", "pause-all":
+		all := strings.EqualFold(req.Action, "pause-all")
 		for _, j := range q.Jobs {
-			if set[j.ID] && (j.Status == "running" || j.Status == "queued") {
+			if (all || set[j.ID]) && (j.Status == "running" || j.Status == "queued") {
 				j.Status = "paused"
 				j.UpdatedAt = now
+				j.GuardVersion = 0
 				if c := q.Cancels[j.ID]; c != nil {
 					c()
 				}
@@ -1270,11 +1406,13 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 				j.Error = ""
 				j.FinishedAt = 0
 				j.UpdatedAt = now
+				j.GuardVersion = 0
 			}
 		}
-	case "cancel":
+	case "cancel", "stop-all":
+		all := strings.EqualFold(req.Action, "stop-all")
 		for _, j := range q.Jobs {
-			if set[j.ID] && (j.Status == "running" || j.Status == "queued" || j.Status == "paused") {
+			if (all || set[j.ID]) && (j.Status == "running" || j.Status == "queued" || j.Status == "paused") {
 				j.Status = "cancelled"
 				j.UpdatedAt = now
 				j.FinishedAt = now
@@ -1302,7 +1440,10 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 	case "clear-completed":
 		out := q.Jobs[:0]
 		for _, j := range q.Jobs {
-			if j.Status == "completed" || j.Status == "cancelled" {
+			if j.Status == "completed" || j.Status == "cancelled" || j.Status == "blocked" {
+				if strings.EqualFold(j.Engine, "aria2") && j.GID != "" {
+					ariaRemove = append(ariaRemove, j.GID)
+				}
 				continue
 			}
 			out = append(out, j)
@@ -1329,20 +1470,7 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 	}
 	q.mu.Unlock()
 	q.save(a)
-	if len(ariaRemove) > 0 {
-		go func(gids []string) {
-			time.Sleep(150 * time.Millisecond)
-			m, err := ariaRPCFor(a)
-			if err != nil {
-				return
-			}
-			for _, gid := range gids {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				_ = m.remove(ctx, gid)
-				cancel()
-			}
-		}(append([]string(nil), ariaRemove...))
-	}
+	removeAriaQueueJobsAsync(a, ariaRemove)
 	jsonOut(w, map[string]any{"ok": true})
 }
 

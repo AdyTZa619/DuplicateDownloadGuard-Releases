@@ -1160,11 +1160,11 @@ func (a *App) addDownloadedToIndex(path string) {
 	if e != nil || st.IsDir() {
 		return
 	}
-	e1 := FileEntry{Path: path, Name: filepath.Base(path), Size: st.Size(), MTime: st.ModTime().Unix()}
+	e1 := FileEntry{Path: path, Name: filepath.Base(path), Size: st.Size(), MTime: st.ModTime().UnixNano()}
 	a.mu.Lock()
 	a.index[path] = e1
-	a.mu.Unlock()
 	a.rebuildMaps()
+	a.mu.Unlock()
 	_ = a.saveIndex()
 }
 func internalDownload(ctx context.Context, u, dest, name string, progress func(int64, int64)) (string, error) {
@@ -1428,6 +1428,28 @@ func (a *App) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 	if method == "" {
 		method = "auto"
 	}
+	report, guardErr := a.runDownloadGuard(r.Context(), rows, dest, "")
+	if guardErr != nil {
+		http.Error(w, "ExactGuard: "+guardErr.Error(), 409)
+		return
+	}
+	allowed := map[int]bool{}
+	for _, decision := range report.Decisions {
+		if decision.Verdict == guardDownload {
+			allowed[decision.ResultID] = true
+		}
+	}
+	guardedRows := rows[:0]
+	for _, row := range rows {
+		if allowed[row.ID] {
+			guardedRows = append(guardedRows, row)
+		}
+	}
+	rows = guardedRows
+	if len(rows) == 0 {
+		jsonOut(w, map[string]any{"started": false, "count": 0, "method": method, "destination": dest, "guard": report})
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	a.cancel = cancel
@@ -1435,7 +1457,7 @@ func (a *App) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 	a.opRunning.Store(true)
 	a.setProgress(Progress{Active: true, Phase: "download", State: "running", Message: "Pregătesc download-urile", Step: 1, StepTotal: len(rows), Total: int64(len(rows)), StartedAt: time.Now().Unix(), CanCancel: true})
 	go a.runDownloadRows(ctx, rows, dest, method)
-	jsonOut(w, map[string]any{"started": true, "count": len(rows), "method": method, "destination": dest})
+	jsonOut(w, map[string]any{"started": true, "count": len(rows), "method": method, "destination": dest, "guard": report})
 }
 func verifyDownloadedAgainstRemote(path string, remote RemoteItem) error {
 	if remote.Hash == "" || remote.HashType == "" {
@@ -1584,6 +1606,7 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	rows := append([]Result(nil), a.results...)
 	folder := req.Folder
+	downloadDest := a.cfg.DownloadDir
 	if folder == "" {
 		folder = a.cfg.JDFolder
 	}
@@ -1592,10 +1615,27 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 	for _, id := range req.IDs {
 		set[id] = true
 	}
+	guardRows := make([]Result, 0, len(rows))
+	for _, x := range rows {
+		if len(set) == 0 || set[x.ID] {
+			guardRows = append(guardRows, x)
+		}
+	}
+	report, guardErr := a.runDownloadGuard(r.Context(), guardRows, downloadDest, "")
+	if guardErr != nil {
+		http.Error(w, "ExactGuard: "+guardErr.Error(), 409)
+		return
+	}
+	allowed := map[int]bool{}
+	for _, decision := range report.Decisions {
+		if decision.Verdict == guardDownload {
+			allowed[decision.ResultID] = true
+		}
+	}
 	var lines []string
 	seen := map[string]bool{}
 	for _, x := range rows {
-		if len(set) > 0 && !set[x.ID] {
+		if (len(set) > 0 && !set[x.ID]) || !allowed[x.ID] {
 			continue
 		}
 		u := resultDownloadURL(x)
@@ -1620,5 +1660,5 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, e.Error(), 500)
 		return
 	}
-	jsonOut(w, map[string]any{"ok": true, "path": p, "count": len(lines)})
+	jsonOut(w, map[string]any{"ok": true, "path": p, "count": len(lines), "guard": report})
 }

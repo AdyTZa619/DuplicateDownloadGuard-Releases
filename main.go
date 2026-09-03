@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.2.1 Pro Portable AI Download Studio + Silent Child Processes"
+const appVersion = "8.3.0 Pro ExactGuard AI"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -68,6 +68,7 @@ type Config struct {
 	Aria2Path             string    `json:"aria2Path"`
 	DownloadDir           string    `json:"downloadDir"`
 	DownloadMethod        string    `json:"downloadMethod"`
+	DownloadGuardMode     string    `json:"downloadGuardMode"`
 	JDFolder              string    `json:"jdFolder"`
 	Mode                  string    `json:"mode"`
 	Extensions            string    `json:"extensions"`
@@ -145,6 +146,10 @@ type Result struct {
 	AIReason       string     `json:"aiReason,omitempty"`
 	AIModel        string     `json:"aiModel,omitempty"`
 	AIAt           int64      `json:"aiAt,omitempty"`
+	GuardVerdict   string     `json:"guardVerdict,omitempty"`
+	GuardMethod    string     `json:"guardMethod,omitempty"`
+	GuardReason    string     `json:"guardReason,omitempty"`
+	GuardAt        int64      `json:"guardAt,omitempty"`
 }
 
 type Decision struct {
@@ -221,6 +226,8 @@ type Progress struct {
 
 type App struct {
 	mu         sync.RWMutex
+	guardMu    sync.Mutex
+	persistMu  sync.Mutex
 	previewMu  sync.Mutex
 	preview    MegaPreviewState
 	previewTTL *time.Timer
@@ -284,6 +291,7 @@ func main() {
 	mux.HandleFunc("/api/results/full-verify", a.handleFullVerify)
 	mux.HandleFunc("/api/results/visual-verify", a.handleVisualVerify)
 	mux.HandleFunc("/api/download/start", a.handleDownloadStart)
+	mux.HandleFunc("/api/download/preflight", a.handleDownloadPreflight)
 	mux.HandleFunc("/api/download/jd2", a.handleDownloadJD2)
 	mux.HandleFunc("/api/media/compare", a.handleMediaCompare)
 	mux.HandleFunc("/api/results/mark", a.handleMark)
@@ -326,7 +334,7 @@ func newApp() (*App, error) {
 	}
 	_ = migrateLegacyPortableData(dir)
 	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, decisions: map[string]Decision{}}
-	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 8, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true}
+	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 12, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadGuardMode: guardModeSmart, DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true}
 	_ = a.loadConfig()
 	// v8.2 uses the project repository directly; no manifest URL setup is required.
 	a.cfg.UpdateManifestURL = defaultUpdateManifestURL
@@ -340,7 +348,7 @@ func newApp() (*App, error) {
 		a.cfg.SampleBlockKB = 256
 	}
 	if a.cfg.FullVerifyMaxMB <= 0 {
-		a.cfg.FullVerifyMaxMB = 4
+		a.cfg.FullVerifyMaxMB = 12
 	}
 	if a.cfg.VisualImageMaxMB <= 0 {
 		a.cfg.VisualImageMaxMB = 20
@@ -348,6 +356,7 @@ func newApp() (*App, error) {
 	if a.cfg.DownloadMethod == "" {
 		a.cfg.DownloadMethod = "auto"
 	}
+	a.cfg.DownloadGuardMode = normalizeGuardMode(a.cfg.DownloadGuardMode)
 	if a.cfg.DownloadConcurrency <= 0 {
 		a.cfg.DownloadConcurrency = 2
 	}
@@ -410,6 +419,8 @@ func (a *App) loadDecisions() error {
 }
 
 func (a *App) saveDecisions() error {
+	a.persistMu.Lock()
+	defer a.persistMu.Unlock()
 	a.mu.RLock()
 	d := make(map[string]Decision, len(a.decisions))
 	for k, v := range a.decisions {
@@ -458,7 +469,12 @@ func (a *App) loadConfig() error {
 	return json.Unmarshal(b, &a.cfg)
 }
 func (a *App) saveConfig() error {
-	b, _ := json.MarshalIndent(a.cfg, "", "  ")
+	a.persistMu.Lock()
+	defer a.persistMu.Unlock()
+	a.mu.RLock()
+	cfg := a.cfg
+	a.mu.RUnlock()
+	b, _ := json.MarshalIndent(cfg, "", "  ")
 	return os.WriteFile(a.configPath(), b, 0644)
 }
 func (a *App) loadIndex() error {
@@ -475,6 +491,14 @@ func (a *App) loadIndex() error {
 	return gob.NewDecoder(gz).Decode(&a.index)
 }
 func (a *App) saveIndex() error {
+	a.persistMu.Lock()
+	defer a.persistMu.Unlock()
+	a.mu.RLock()
+	idx := make(map[string]FileEntry, len(a.index))
+	for path, entry := range a.index {
+		idx[path] = entry
+	}
+	a.mu.RUnlock()
 	tmp := a.indexPath() + ".tmp"
 	f, e := os.Create(tmp)
 	if e != nil {
@@ -482,7 +506,7 @@ func (a *App) saveIndex() error {
 	}
 	gz := gzip.NewWriter(f)
 	enc := gob.NewEncoder(gz)
-	e = enc.Encode(a.index)
+	e = enc.Encode(idx)
 	if e2 := gz.Close(); e == nil {
 		e = e2
 	}
@@ -513,6 +537,8 @@ func (a *App) loadResults() error {
 	return nil
 }
 func (a *App) saveResults() error {
+	a.persistMu.Lock()
+	defer a.persistMu.Unlock()
 	tmp := a.resultsPath() + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -627,7 +653,7 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 		c.SampleBlockKB = 1024
 	}
 	if c.FullVerifyMaxMB <= 0 {
-		c.FullVerifyMaxMB = 4
+		c.FullVerifyMaxMB = 12
 	}
 	if c.FullVerifyMaxMB > 256 {
 		c.FullVerifyMaxMB = 256
@@ -641,6 +667,7 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if c.DownloadMethod == "" {
 		c.DownloadMethod = "auto"
 	}
+	c.DownloadGuardMode = normalizeGuardMode(c.DownloadGuardMode)
 	if c.DownloadConcurrency <= 0 {
 		c.DownloadConcurrency = 2
 	}
@@ -989,8 +1016,8 @@ func (a *App) handleMegaScan(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	a.cfg.LastMegaURL = req.URL
-	_ = a.saveConfig()
 	a.mu.Unlock()
+	_ = a.saveConfig()
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	a.cancel = cancel
@@ -1355,12 +1382,14 @@ func (a *App) handleImport(w http.ResponseWriter, r *http.Request) {
 
 var noisyNameTokenRE = regexp.MustCompile(`(?i)\b(?:2160p|1440p|1080p|720p|576p|480p|360p|4k|8k|uhd|fhd|hd|source|original|orig|download|copy|final)\b|\b\d{2,5}x\d{2,5}\b`)
 var dateNameTokenRE = regexp.MustCompile(`(?i)\b(?:19|20)\d{2}[-_. ](?:0?[1-9]|1[0-2])[-_. ](?:0?[1-9]|[12]\d|3[01])\b`)
+var duplicateSuffixRE = regexp.MustCompile(`(?i)(?:[-_ ](?:d)?[0-9a-f]{4,8}|\s*\(\d+\)|[-_ ]copy(?:[-_ ]\d+)?)$`)
 var nameSepRE = regexp.MustCompile(`[^a-z0-9]+`)
 
 func normalizedStem(name string) string {
 	base := strings.ToLower(filepath.Base(name))
 	ext := filepath.Ext(base)
 	base = strings.TrimSuffix(base, ext)
+	base = duplicateSuffixRE.ReplaceAllString(base, "")
 	base = dateNameTokenRE.ReplaceAllString(base, " ")
 	base = noisyNameTokenRE.ReplaceAllString(base, " ")
 	base = nameSepRE.ReplaceAllString(base, " ")
@@ -3226,7 +3255,27 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleExportMissing(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	rows := append([]Result(nil), a.results...)
+	destination := a.cfg.DownloadDir
 	a.mu.RUnlock()
+	guardRows := make([]Result, 0, len(rows))
+	for _, x := range rows {
+		if x.Status == "MISSING" {
+			guardRows = append(guardRows, x)
+		}
+	}
+	allowed := map[int]bool{}
+	if len(guardRows) > 0 {
+		report, err := a.runDownloadGuard(r.Context(), guardRows, destination, "")
+		if err != nil {
+			http.Error(w, "ExactGuard: "+err.Error(), http.StatusConflict)
+			return
+		}
+		for _, decision := range report.Decisions {
+			if decision.Verdict == guardDownload {
+				allowed[decision.ResultID] = true
+			}
+		}
+	}
 	format := r.URL.Query().Get("format")
 	if format == "jd2" {
 		w.Header().Set("Content-Disposition", "attachment; filename=missing_links.crawljob")
@@ -3236,7 +3285,7 @@ func (a *App) handleExportMissing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	seen := map[string]bool{}
 	for _, x := range rows {
-		if x.Status != "MISSING" {
+		if x.Status != "MISSING" || !allowed[x.ID] {
 			continue
 		}
 		u := resultDownloadURL(x)
