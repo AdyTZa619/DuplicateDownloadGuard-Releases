@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.4.0 Pro ExactGuard AI"
+const appVersion = "8.4.1 Pro ExactGuard AI Reliability"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -280,6 +280,8 @@ func main() {
 	mux.HandleFunc("/api/queue/add", a.handleQueueAdd)
 	mux.HandleFunc("/api/queue/list", a.handleQueueList)
 	mux.HandleFunc("/api/queue/action", a.handleQueueAction)
+	mux.HandleFunc("/api/app/heartbeat", a.handleUIHeartbeat)
+	mux.HandleFunc("/api/app/exit-hint", a.handleUIExitHint)
 	mux.HandleFunc("/api/update/status", a.handleUpdateStatus)
 	mux.HandleFunc("/api/update/check", a.handleUpdateCheck)
 	mux.HandleFunc("/api/update/install-online", a.handleUpdateInstallOnline)
@@ -322,12 +324,26 @@ func main() {
 	addr := "http://" + ln.Addr().String()
 	a.logf("Pornit %s pe %s", appVersion, addr)
 	go markUpdateHealthyLater(a.appDir)
+	shutdownCh := make(chan struct{}, 1)
+	startUIWatchdog(shutdownCh)
+	srv := &http.Server{Handler: mux}
 	go func() {
 		time.Sleep(350 * time.Millisecond)
 		openAppWindow(addr)
 	}()
-	if err := http.Serve(ln, mux); err != nil {
-		log.Fatal(err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(ln) }()
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case <-shutdownCh:
+		a.logf("Interfața aplicației s-a închis; opresc DDG controlat")
+		shutdownApp(a)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
 	}
 }
 
