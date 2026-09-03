@@ -1,4 +1,4 @@
-name: DDG repair CI
+name: DDG validation
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ddg-repair-${{ github.ref }}
+  group: ddg-validation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,41 +20,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
 
-      - name: Apply repair patches
-        if: github.event_name == 'push'
+      - name: Verify formatting
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python fixes/prepare_repair_scripts.py
-          if ($LASTEXITCODE -ne 0) { throw 'prepare_repair_scripts.py failed' }
-          python fixes/apply_841.py
-          if ($LASTEXITCODE -ne 0) { throw 'apply_841.py failed' }
-          python fixes/apply_mega_session.py
-          if ($LASTEXITCODE -ne 0) { throw 'apply_mega_session.py failed' }
-
-      - name: Format Go
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
+          $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
-            gofmt -w $_.FullName
+            $out = gofmt -l $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+            if ($out) { $bad += $out }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host 'Go files requiring gofmt:'
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Go formatting check failed'
           }
 
-      - name: Tests and vet
+      - name: Tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           go test ./...
           if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+
+      - name: Vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           go vet ./...
           if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
 
@@ -65,22 +63,5 @@ jobs:
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_REPAIR_CHECK.exe .
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_VALIDATION.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }
-
-      - name: Commit repaired source
-        if: github.event_name == 'push'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add main.go web/index.html *.go
-          if (git diff --cached --quiet) {
-            Write-Host 'Source already current.'
-            exit 0
-          }
-          git commit -m 'Apply v8.4.1 reliability repairs'
-          if ($LASTEXITCODE -ne 0) { throw 'git commit failed' }
-          git push origin HEAD:${{ github.ref_name }}
-          if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
