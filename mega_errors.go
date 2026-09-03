@@ -48,7 +48,9 @@ func classifyMegaProblem(output string, err error) MegaProblem {
 		return MegaProblem{Code: code, Title: title, Message: message, Action: action, Retryable: retryable}
 	}
 	switch {
-	case containsAny(text, "eoverquota", "over quota", "transfer quota", "bandwidth quota", "quota exceeded", "exceeded your transfer"):
+	case errors.Is(err, context.Canceled):
+		return problem("CANCELLED", "Operație MEGA anulată", "Operația a fost oprită la cererea utilizatorului sau la închiderea aplicației.", "Poți relua operația când dorești.", false)
+	case containsAny(text, "eoverquota", "over quota", "overquota", "transfer quota", "bandwidth quota", "quota exceeded", "exceeded your transfer"):
 		return problem("MEGA_QUOTA", "Cotă MEGA depășită", "MEGA a refuzat transferul deoarece limita de transfer a fost atinsă.", "Jobul a fost pus pe pauză. Reia-l după ce MEGA permite din nou transferul.", false)
 	case containsAny(text, "eblocked", "account blocked", "account has been suspended", "link has been blocked", "copyright violation"):
 		return problem("MEGA_BLOCKED", "Acces MEGA blocat", "Contul sau linkul a fost blocat de MEGA și nu poate fi folosit.", "Verifică linkul în browser sau folosește o sursă validă. Reîncercarea automată nu ajută.", false)
