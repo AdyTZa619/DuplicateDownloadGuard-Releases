@@ -117,7 +117,9 @@ func toolVersion(path string) string {
 	if strings.HasPrefix(base, "ffmpeg") || strings.HasPrefix(base, "ffprobe") {
 		args = []string{"-version"}
 	}
-	b, err := exec.CommandContext(ctx, path, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, path, args...)
+	hideChildWindow(cmd)
+	b, err := cmd.CombinedOutput()
 	if err != nil && len(b) == 0 {
 		return ""
 	}
@@ -335,6 +337,7 @@ func (a *App) probeYtDlp(ctx context.Context, u string) ([]RemoteItem, error) {
 	}
 	args = append(args, u)
 	cmd := exec.CommandContext(ctx, exe, args...)
+	hideChildWindow(cmd)
 	b, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("yt-dlp: %w", err)
@@ -402,6 +405,7 @@ func (a *App) probeGalleryDL(ctx context.Context, u string) ([]RemoteItem, error
 		return nil, errors.New("gallery-dl nu este instalat/configurat")
 	}
 	cmd := exec.CommandContext(ctx, exe, "-G", "--no-download", "--no-colors", u)
+	hideChildWindow(cmd)
 	b, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("gallery-dl: %w", err)
@@ -857,7 +861,9 @@ func imageVisualScore(ctx context.Context, target, local string, max int64) (int
 }
 func frameHash(ctx context.Context, ff, target string, sec float64) (uint64, error) {
 	args := []string{"-v", "error", "-ss", fmt.Sprintf("%.3f", sec), "-i", target, "-frames:v", "1", "-vf", "scale=9:8:flags=fast_bilinear,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"}
-	b, e := exec.CommandContext(ctx, ff, args...).Output()
+	cmd := exec.CommandContext(ctx, ff, args...)
+	hideChildWindow(cmd)
+	b, e := cmd.Output()
 	if e != nil {
 		return 0, e
 	}
@@ -1298,6 +1304,7 @@ func (a *App) runAria2(ctx context.Context, exe, u, dest, name, hashType, hash s
 	}
 	args = append(args, u)
 	cmd := exec.CommandContext(ctx, exe, args...)
+	hideChildWindow(cmd)
 	b, e := cmd.CombinedOutput()
 	if e != nil {
 		return fmt.Errorf("aria2: %v • %s", e, strings.TrimSpace(string(b)))
@@ -1317,7 +1324,9 @@ func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string
 		args = append(args, "--limit-rate", fmt.Sprintf("%dK", limit))
 	}
 	args = append(args, u)
-	b, e := exec.CommandContext(ctx, exe, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, exe, args...)
+	hideChildWindow(cmd)
+	b, e := cmd.CombinedOutput()
 	if e != nil {
 		return "", fmt.Errorf("yt-dlp: %v • %s", e, strings.TrimSpace(string(b)))
 	}
