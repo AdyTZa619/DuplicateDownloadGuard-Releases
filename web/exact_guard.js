@@ -5,6 +5,15 @@
 
   let lastRequest = null;
   let lastReport = null;
+  let guardTicker = null;
+
+  function showActivity(text, kind = 'info') {
+    const el = document.getElementById('guardActivity');
+    if (!el) return;
+    el.classList.remove('hidden');
+    el.style.borderLeftColor = kind === 'error' ? '#ff6b7a' : kind === 'ok' ? '#3ddc97' : '#4da3ff';
+    el.textContent = text;
+  }
 
   const guardModeLabel = mode => ({
     smart: 'Smart Guard',
@@ -49,11 +58,26 @@
   }
 
   function installControls() {
+    const brandVersion = document.querySelector('.brand small');
+    if (brandVersion) {
+      api('/api/about').then(info => {
+        brandVersion.textContent = `Professional • ${info.version}`;
+      }).catch(() => {});
+    }
+    const megaHint = document.querySelector('#compare .section .sectionBody p.muted.small');
+    if (megaHint) {
+      megaHint.textContent = 'După scanare, sesiunea folderului MEGA rămâne pregătită temporar pentru preview și player; sesiunea anterioară este restaurată la oprirea streamului sau după expirare.';
+    }
+
     const downloadButton = document.querySelector('button[onclick="downloadSelected()"]');
     if (downloadButton) {
       downloadButton.id = 'downloadGuardBtn';
       downloadButton.textContent = '🛡 Verifică + descarcă';
       downloadButton.title = 'Scanează live HDD-urile, confirmă duplicatele și descarcă numai lipsurile sigure';
+      const body = downloadButton.closest('.section')?.querySelector('.sectionBody');
+      if (body && !document.getElementById('guardActivity')) {
+        body.insertAdjacentHTML('afterbegin', '<div class="noticeBlue hidden" id="guardActivity" style="margin-bottom:12px"></div>');
+      }
     }
 
     const method = document.getElementById('downloadMethod');
@@ -72,7 +96,9 @@
           <div class="noticeBlue" style="flex:2;margin-top:20px">
             Scanează live toate locațiile indexate. Numele diferit nu mai înseamnă automat „lipsește”. AI poate cere review, dar nu poate declara singur un duplicat exact.
           </div>
-        </div>`);
+        </div>
+        <label style="display:block;margin-top:10px"><input type="checkbox" id="liveRefreshCompare" checked/> Actualizează indexul live înainte de fiecare comparație</label>
+        <div class="muted small" style="margin-top:4px">Fișierele copiate, mutate sau redenumite după ultima indexare intră în verdictul inițial; candidații de aceeași mărime devin REVIEW/POSIBIL, nu LIPSEȘTE.</div>`);
     }
 
     const fullVerify = document.getElementById('fullVerifyMaxMB');
@@ -87,6 +113,10 @@
       toolbar.insertAdjacentHTML('afterbegin',
         '<button class="btn danger" id="stopAllDownloads" onclick="queueAction(\'stop-all\')">■ STOP TOT</button>' +
         '<button class="btn" id="pauseAllDownloads" onclick="queueAction(\'pause-all\')">Ⅱ Pauză TOT</button>');
+    }
+    const queueStats = downloadPanel && downloadPanel.querySelector('.queueStats');
+    if (queueStats && !document.getElementById('megaProblemBanner')) {
+      queueStats.insertAdjacentHTML('beforebegin', '<div class="warn hidden" id="megaProblemBanner" style="margin-bottom:12px"></div>');
     }
 
     const stats = downloadPanel && downloadPanel.querySelector('.queueStats');
@@ -110,6 +140,8 @@
     if (!select) return;
     if (typeof cfg !== 'undefined' && cfg && Object.keys(cfg).length) {
       select.value = cfg.downloadGuardMode || 'smart';
+      const live = document.getElementById('liveRefreshCompare');
+      if (live) live.checked = cfg.liveRefreshCompare !== false;
       return;
     }
     if (attempt < 20) setTimeout(() => syncModeFromConfig(attempt + 1), 100);
@@ -184,6 +216,8 @@
     saveRules = async function () {
       const mode = document.getElementById('downloadGuardMode');
       if (mode) cfg.downloadGuardMode = mode.value || 'smart';
+      const live = document.getElementById('liveRefreshCompare');
+      if (live) cfg.liveRefreshCompare = live.checked;
       return originalSaveRules();
     };
 
@@ -199,6 +233,13 @@
         button.disabled = true;
         button.textContent = '🛡 Scanez HDD + verific…';
       }
+      const started = Date.now();
+      showActivity(`Verificarea a început pentru ${ids.length} fișier(e). Scanez locațiile locale și verific toate deciziile…`);
+      clearInterval(guardTicker);
+      guardTicker = setInterval(() => {
+        const seconds = Math.floor((Date.now() - started) / 1000);
+        showActivity(`Verificare în curs: ${seconds}s • ${ids.length} fișier(e). Nu închide aplicația.`);
+      }, 1000);
       toast('Download Guard scanează live toate locațiile indexate…');
       try {
         const data = await api('/api/queue/add', {
@@ -206,9 +247,14 @@
         });
         await loadResults();
         showGuardReport(data.guard, request, data.added);
+        showActivity(data.message || `${data.added || 0} job(uri) adăugate în coadă.`, data.added > 0 ? 'ok' : 'info');
+        await loadQueue();
       } catch (error) {
+        showActivity(`Download oprit cu eroare: ${error.message}`, 'error');
         toast(error.message);
       } finally {
+        clearInterval(guardTicker);
+        guardTicker = null;
         if (button) {
           button.disabled = false;
           button.textContent = '🛡 Verifică + descarcă';
@@ -252,15 +298,28 @@
         setText('qBlocked', counts.blocked || 0);
         setText('qBytes', `${data.summary.bytesDoneText} / ${data.summary.bytesTotalText}`);
         setText('qFolder', data.downloadDir || '');
+        const megaBanner = document.getElementById('megaProblemBanner');
+        if (megaBanner) {
+          const problem = data.megaStatus;
+          megaBanner.classList.toggle('hidden', !problem);
+          megaBanner.innerHTML = problem ? `<b>${esc(problem.title || 'MEGA')}</b> <span class="sourcePill">${esc(problem.code || '')}</span><br>${esc(problem.message || '')}<br><b>Ce faci:</b> ${esc(problem.action || '')}` : '';
+        }
         const body = document.getElementById('queueBody');
         body.innerHTML = data.jobs.map(job => {
           const percent = job.bytesTotal > 0 ? Math.min(100, job.bytesDone / job.bytesTotal * 100) : 0;
           const checked = queueSelected.has(job.id) ? 'checked' : '';
           const guard = job.guardVerdict ? `<div class="muted small">🛡 ${esc(job.guardVerdict)} • ${esc(job.guardMethod || '')}</div>` : '';
-          const destination = job.error ? `<span class="dangerText">${esc(job.error)}</span>` : esc(job.outputPath || job.destination || '');
+          const stage = job.stage ? `<div class="muted small">Etapă: ${esc(job.stage)}</div>` : '';
+          const destination = job.error ? `<span class="dangerText"><b>${esc(job.errorTitle || 'Eroare')}</b>${job.errorCode ? ` [${esc(job.errorCode)}]` : ''}<br>${esc(job.error)}${job.errorAction ? `<br><b>Ce faci:</b> ${esc(job.errorAction)}` : ''}</span>${stage}` : `${esc(job.outputPath || job.destination || '')}${stage}`;
           return `<tr><td><input class="check qcheck" type="checkbox" data-qid="${esc(job.id)}" ${checked} onchange="queueToggle('${esc(job.id)}',this.checked)"/></td><td><b class="${qClass(job.status)}">${qStatusLabel(job.status)}</b><div class="muted small">P${job.priority || 0}</div></td><td><b>${esc(job.name)}</b><div class="muted small">${esc(job.source || '')}</div>${guard}</td><td>${esc(job.engine || 'auto')}${job.gid ? `<div class="muted small">GID ${esc(job.gid)}</div>` : ''}</td><td><div class="downloadBar"><i style="width:${percent}%"></i></div><div class="muted small">${fmt(job.bytesDone || 0)} / ${job.bytesTotal > 0 ? fmt(job.bytesTotal) : '?'}</div></td><td>${job.speedBps > 0 ? fmt(job.speedBps) + '/s' : '—'}</td><td>${qEta(job.etaSeconds)}</td><td>${job.attempts || 0}/${job.maxRetries || 0}</td><td class="path">${destination}</td></tr>`;
         }).join('') || '<tr><td colspan="9" class="muted" style="padding:25px;text-align:center">Coada este goală. Selectează rezultate și apasă „🛡 Verifică + descarcă”.</td></tr>';
-      } catch (_) {}
+      } catch (error) {
+        const megaBanner = document.getElementById('megaProblemBanner');
+        if (megaBanner) {
+          megaBanner.classList.remove('hidden');
+          megaBanner.textContent = 'Nu pot citi starea cozii: ' + error.message;
+        }
+      }
     };
 
     const originalQueueAction = queueAction;

@@ -95,4 +95,26 @@ func TestResultDownloadURLMegaNode(t *testing.T) {
 	}
 }
 
+func TestFindDownloadedMegaFileRequiresUnambiguousOutput(t *testing.T) {
+	dir := t.TempDir()
+	started := time.Now()
+	res := Result{Remote: RemoteItem{Name: "remote?.jpg", Size: 4}}
+	one := filepath.Join(dir, "remote_.jpg")
+	if err := os.WriteFile(one, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := findDownloadedMegaFile(dir, res, started); got != one {
+		t.Fatalf("sanitized result=%q, want %q", got, one)
+	}
+
+	res.Remote.Name = "different.jpg"
+	two := filepath.Join(dir, "another.jpg")
+	if err := os.WriteFile(two, []byte("more"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := findDownloadedMegaFile(dir, res, started); got != "" {
+		t.Fatalf("ambiguous same-size outputs must not be guessed: %q", got)
+	}
+}
+
 var fixedTime = time.Unix(0, 0)

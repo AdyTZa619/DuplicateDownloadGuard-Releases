@@ -1370,19 +1370,70 @@ func (a *App) downloadMegaResults(ctx context.Context, rows []Result, dest strin
 		for _, x := range rs {
 			ref := megaRemoteRef(x.Remote)
 			a.updateProgress(func(p *Progress) { p.Message = "Descarc MEGA: " + x.Remote.Name; p.Detail = ref })
+			started := time.Now()
 			out, e := runMegaTimed(ctx, 6*time.Hour, exe, "get", ref, dest)
 			if e != nil {
-				return fmt.Errorf("MEGA get %s: %v • %s", x.Remote.Name, e, sanitizeMega(out))
+				problem := classifyMegaProblem(out, e)
+				a.logf("%s [%s] %s", problem.Title, problem.Code, sanitizeMega(out))
+				return newMegaProblemError(problem, out)
 			}
-			candidate := filepath.Join(dest, sanitizeFilename(x.Remote.Name))
-			if _, e := os.Stat(candidate); e == nil {
-				a.markDownloaded(x.ID, candidate)
+			candidate := findDownloadedMegaFile(dest, x, started)
+			if candidate == "" {
+				problem := classifyMegaProblem("", nil)
+				a.logf("%s [%s] get a reușit, dar rezultatul nu există în %s • %s", problem.Title, problem.Code, dest, sanitizeMega(out))
+				return newMegaProblemError(problem, out)
 			}
+			a.markDownloaded(x.ID, candidate)
 			a.updateProgress(func(p *Progress) { p.Current++ })
 		}
 		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
 	}
 	return nil
+}
+
+func findDownloadedMegaFile(dest string, res Result, started time.Time) string {
+	expected := filepath.Join(dest, sanitizeFilename(res.Remote.Name))
+	if info, err := os.Stat(expected); err == nil && !info.IsDir() && (res.Remote.Size <= 0 || info.Size() == res.Remote.Size) {
+		return expected
+	}
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		return ""
+	}
+	wantedName := strings.ToLower(filepath.Base(res.Remote.Name))
+	wantedSafe := strings.ToLower(sanitizeFilename(res.Remote.Name))
+	var named string
+	var recentPaths []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || (res.Remote.Size > 0 && info.Size() != res.Remote.Size) {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		nameMatches := name == wantedName || name == wantedSafe
+		recent := !info.ModTime().Before(started.Add(-3 * time.Second))
+		path := filepath.Join(dest, entry.Name())
+		if nameMatches {
+			named = path
+			continue
+		}
+		if recent {
+			recentPaths = append(recentPaths, path)
+		}
+	}
+	if named != "" {
+		return named
+	}
+	// A MEGA download can occasionally sanitize/rename the output. Accept a
+	// recent same-size fallback only when it is unambiguous; guessing among
+	// multiple files would report the wrong download as successful.
+	if len(recentPaths) == 1 {
+		return recentPaths[0]
+	}
+	return ""
 }
 func (a *App) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {

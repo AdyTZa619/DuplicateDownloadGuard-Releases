@@ -67,6 +67,56 @@ func TestDownloadGuardBlocksRenamedExactDuplicateFromLiveDisk(t *testing.T) {
 	}
 }
 
+func TestCompareRefreshesLiveIndexBeforeMissingVerdict(t *testing.T) {
+	collection, download := t.TempDir(), t.TempDir()
+	data := []byte("same-size-content-added-after-old-index")
+	local := filepath.Join(collection, "original-D3558.jpg")
+	if err := os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Name: "original.jpg", Path: "/pack/original.jpg", Size: int64(len(data)), Source: "MEGA"}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.LiveRefreshCompare = true
+	a.compareRemote(context.Background(), []RemoteItem{remote}, "balanced")
+	if len(a.results) != 1 {
+		t.Fatalf("got %d results", len(a.results))
+	}
+	if got := a.results[0]; got.Status != "POSSIBLE" || got.LocalPath != local || got.Candidates != 1 {
+		t.Fatalf("live file was not promoted out of MISSING: %#v", got)
+	}
+}
+
+func TestSameSizeUnrelatedNameIsNotShownAsPossible(t *testing.T) {
+	collection, download := t.TempDir(), t.TempDir()
+	data := []byte("same-size-but-unrelated-content")
+	if err := os.WriteFile(filepath.Join(collection, "taxe_companie_2021.bin"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Name: "vacanta_mare_familie.jpg", Size: int64(len(data)), Source: "MEGA"}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.LiveRefreshCompare = true
+	a.compareRemote(context.Background(), []RemoteItem{remote}, "balanced")
+	if got := a.results[0]; got.Status != "MISSING" || got.LocalPath != "" || got.Candidates != 1 {
+		t.Fatalf("unrelated size-only candidate was presented as possible: %#v", got)
+	}
+}
+
+func TestNameSimilarityRecognizesCollisionSuffixes(t *testing.T) {
+	tests := [][2]string{
+		{"original.jpg", "original-D3558.jpg"},
+		{"3756x6654_035cc4db82a2493862302a02a13f9024.jpg", "3756x6654_035cc4db82a2493862302a02a13f9024-71A13.jpg"},
+		{"holiday photo.png", "holiday photo (1).png"},
+	}
+	for _, pair := range tests {
+		if score := nameSimilarity(pair[0], pair[1]); score < 95 {
+			t.Errorf("nameSimilarity(%q, %q)=%d, want >=95", pair[0], pair[1], score)
+		}
+	}
+	if score := nameSimilarity("taxe_companie_2021.bin", "vacanta_mare_familie.jpg"); score >= 55 {
+		t.Fatalf("unrelated names scored %d, want <55", score)
+	}
+}
+
 func TestDownloadGuardAllowsSameSizeWhenFullHashDiffers(t *testing.T) {
 	remoteData := bytes.Repeat([]byte("A"), 256<<10)
 	localData := bytes.Repeat([]byte("B"), len(remoteData))

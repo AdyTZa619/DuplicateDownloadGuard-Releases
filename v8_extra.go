@@ -814,6 +814,10 @@ type DownloadJob struct {
 	Attempts      int    `json:"attempts"`
 	MaxRetries    int    `json:"maxRetries"`
 	Error         string `json:"error,omitempty"`
+	ErrorCode     string `json:"errorCode,omitempty"`
+	ErrorTitle    string `json:"errorTitle,omitempty"`
+	ErrorAction   string `json:"errorAction,omitempty"`
+	Stage         string `json:"stage,omitempty"`
 	OutputPath    string `json:"outputPath,omitempty"`
 	Verification  string `json:"verification,omitempty"`
 	GuardMode     string `json:"guardMode,omitempty"`
@@ -1091,7 +1095,11 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 			return
 		}
 		attempts++
-		q.update(a, id, func(x *DownloadJob) { x.Attempts = attempts; x.Error = "" })
+		q.update(a, id, func(x *DownloadJob) {
+			x.Attempts = attempts
+			x.Error, x.ErrorCode, x.ErrorTitle, x.ErrorAction = "", "", "", ""
+			x.Stage = "pornesc motorul de download"
+		})
 		var path string
 		var err error
 		start := time.Now()
@@ -1126,6 +1134,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 		}
 		switch engine {
 		case "mega":
+			q.update(a, id, func(x *DownloadJob) { x.Stage = "MEGAcmd descarcă fișierul" })
 			megaQueueMu.Lock()
 			if a.opRunning.Load() {
 				megaQueueMu.Unlock()
@@ -1133,7 +1142,10 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 			} else {
 				err = a.downloadMegaResults(ctx, []Result{res}, dest)
 				if err == nil {
-					path = filepath.Join(dest, sanitizeFilename(res.Remote.Name))
+					path = findDownloadedMegaFile(dest, res, start)
+					if path == "" {
+						err = errors.New("MEGAcmd a terminat fără eroare, dar fișierul rezultat nu a fost găsit în folderul de download")
+					}
 				}
 				megaQueueMu.Unlock()
 			}
@@ -1177,6 +1189,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				}
 				q.update(a, id, func(x *DownloadJob) {
 					x.Status = "completed"
+					x.Stage = "finalizat și verificat"
 					x.OutputPath = path
 					x.BytesDone = done
 					if x.BytesTotal <= 0 {
@@ -1194,26 +1207,45 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				return
 			}
 		}
-		if err == nil && engine == "mega" {
+		if engine == "mega" && err != nil {
+			problem := megaProblemFromError(err)
 			q.update(a, id, func(x *DownloadJob) {
-				x.Status = "completed"
-				x.OutputPath = path
-				x.FinishedAt = time.Now().Unix()
-				x.Verification = "MEGAcmd finalizat"
+				x.ErrorCode, x.ErrorTitle, x.ErrorAction = problem.Code, problem.Title, problem.Action
+				x.Error = problem.Message
+				x.Stage = "oprit la MEGAcmd"
 			})
-			return
+			if !problem.Retryable {
+				status := "failed"
+				if problem.Code == "MEGA_QUOTA" || problem.Code == "MEGA_AUTH" || problem.Code == "DISK_FULL" || problem.Code == "ACCESS_DENIED" {
+					status = "paused"
+				}
+				q.update(a, id, func(x *DownloadJob) {
+					x.Status = status
+					x.FinishedAt = time.Now().Unix()
+					x.SpeedBps, x.ETA = 0, 0
+				})
+				return
+			}
 		}
 		if attempts > cfgRetries {
 			q.update(a, id, func(x *DownloadJob) {
 				x.Status = "failed"
-				x.Error = err.Error()
+				if x.Error == "" {
+					x.Error = err.Error()
+				}
+				x.Stage = "toate încercările au eșuat"
 				x.FinishedAt = time.Now().Unix()
 				x.SpeedBps = 0
 				x.ETA = 0
 			})
 			return
 		}
-		q.update(a, id, func(x *DownloadJob) { x.Error = fmt.Sprintf("încercarea %d: %v", attempts, err) })
+		q.update(a, id, func(x *DownloadJob) {
+			if x.ErrorCode == "" {
+				x.Error = fmt.Sprintf("încercarea %d: %v", attempts, err)
+			}
+			x.Stage = fmt.Sprintf("aștept reîncercarea %d/%d", attempts+1, cfgRetries+1)
+		})
 		select {
 		case <-ctx.Done():
 			return
@@ -1331,7 +1363,10 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	q.mu.Unlock()
 	q.save(a)
 	removeAriaQueueJobsAsync(a, ariaRemove)
-	jsonOut(w, map[string]any{"ok": true, "added": added, "destination": dest, "guard": report, "reviewOverride": req.AllowReview})
+	duplicates := report.Counts[guardDuplicate]
+	review := report.Counts[guardReview]
+	message := fmt.Sprintf("%d adăugate în coadă • %d duplicate blocate • %d necesită review", added, duplicates, review)
+	jsonOut(w, map[string]any{"ok": true, "added": added, "destination": dest, "guard": report, "reviewOverride": req.AllowReview, "message": message})
 }
 func queueSummary(rows []DownloadJob) map[string]any {
 	m := map[string]int{"queued": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0, "cancelled": 0, "blocked": 0}
@@ -1348,7 +1383,20 @@ func queueSummary(rows []DownloadJob) map[string]any {
 func (a *App) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	q := queueFor(a)
 	rows := q.snapshot()
-	jsonOut(w, map[string]any{"jobs": rows, "summary": queueSummary(rows), "downloadDir": func() string { a.mu.RLock(); defer a.mu.RUnlock(); return a.cfg.DownloadDir }()})
+	var megaStatus *MegaProblem
+	var megaStatusAt int64
+	for i := range rows {
+		job := rows[i]
+		if job.ErrorCode == "" || !(strings.EqualFold(job.Source, "MEGA") || strings.EqualFold(job.Engine, "mega")) {
+			continue
+		}
+		if megaStatus != nil && job.UpdatedAt < megaStatusAt {
+			continue
+		}
+		megaStatus = &MegaProblem{Code: job.ErrorCode, Title: job.ErrorTitle, Message: job.Error, Action: job.ErrorAction, Retryable: job.Status != "paused" && job.Status != "failed"}
+		megaStatusAt = job.UpdatedAt
+	}
+	jsonOut(w, map[string]any{"jobs": rows, "summary": queueSummary(rows), "megaStatus": megaStatus, "downloadDir": func() string { a.mu.RLock(); defer a.mu.RUnlock(); return a.cfg.DownloadDir }()})
 }
 
 func removeAriaQueueJobsAsync(a *App, gids []string) {

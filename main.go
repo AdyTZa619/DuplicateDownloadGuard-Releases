@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.3.1 Pro ExactGuard AI"
+const appVersion = "8.4.0 Pro ExactGuard AI"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -91,6 +91,7 @@ type Config struct {
 	UpdateManifestURL     string    `json:"updateManifestUrl"`
 	AutoUpdateCheck       bool      `json:"autoUpdateCheck"`
 	AutoUpdateInstall     bool      `json:"autoUpdateInstall"`
+	LiveRefreshCompare    bool      `json:"liveRefreshCompare"`
 	PortableMigrationDone bool      `json:"portableMigrationDone"`
 }
 
@@ -337,7 +338,7 @@ func newApp() (*App, error) {
 	}
 	_ = migrateLegacyPortableData(dir)
 	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, decisions: map[string]Decision{}}
-	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 12, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadGuardMode: guardModeSmart, DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true}
+	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 12, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadGuardMode: guardModeSmart, DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true, LiveRefreshCompare: true}
 	_ = a.loadConfig()
 	// v8.2 uses the project repository directly; no manifest URL setup is required.
 	a.cfg.UpdateManifestURL = defaultUpdateManifestURL
@@ -1088,7 +1089,8 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 	if e != nil {
 		a.logf("MEGA login eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
-		a.failOp("MEGA: nu am putut deschide folderul public", fmt.Sprintf("%v. Verifică Jurnalul tehnic și linkul MEGA.", e))
+		problem := classifyMegaProblem(out, e)
+		a.failOp(problem.Title, problem.Message+" "+problem.Action)
 		return
 	}
 
@@ -1101,7 +1103,8 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 	if e != nil {
 		a.logf("MEGA find eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
-		a.failOp("MEGA: listarea a eșuat", fmt.Sprintf("%v. Dacă folderul este foarte mare, verifică Jurnalul tehnic.", e))
+		problem := classifyMegaProblem(out, e)
+		a.failOp(problem.Title, problem.Message+" "+problem.Action)
 		return
 	}
 	items := parseMegaLong(out, "MEGA", link)
@@ -1140,9 +1143,9 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Step = 6
 		p.Current = int64(len(items))
 		p.Message = "MEGA • Pas 6/6 — finalizez"
-		p.Detail = "Restaurez sesiunea MEGAcmd anterioară, dacă exista."
+		p.Detail = "Păstrez temporar sesiunea folderului pentru pornirea rapidă a preview-ului."
 	})
-	a.restoreMega(exe, oldSession)
+	a.keepMegaSessionWarm(exe, link, oldSession)
 	a.logf("MEGA: %d fișiere comparate", len(items))
 	a.endOp(fmt.Sprintf("MEGA gata ✓ • %d fișiere comparate", len(items)))
 }
@@ -1165,6 +1168,19 @@ func (a *App) restoreMega(exe, old string) {
 			a.logf("MEGA: sesiunea anterioară restaurată")
 		}
 	}
+}
+
+func (a *App) keepMegaSessionWarm(exe, sourceURL, previousSession string) {
+	a.previewMu.Lock()
+	defer a.previewMu.Unlock()
+	a.preview = MegaPreviewState{
+		Active:          true,
+		SourceURL:       sourceURL,
+		PreviousSession: previousSession,
+		Exe:             exe,
+	}
+	a.resetPreviewTTLLocked()
+	a.logf("MEGA preview: sesiune pregătită după scanare")
 }
 
 var longLineRE = regexp.MustCompile(`^\s*([dribx-][a-z-]{3})\s+(\d+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\s+(.+?)\s*$`)
@@ -1388,6 +1404,22 @@ var dateNameTokenRE = regexp.MustCompile(`(?i)\b(?:19|20)\d{2}[-_. ](?:0?[1-9]|1
 var duplicateSuffixRE = regexp.MustCompile(`(?i)(?:[-_ ](?:d)?[0-9a-f]{4,8}|\s*\(\d+\)|[-_ ]copy(?:[-_ ]\d+)?)$`)
 var nameSepRE = regexp.MustCompile(`[^a-z0-9]+`)
 
+func duplicateAwareStem(name string) string {
+	base := strings.ToLower(filepath.Base(name))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	// Some download/dedup tools append more than one collision marker. Strip
+	// all trailing markers, but only when separated from the real basename.
+	for {
+		trimmed := strings.TrimSpace(duplicateSuffixRE.ReplaceAllString(base, ""))
+		if trimmed == base {
+			break
+		}
+		base = trimmed
+	}
+	base = nameSepRE.ReplaceAllString(base, " ")
+	return strings.TrimSpace(strings.Join(strings.Fields(base), " "))
+}
+
 func normalizedStem(name string) string {
 	base := strings.ToLower(filepath.Base(name))
 	ext := filepath.Ext(base)
@@ -1460,6 +1492,13 @@ func tokenJaccard(a, b string) int {
 	return int(math.Round(float64(inter) * 100 / float64(union)))
 }
 func nameSimilarity(a, b string) int {
+	// Check collision suffixes before removing generic words such as
+	// "original". Otherwise original.jpg and original-D3558.jpg normalize to
+	// two empty strings even though they clearly describe the same basename.
+	rawA, rawB := duplicateAwareStem(a), duplicateAwareStem(b)
+	if rawA != "" && rawA == rawB {
+		return 99
+	}
 	a, b = normalizedStem(a), normalizedStem(b)
 	if a == "" || b == "" {
 		return 0
@@ -1646,6 +1685,25 @@ func (a *App) candidatesFor(remote RemoteItem, limit int) []Candidate {
 }
 
 func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string) {
+	a.mu.RLock()
+	liveRefresh := a.cfg.LiveRefreshCompare
+	a.mu.RUnlock()
+	if liveRefresh {
+		a.updateProgress(func(p *Progress) {
+			p.Message = "Actualizez indexul local înainte de verdict..."
+			p.Detail = "Caut fișiere adăugate, mutate sau redenumite de la ultima indexare."
+		})
+		_, scan, err := a.refreshLiveIndexForGuard(ctx, "")
+		if err != nil {
+			a.logf("Index live înainte de comparație: %v", err)
+		} else {
+			_ = a.saveIndex()
+			a.logf("Index live înainte de comparație: %d fișiere în %d locații", scan.Files, len(scan.Roots))
+		}
+		if ctx.Err() != nil {
+			return
+		}
+	}
 	if mode == "" {
 		a.mu.RLock()
 		mode = a.cfg.Mode
@@ -1717,8 +1775,6 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			r.NameScore = 100
 			r.Reason = "Există același nume local, dar dimensiunea diferă."
 		} else if len(candidates) > 0 {
-			r.Status = "POSSIBLE"
-			r.Confidence = "Medie"
 			best := candidates[0]
 			bestScore := nameSimilarity(it.Name, idx[best].Name)
 			for _, p := range candidates[1:] {
@@ -1726,9 +1782,17 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 					best, bestScore = p, sc
 				}
 			}
-			r.LocalPath = best
 			r.NameScore = bestScore
-			r.Reason = fmt.Sprintf("Aceeași dimensiune; %d candidat(ți) local(i). Cel mai apropiat nume: %d%%.", len(candidates), bestScore)
+			if bestScore >= 55 {
+				r.Status = "POSSIBLE"
+				r.Confidence = "Medie"
+				r.LocalPath = best
+				r.Reason = fmt.Sprintf("Aceeași dimensiune și nume suficient de apropiat; %d candidat(ți), cel mai bun nume: %d%%.", len(candidates), bestScore)
+			} else {
+				r.Status = "MISSING"
+				r.Confidence = "Doar mărime — nu este potrivire"
+				r.Reason = fmt.Sprintf("Există %d fișier(e) cu aceeași dimensiune, dar numele sunt fără legătură (maxim %d%%). Nu sunt afișate ca POSIBIL; ExactGuard le verifică totuși înainte de download.", len(candidates), bestScore)
+			}
 		}
 		if mode == "strict" && it.Hash == "" && r.Status == "HAVE" {
 			r.Confidence = "Nedemonstrată strict"
@@ -3010,11 +3074,14 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		ctx := context.Background()
-		_, _ = runMegaTimed(ctx, 12*time.Second, old.Exe, "webdav", "-d", old.RemotePath)
+		if old.RemotePath != "" {
+			_, _ = runMegaTimed(ctx, 12*time.Second, old.Exe, "webdav", "-d", old.RemotePath)
+		}
 		out, err := runMegaTimed(ctx, 30*time.Second, old.Exe, "webdav", remoteRef)
 		if err != nil {
 			_ = a.stopMegaPreviewLocked("schimbare fișier eșuată")
-			return "", fmt.Errorf("MEGAcmd WebDAV nu a putut servi fișierul (%s): %v (%s)", remoteRef, err, sanitizeMega(out))
+			problem := classifyMegaProblem(out, err)
+			return "", newMegaProblemError(problem, out)
 		}
 		streamURL := extractWebDAVURL(out, remoteRef)
 		if streamURL == "" {
@@ -3053,12 +3120,14 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, "login", item.URL)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
-		return "", fmt.Errorf("nu am putut deschide folderul public pentru preview: %v (%s)", err, sanitizeMega(loginOut))
+		problem := classifyMegaProblem(loginOut, err)
+		return "", newMegaProblemError(problem, loginOut)
 	}
 	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
-		return "", fmt.Errorf("MEGAcmd WebDAV nu a putut servi fișierul (%s): %v (%s)", remoteRef, err, sanitizeMega(out))
+		problem := classifyMegaProblem(out, err)
+		return "", newMegaProblemError(problem, out)
 	}
 	streamURL := extractWebDAVURL(out, remoteRef)
 	if streamURL == "" {
