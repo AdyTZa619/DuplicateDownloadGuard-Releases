@@ -214,4 +214,42 @@ new_verify = '''func verifyDownloadedAgainstRemote(path string, remote RemoteIte
 }
 '''
 v7 = ensure_once(v7, old_verify, new_verify, "download size verification")
+old_direct_finish = '''\t\tif e != nil {
+			a.logf("Download eșuat %s: %v", x.Remote.Name, e)
+			a.failOp("Download eșuat: "+x.Remote.Name, e.Error())
+			return
+		}
+		if path != "" {
+			if _, statErr := os.Stat(path); statErr == nil {
+				if verifyErr := verifyDownloadedAgainstRemote(path, x.Remote); verifyErr != nil {
+					bad := path + ".checksum_failed"
+					_ = os.Rename(path, bad)
+					a.failOp("Download invalid: "+x.Remote.Name, verifyErr.Error())
+					return
+				}
+				a.markDownloaded(x.ID, path)
+			}
+		}
+'''
+new_direct_finish = '''\t\tif e == nil && path == "" {
+			e = errors.New("motorul de download nu a returnat nici fișier, nici eroare")
+		}
+		if e != nil {
+			a.logf("Download eșuat %s: %v", x.Remote.Name, e)
+			a.failOp("Download eșuat: "+x.Remote.Name, e.Error())
+			return
+		}
+		if _, statErr := os.Stat(path); statErr != nil {
+			a.failOp("Download invalid: "+x.Remote.Name, "Motorul a raportat succes, dar fișierul rezultat nu există: "+statErr.Error())
+			return
+		}
+		if verifyErr := verifyDownloadedAgainstRemote(path, x.Remote); verifyErr != nil {
+			bad := path + ".verification_failed"
+			_ = os.Rename(path, bad)
+			a.failOp("Download invalid: "+x.Remote.Name, verifyErr.Error())
+			return
+		}
+		a.markDownloaded(x.ID, path)
+'''
+v7 = ensure_once(v7, old_direct_finish, new_direct_finish, "direct download completion verification")
 v7_path.write_text(v7, encoding="utf-8")
