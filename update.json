@@ -1,8 +1,8 @@
 {
-  "version": "8.3.1",
+  "version": "8.4.0",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "6866b235e0f3ead05c027ccc108a116696c62a7441fbf6005f32cea87896407a",
-  "notes": "Build automat 8.3.1 din commit 6f5b2f1",
-  "publishedAt": "2026-09-03T21:56:09.6650537Z",
+  "sha256": "8a6511483fa728a622ad2c92b4f954c5e9dcb60104d936b04d2a75e2a450e398",
+  "notes": "Build automat 8.4.0 din commit c970573",
+  "publishedAt": "2026-09-03T22:22:11.3064374Z",
   "channel": "stable"
 }
