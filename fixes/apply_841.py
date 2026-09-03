@@ -252,4 +252,10 @@ new_direct_finish = '''\t\tif e == nil && path == "" {
 		a.markDownloaded(x.ID, path)
 '''
 v7 = ensure_once(v7, old_direct_finish, new_direct_finish, "direct download completion verification")
+v7 = ensure_once(
+    v7,
+    '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''',
+    '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif total >= 0 && done != total {\n\t\treturn "", fmt.Errorf("download incomplet: %d / %d bytes", done, total)\n\t}\n\tif e = f.Close(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''',
+    "internal downloader close and length check",
+)
 v7_path.write_text(v7, encoding="utf-8")
