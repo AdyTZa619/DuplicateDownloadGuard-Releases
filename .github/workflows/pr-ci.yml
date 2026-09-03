@@ -32,32 +32,47 @@ jobs:
         if: github.event_name == 'push'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          python fixes/prepare_repair_scripts.py
+          if ($LASTEXITCODE -ne 0) { throw 'prepare_repair_scripts.py failed' }
           python fixes/apply_841.py
+          if ($LASTEXITCODE -ne 0) { throw 'apply_841.py failed' }
           python fixes/apply_mega_session.py
+          if ($LASTEXITCODE -ne 0) { throw 'apply_mega_session.py failed' }
 
       - name: Format Go
         shell: pwsh
         run: |
-          Get-ChildItem -Filter *.go | ForEach-Object { gofmt -w $_.FullName }
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem -Filter *.go | ForEach-Object {
+            gofmt -w $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+          }
 
       - name: Tests and vet
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
           go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
 
       - name: Windows x64 build
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_REPAIR_CHECK.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }
 
       - name: Commit repaired source
         if: github.event_name == 'push'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add main.go web/index.html *.go
@@ -66,4 +81,6 @@ jobs:
             exit 0
           }
           git commit -m 'Apply v8.4.1 reliability repairs'
+          if ($LASTEXITCODE -ne 0) { throw 'git commit failed' }
           git push origin HEAD:${{ github.ref_name }}
+          if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
