@@ -36,6 +36,12 @@ web_path = Path("web/index.html")
 web = web_path.read_text(encoding="utf-8")
 web = ensure_once(
     web,
+    "async function init(){let a=await api('/api/app/heartbeat').catch(()=>{});let a=await api('/api/about');",
+    "async function init(){let a=await api('/api/app/heartbeat').catch(()=>{});let a=await api('/api/about');",
+    "noop",
+) if False else web
+web = ensure_once(
+    web,
     "async function init(){let a=await api('/api/about');",
     "async function init(){await api('/api/app/heartbeat').catch(()=>{});let a=await api('/api/about');",
     "initial heartbeat",
@@ -103,40 +109,15 @@ extra = ensure_once(
     '\t\t\t\tx.Stage = "finalizat; validarea disponibilă a trecut"\n',
     "truthful completion stage",
 )
-extra = ensure_once(
-    extra,
-    '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
-    '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.Stage = "pus pe pauză"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
-    "pause state",
-)
-extra = ensure_once(
-    extra,
-    '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error = ""\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
-    '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error, j.ErrorCode, j.ErrorTitle, j.ErrorAction = "", "", "", ""\n\t\t\t\tj.Stage = "în așteptare"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
-    "resume state",
-)
-extra = ensure_once(
-    extra,
-    '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''',
-    '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.Stage = "oprit de utilizator"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''',
-    "cancel state",
-)
+extra = ensure_once(extra, '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''', '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.Stage = "pus pe pauză"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''', "pause state")
+extra = ensure_once(extra, '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error = ""\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''', '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error, j.ErrorCode, j.ErrorTitle, j.ErrorAction = "", "", "", ""\n\t\t\t\tj.Stage = "în așteptare"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''', "resume state")
+extra = ensure_once(extra, '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''', '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.Stage = "oprit de utilizator"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''', "cancel state")
 extra_path.write_text(extra, encoding="utf-8")
 
 v7_path = Path("v7_extra.go")
 v7 = v7_path.read_text(encoding="utf-8")
-v7 = ensure_once(
-    v7,
-    '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\tarchive := filepath.Join(a.appDir, "yt-dlp.archive.txt")\n\ta.mu.RLock()\n''',
-    '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\t// ExactGuard already protects explicit downloads. A historical yt-dlp\n\t// archive must not silently suppress a requested re-download after a file\n\t// was moved or removed from disk.\n\ta.mu.RLock()\n''',
-    "yt-dlp stale archive declaration",
-)
-v7 = ensure_once(
-    v7,
-    '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "--download-archive", archive, "-P", dest, "--print", "after_move:filepath"}\n''',
-    '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "-P", dest, "--print", "after_move:filepath"}\n''',
-    "yt-dlp stale archive option",
-)
+v7 = ensure_once(v7, '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\tarchive := filepath.Join(a.appDir, "yt-dlp.archive.txt")\n\ta.mu.RLock()\n''', '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\t// ExactGuard already protects explicit downloads. A historical yt-dlp\n\t// archive must not silently suppress a requested re-download after a file\n\t// was moved or removed from disk.\n\ta.mu.RLock()\n''', "yt-dlp stale archive declaration")
+v7 = ensure_once(v7, '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "--download-archive", archive, "-P", dest, "--print", "after_move:filepath"}\n''', '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "-P", dest, "--print", "after_move:filepath"}\n''', "yt-dlp stale archive option")
 old_verify = '''func verifyDownloadedAgainstRemote(path string, remote RemoteItem) error {
 	if remote.Hash == "" || remote.HashType == "" {
 		return nil
@@ -252,10 +233,23 @@ new_direct_finish = '''\t\tif e == nil && path == "" {
 		a.markDownloaded(x.ID, path)
 '''
 v7 = ensure_once(v7, old_direct_finish, new_direct_finish, "direct download completion verification")
+v7 = ensure_once(v7, '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''', '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif total >= 0 && done != total {\n\t\treturn "", fmt.Errorf("download incomplet: %d / %d bytes", done, total)\n\t}\n\tif e = f.Close(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''', "internal downloader close and length check")
 v7 = ensure_once(
     v7,
-    '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''',
-    '''\tif e = f.Sync(); e != nil {\n\t\treturn "", e\n\t}\n\tif total >= 0 && done != total {\n\t\treturn "", fmt.Errorf("download incomplet: %d / %d bytes", done, total)\n\t}\n\tif e = f.Close(); e != nil {\n\t\treturn "", e\n\t}\n\tif e = os.Rename(part, final); e != nil {\n''',
-    "internal downloader close and length check",
+    '''\t\t\ta.markDownloaded(x.ID, candidate)\n\t\t\ta.updateProgress(func(p *Progress) { p.Current++ })\n''',
+    '''\t\t\tif verifyErr := verifyDownloadedAgainstRemote(candidate, x.Remote); verifyErr != nil {\n\t\t\t\tproblem := classifyMegaProblem("", verifyErr)\n\t\t\t\ta.logf("%s [%s] %v", problem.Title, problem.Code, verifyErr)\n\t\t\t\treturn newMegaProblemError(problem, verifyErr.Error())\n\t\t\t}\n\t\t\ta.markDownloaded(x.ID, candidate)\n\t\t\ta.updateProgress(func(p *Progress) { p.Current++ })\n''',
+    "MEGA verify before mark",
+)
+v7 = ensure_once(
+    v7,
+    '''\tif info, err := os.Stat(expected); err == nil && !info.IsDir() && (res.Remote.Size <= 0 || info.Size() == res.Remote.Size) {\n\t\treturn expected\n\t}\n''',
+    '''\tif info, err := os.Stat(expected); err == nil && !info.IsDir() && (res.Remote.Size <= 0 || info.Size() == res.Remote.Size) && !info.ModTime().Before(started.Add(-3*time.Second)) {\n\t\treturn expected\n\t}\n''',
+    "MEGA exact output freshness",
+)
+v7 = ensure_once(
+    v7,
+    '''\t\tif nameMatches {\n\t\t\tnamed = path\n\t\t\tcontinue\n\t\t}\n''',
+    '''\t\tif nameMatches && recent {\n\t\t\tnamed = path\n\t\t\tcontinue\n\t\t}\n''',
+    "MEGA named output freshness",
 )
 v7_path.write_text(v7, encoding="utf-8")
