@@ -103,4 +103,22 @@ extra = ensure_once(
     '\t\t\t\tx.Stage = "finalizat; validarea disponibilă a trecut"\n',
     "truthful completion stage",
 )
+extra = ensure_once(
+    extra,
+    '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
+    '''\t\t\t\tj.Status = "paused"\n\t\t\t\tj.Stage = "pus pe pauză"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
+    "pause state",
+)
+extra = ensure_once(
+    extra,
+    '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error = ""\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
+    '''\t\t\t\tj.Status = "queued"\n\t\t\t\tj.Error, j.ErrorCode, j.ErrorTitle, j.ErrorAction = "", "", "", ""\n\t\t\t\tj.Stage = "în așteptare"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.FinishedAt = 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.GuardVersion = 0\n''',
+    "resume state",
+)
+extra = ensure_once(
+    extra,
+    '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''',
+    '''\t\t\t\tj.Status = "cancelled"\n\t\t\t\tj.Stage = "oprit de utilizator"\n\t\t\t\tj.SpeedBps, j.ETA = 0, 0\n\t\t\t\tj.UpdatedAt = now\n\t\t\t\tj.FinishedAt = now\n''',
+    "cancel state",
+)
 extra_path.write_text(extra, encoding="utf-8")
