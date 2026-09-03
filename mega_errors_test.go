@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -11,6 +12,7 @@ func TestClassifyMegaProblem(t *testing.T) {
 		code string
 	}{
 		{"API error: EOVERQUOTA", "MEGA_QUOTA"},
+		{"Bandwidth overquota", "MEGA_QUOTA"},
 		{"You are not logged in", "MEGA_AUTH"},
 		{"Invalid decryption key", "MEGA_KEY"},
 		{"API_EBLOCKED", "MEGA_BLOCKED"},
@@ -26,6 +28,13 @@ func TestClassifyMegaProblem(t *testing.T) {
 		if got := classifyMegaProblem(test.text, errors.New("exit status 1")); got.Code != test.code {
 			t.Errorf("%q => %s, want %s", test.text, got.Code, test.code)
 		}
+	}
+}
+
+func TestMegaCancellationIsNotRetryable(t *testing.T) {
+	got := classifyMegaProblem("", context.Canceled)
+	if got.Code != "CANCELLED" || got.Retryable {
+		t.Fatalf("unexpected cancellation classification: %#v", got)
 	}
 }
 
