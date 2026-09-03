@@ -122,3 +122,96 @@ extra = ensure_once(
     "cancel state",
 )
 extra_path.write_text(extra, encoding="utf-8")
+
+v7_path = Path("v7_extra.go")
+v7 = v7_path.read_text(encoding="utf-8")
+v7 = ensure_once(
+    v7,
+    '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\tarchive := filepath.Join(a.appDir, "yt-dlp.archive.txt")\n\ta.mu.RLock()\n''',
+    '''func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {\n\t// ExactGuard already protects explicit downloads. A historical yt-dlp\n\t// archive must not silently suppress a requested re-download after a file\n\t// was moved or removed from disk.\n\ta.mu.RLock()\n''',
+    "yt-dlp stale archive declaration",
+)
+v7 = ensure_once(
+    v7,
+    '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "--download-archive", archive, "-P", dest, "--print", "after_move:filepath"}\n''',
+    '''\targs := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "-P", dest, "--print", "after_move:filepath"}\n''',
+    "yt-dlp stale archive option",
+)
+old_verify = '''func verifyDownloadedAgainstRemote(path string, remote RemoteItem) error {
+	if remote.Hash == "" || remote.HashType == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var got string
+	switch strings.ToLower(remote.HashType) {
+	case "sha256":
+		h := sha256.New()
+		if _, err = io.Copy(h, f); err == nil {
+			got = hex.EncodeToString(h.Sum(nil))
+		}
+	case "md5":
+		h := md5.New()
+		if _, err = io.Copy(h, f); err == nil {
+			got = hex.EncodeToString(h.Sum(nil))
+		}
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(got, remote.Hash) {
+		return fmt.Errorf("checksum %s diferit după download", remote.HashType)
+	}
+	return nil
+}
+'''
+new_verify = '''func verifyDownloadedAgainstRemote(path string, remote RemoteItem) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return errors.New("rezultatul downloadului este un folder, nu un fișier")
+	}
+	if remote.Size > 0 && !remote.ApproxSize && st.Size() != remote.Size {
+		return fmt.Errorf("dimensiune diferită după download: local %d bytes, remote %d bytes", st.Size(), remote.Size)
+	}
+	if remote.Hash == "" || remote.HashType == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var got string
+	switch strings.ToLower(remote.HashType) {
+	case "sha256":
+		h := sha256.New()
+		if _, err = io.Copy(h, f); err == nil {
+			got = hex.EncodeToString(h.Sum(nil))
+		}
+	case "md5":
+		h := md5.New()
+		if _, err = io.Copy(h, f); err == nil {
+			got = hex.EncodeToString(h.Sum(nil))
+		}
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(got, remote.Hash) {
+		return fmt.Errorf("checksum %s diferit după download", remote.HashType)
+	}
+	return nil
+}
+'''
+v7 = ensure_once(v7, old_verify, new_verify, "download size verification")
+v7_path.write_text(v7, encoding="utf-8")
