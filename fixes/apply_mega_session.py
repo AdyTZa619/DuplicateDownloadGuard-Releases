@@ -46,3 +46,13 @@ v7 = ensure_once(
     "serialize MEGA download",
 )
 v7_path.write_text(v7, encoding="utf-8")
+
+v8_path = Path("v8_extra.go")
+v8 = v8_path.read_text(encoding="utf-8")
+v8 = ensure_once(
+    v8,
+    '''\t\tcase "mega":\n\t\t\tq.update(a, id, func(x *DownloadJob) { x.Stage = "MEGAcmd descarcă fișierul" })\n\t\t\tmegaQueueMu.Lock()\n\t\t\tif a.opRunning.Load() {\n\t\t\t\tmegaQueueMu.Unlock()\n\t\t\t\terr = errors.New("MEGA este ocupat cu scanare/preview; retry automat")\n\t\t\t} else {\n\t\t\t\terr = a.downloadMegaResults(ctx, []Result{res}, dest)\n\t\t\t\tif err == nil {\n\t\t\t\t\tpath = findDownloadedMegaFile(dest, res, start)\n\t\t\t\t\tif path == "" {\n\t\t\t\t\t\terr = errors.New("MEGAcmd a terminat fără eroare, dar fișierul rezultat nu a fost găsit în folderul de download")\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tmegaQueueMu.Unlock()\n\t\t\t}\n''',
+    '''\t\tcase "mega":\n\t\t\tq.update(a, id, func(x *DownloadJob) { x.Stage = "MEGAcmd așteaptă sesiunea / descarcă fișierul" })\n\t\t\t// Do not burn retry attempts merely because a scan is active. The\n\t\t\t// cancellable MEGA session gate waits safely until scan/preview releases\n\t\t\t// the single MEGAcmd session.\n\t\t\tmegaQueueMu.Lock()\n\t\t\terr = a.downloadMegaResults(ctx, []Result{res}, dest)\n\t\t\tif err == nil {\n\t\t\t\tpath = findDownloadedMegaFile(dest, res, start)\n\t\t\t\tif path == "" {\n\t\t\t\t\terr = errors.New("MEGAcmd a terminat fără eroare, dar fișierul rezultat nu a fost găsit în folderul de download")\n\t\t\t\t}\n\t\t\t}\n\t\t\tmegaQueueMu.Unlock()\n''',
+    "queue waits for MEGA session",
+)
+v8_path.write_text(v8, encoding="utf-8")
