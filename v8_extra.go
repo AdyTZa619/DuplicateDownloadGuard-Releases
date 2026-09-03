@@ -583,7 +583,9 @@ func jpegFrame(ctx context.Context, ff, target string, sec float64) ([]byte, err
 		sec = 0
 	}
 	args := []string{"-v", "error", "-ss", fmt.Sprintf("%.3f", sec), "-i", target, "-frames:v", "1", "-vf", "scale='min(768,iw)':-2:flags=lanczos", "-q:v", "5", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"}
-	b, e := exec.CommandContext(ctx, ff, args...).Output()
+	cmd := exec.CommandContext(ctx, ff, args...)
+	hideChildWindow(cmd)
+	b, e := cmd.Output()
 	if e != nil {
 		return nil, e
 	}
@@ -836,17 +838,24 @@ func queueFor(a *App) *DownloadQueue {
 		return q.(*DownloadQueue)
 	}
 	q := &DownloadQueue{Cancels: map[string]context.CancelFunc{}}
+	recoveredPaused := false
 	if b, e := os.ReadFile(filepath.Join(a.appDir, "download_queue.json")); e == nil {
 		_ = json.Unmarshal(b, &q.Jobs)
 		for _, j := range q.Jobs {
-			if j.Status == "running" {
-				j.Status = "queued"
-				j.Error = "Aplicația a fost repornită; job reluat în coadă."
+			// Never restart network transfers automatically after an app restart/crash.
+			// The user must explicitly resume them from Download Studio.
+			if j.Status == "running" || j.Status == "queued" {
+				j.Status = "paused"
+				j.Error = "Pus pe pauză după repornirea aplicației; apasă Resume pentru continuare."
+				recoveredPaused = true
 			}
 		}
 	}
 	actual, _ := queueRegistry.LoadOrStore(a, q)
 	q = actual.(*DownloadQueue)
+	if recoveredPaused {
+		q.save(a)
+	}
 	q.mu.Lock()
 	if !q.Started {
 		q.Started = true
@@ -902,9 +911,13 @@ func (q *DownloadQueue) scheduler(a *App) {
 		q.mu.Lock()
 		launched := false
 		running := 0
+		megaRunning := false
 		for _, j := range q.Jobs {
 			if j.Status == "running" {
 				running++
+				if strings.EqualFold(j.Source, "MEGA") || strings.EqualFold(j.Engine, "mega") {
+					megaRunning = true
+				}
 			}
 		}
 		slots := limit - running
@@ -921,14 +934,25 @@ func (q *DownloadQueue) scheduler(a *App) {
 				}
 				return cands[i].AddedAt < cands[j].AddedAt
 			})
-			for i := 0; i < slots && i < len(cands); i++ {
-				j := cands[i]
+			launchedCount := 0
+			for _, j := range cands {
+				if launchedCount >= slots {
+					break
+				}
+				isMega := strings.EqualFold(j.Source, "MEGA") || strings.EqualFold(j.Engine, "mega")
+				if isMega && megaRunning {
+					continue
+				}
 				j.Status = "running"
 				j.StartedAt = time.Now().Unix()
 				j.UpdatedAt = j.StartedAt
 				ctx, cancel := context.WithCancel(context.Background())
 				q.Cancels[j.ID] = cancel
 				launched = true
+				launchedCount++
+				if isMega {
+					megaRunning = true
+				}
 				go q.runJob(a, j.ID, ctx)
 			}
 		}
