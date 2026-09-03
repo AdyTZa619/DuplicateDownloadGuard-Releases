@@ -1,0 +1,78 @@
+name: Build and publish DDG updater
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'releases/**'
+      - 'update.json'
+      - 'SHA256SUMS.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddg-publish-main
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Test
+        shell: pwsh
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Build Windows x64
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force releases | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o releases/DuplicateDownloadGuard_PRO_LATEST.exe .
+
+      - name: Generate updater manifest
+        shell: pwsh
+        run: |
+          $main = Get-Content -Raw main.go
+          $m = [regex]::Match($main, 'const appVersion = "([0-9]+\.[0-9]+\.[0-9]+)[^"]*"')
+          if (-not $m.Success) { throw 'Nu am putut extrage versiunea din appVersion.' }
+          $version = $m.Groups[1].Value
+          $exe = 'releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+          $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          $url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+          $manifest = [ordered]@{
+            version = $version
+            url = $url
+            sha256 = $sha
+            notes = "Build automat $version din commit $($env:GITHUB_SHA.Substring(0,7))"
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'stable'
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 update.json
+          "$sha  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content -Encoding ascii SHA256SUMS.txt
+
+      - name: Publish stable updater files
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe update.json SHA256SUMS.txt
+          if (git diff --cached --quiet) {
+            Write-Host 'Nu sunt schimbări de publicat.'
+            exit 0
+          }
+          git commit -m "Publish updater build [skip ci]"
+          git push
