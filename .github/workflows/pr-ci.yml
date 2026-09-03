@@ -1,0 +1,47 @@
+name: DDG repair CI
+
+on:
+  push:
+    branches:
+      - 'fix/**'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ddg-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Format check
+        shell: pwsh
+        run: |
+          $bad = gofmt -l *.go
+          if ($bad) { Write-Error "Fișiere neformatate:`n$bad"; exit 1 }
+
+      - name: Tests and vet
+        shell: pwsh
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Windows x64 build
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_REPAIR_CHECK.exe .
