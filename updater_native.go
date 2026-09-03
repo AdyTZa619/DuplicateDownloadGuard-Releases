@@ -1,0 +1,266 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const nativeUpdaterModeArg = "--ddg-native-updater"
+
+type nativeUpdateRequest struct {
+	ParentPID       int    `json:"parentPid"`
+	Current         string `json:"current"`
+	Pending         string `json:"pending"`
+	Backup          string `json:"backup"`
+	Health          string `json:"health"`
+	Log             string `json:"log"`
+	ExpectedVersion string `json:"expectedVersion"`
+	ExpectedSHA256  string `json:"expectedSha256"`
+}
+
+func maybeRunNativeUpdater(args []string) (bool, int) {
+	if len(args) < 2 || args[1] != nativeUpdaterModeArg {
+		return false, 0
+	}
+	if len(args) != 3 {
+		return true, 64
+	}
+	return true, runNativeUpdater(args[2])
+}
+
+func runNativeUpdater(reqPath string) int {
+	b, err := os.ReadFile(reqPath)
+	if err != nil {
+		return 65
+	}
+	var req nativeUpdateRequest
+	if err := json.Unmarshal(b, &req); err != nil {
+		return 65
+	}
+	logUpdate := func(message string) {
+		if req.Log == "" {
+			return
+		}
+		_ = os.MkdirAll(filepath.Dir(req.Log), 0755)
+		f, err := os.OpenFile(req.Log, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), message)
+		_ = f.Close()
+	}
+
+	if err := validateNativeUpdateRequest(req); err != nil {
+		logUpdate("Cerere updater refuzată: " + err.Error())
+		return 65
+	}
+	versionLabel := strings.TrimSpace(req.ExpectedVersion)
+	if versionLabel == "" {
+		versionLabel = "update local"
+	}
+	logUpdate("Updater nativ pornit pentru " + versionLabel)
+	// The HTTP response must reach the UI before the parent exits. Its normal
+	// shutdown is scheduled 900 ms after staging, so give it a small head start.
+	time.Sleep(1500 * time.Millisecond)
+
+	// The old application is still alive when this helper starts. Windows will
+	// reject writes to its mapped executable, so replacement is retried instead
+	// of reporting success before the copy actually happened.
+	if err := retryFor(60*time.Second, func() error {
+		return copyFileDurable(req.Current, req.Backup)
+	}); err != nil {
+		logUpdate("Backup eșuat: " + err.Error())
+		return 2
+	}
+	if err := retryFor(60*time.Second, func() error {
+		if err := copyFileDurable(req.Pending, req.Current); err != nil {
+			return err
+		}
+		got, err := sha256Path(req.Current)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(got, req.ExpectedSHA256) {
+			return errors.New("SHA-256 diferit după copiere")
+		}
+		return nil
+	}); err != nil {
+		logUpdate("Înlocuire eșuată: " + err.Error())
+		_ = restoreAndStart(req, logUpdate)
+		return 3
+	}
+
+	_ = os.Remove(req.Health)
+	p, err := startUpdatedExecutable(req.Current)
+	if err != nil {
+		logUpdate("Pornire versiune nouă eșuată: " + err.Error())
+		_ = restoreAndStart(req, logUpdate)
+		return 4
+	}
+	if waitForExpectedHealth(req.Health, req.ExpectedVersion, 35*time.Second) {
+		logUpdate("Update confirmat sănătos.")
+		_ = os.Remove(req.Pending)
+		_ = os.Remove(reqPath)
+		_ = p.Release()
+		return 0
+	}
+
+	logUpdate("Health-check eșuat; rollback automat.")
+	_ = p.Kill()
+	_, _ = p.Wait()
+	if err := restoreAndStart(req, logUpdate); err != nil {
+		logUpdate("ROLLBACK EȘUAT: " + err.Error())
+		return 6
+	}
+	return 5
+}
+
+func validateNativeUpdateRequest(req nativeUpdateRequest) error {
+	for label, path := range map[string]string{
+		"current": req.Current, "pending": req.Pending, "backup": req.Backup,
+		"health": req.Health, "log": req.Log,
+	} {
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("%s nu este cale absolută", label)
+		}
+	}
+	if !strings.HasSuffix(strings.ToLower(req.Current), ".exe") || !strings.HasSuffix(strings.ToLower(req.Pending), ".exe") {
+		return errors.New("fișierele de update trebuie să fie EXE")
+	}
+	if len(strings.TrimSpace(req.ExpectedSHA256)) != 64 {
+		return errors.New("SHA-256 așteptat invalid")
+	}
+	return nil
+}
+
+func retryFor(timeout time.Duration, action func() error) error {
+	deadline := time.Now().Add(timeout)
+	var last error
+	for {
+		if err := action(); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+		if time.Now().After(deadline) {
+			return last
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func copyFileDurable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	tmp := dst + ".copying"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	syncErr := out.Sync()
+	closeErr := out.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return copyErr
+	}
+	if syncErr != nil {
+		_ = os.Remove(tmp)
+		return syncErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+	if err := os.Chmod(tmp, 0755); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := replaceFile(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func replaceFile(tmp, dst string) error {
+	old := dst + ".replacing"
+	_ = os.Remove(old)
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, old); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Rename(old, dst)
+		return err
+	}
+	_ = os.Remove(old)
+	return nil
+}
+
+func sha256Path(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func startUpdatedExecutable(path string) (*os.Process, error) {
+	cmd := exec.Command(path)
+	hideChildWindow(cmd)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd.Process, nil
+}
+
+func waitForExpectedHealth(path, version string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(path)
+		if err == nil {
+			health := strings.TrimSpace(string(b))
+			expected := strings.TrimSpace(version)
+			if health != "" && (expected == "" || strings.HasPrefix(health, expected)) {
+				return true
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
+}
+
+func restoreAndStart(req nativeUpdateRequest, logUpdate func(string)) error {
+	if err := retryFor(30*time.Second, func() error { return copyFileDurable(req.Backup, req.Current) }); err != nil {
+		return err
+	}
+	p, err := startUpdatedExecutable(req.Current)
+	if err != nil {
+		return err
+	}
+	_ = p.Release()
+	logUpdate("Rollback terminat; versiunea anterioară a fost repornită.")
+	return nil
+}

@@ -1659,62 +1659,43 @@ func (a *App) stageUpdateAndRestart(pending, version string) error {
 	backup := filepath.Join(backupDir, "DuplicateDownloadGuard_"+stamp+".exe")
 	health := updateHealthPath(a.appDir)
 	_ = os.Remove(health)
-	pid := os.Getpid()
-	script := filepath.Join(updatesDir, "apply_update.ps1")
-	ps := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-$pidToWait = %d
-$current = %s
-$pending = %s
-$backup = %s
-$health = %s
-$log = %s
-function Log([string]$m) { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + ' ' + $m) }
-Log 'Updater started for %s'
-for ($i=0; $i -lt 90; $i++) {
-  if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { break }
-  Start-Sleep -Milliseconds 500
-}
-try {
-  Copy-Item -LiteralPath $current -Destination $backup -Force
-  Copy-Item -LiteralPath $pending -Destination $current -Force
-  Remove-Item -LiteralPath $health -Force -ErrorAction SilentlyContinue
-  Log 'New executable copied; starting health check.'
-  $p = Start-Process -FilePath $current -PassThru
-  $healthy = $false
-  for ($i=0; $i -lt 40; $i++) {
-    if (Test-Path -LiteralPath $health) { $healthy = $true; break }
-    if ($p.HasExited) { break }
-    Start-Sleep -Milliseconds 500
-  }
-  if (-not $healthy) {
-    Log 'Health check failed; rolling back.'
-    try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
-    Copy-Item -LiteralPath $backup -Destination $current -Force
-    Start-Process -FilePath $current | Out-Null
-    exit 2
-  }
-  Log 'Update healthy.'
-  Remove-Item -LiteralPath $pending -Force -ErrorAction SilentlyContinue
-  exit 0
-} catch {
-  Log ('Updater error: ' + $_.Exception.Message)
-  try {
-    if (Test-Path -LiteralPath $backup) {
-      Copy-Item -LiteralPath $backup -Destination $current -Force
-      Start-Process -FilePath $current | Out-Null
-    }
-  } catch {}
-  exit 3
-}
-`, pid, psSingleQuote(current), psSingleQuote(pending), psSingleQuote(backup), psSingleQuote(health), psSingleQuote(filepath.Join(updatesDir, "updater.log")), strings.ReplaceAll(version, "'", ""))
-	if err := os.WriteFile(script, []byte(ps), 0644); err != nil {
+	if strings.EqualFold(strings.TrimSpace(version), "local") {
+		// A manually supplied update has no trustworthy semantic version in a
+		// manifest. The freshly recreated health file is still required.
+		version = ""
+	}
+	pendingSHA, err := sha256File(pending)
+	if err != nil {
 		return err
 	}
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script)
-	hideChildWindow(cmd)
+	helper := filepath.Join(updatesDir, "DuplicateDownloadGuard.Updater_"+stamp+".exe")
+	if err := copyFileDurable(current, helper); err != nil {
+		return fmt.Errorf("nu pot pregăti updaterul nativ: %w", err)
+	}
+	reqPath := filepath.Join(updatesDir, "apply_update.json")
+	req := nativeUpdateRequest{
+		ParentPID:       os.Getpid(),
+		Current:         current,
+		Pending:         pending,
+		Backup:          backup,
+		Health:          health,
+		Log:             filepath.Join(updatesDir, "updater.log"),
+		ExpectedVersion: version,
+		ExpectedSHA256:  pendingSHA,
+	}
+	b, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(reqPath, b, 0600); err != nil {
+		return err
+	}
+	cmd := exec.Command(helper, nativeUpdaterModeArg, reqPath)
+	detachUpdaterProcess(cmd)
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("nu pot porni updaterul nativ: %w", err)
 	}
+	_ = cmd.Process.Release()
 	go func() { time.Sleep(900 * time.Millisecond); os.Exit(0) }()
 	return nil
 }
@@ -1902,5 +1883,5 @@ func (a *App) handleUpdateInstallOnline(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, e.Error(), 500)
 		return
 	}
-	jsonOut(w, map[string]any{"ok": true, "newer": true, "version": m.Version, "sha256": sum, "message": "Update verificat SHA-256. Backup + health-check + rollback pregătite; aplicația se va reporni."})
+	jsonOut(w, map[string]any{"ok": true, "newer": true, "version": m.Version, "sha256": sum, "message": "Update verificat SHA-256. Updaterul nativ a pornit; aplicația se închide acum și versiunea nouă va deschide o fereastră separată."})
 }

@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.3.0 Pro ExactGuard AI"
+const appVersion = "8.3.1 Pro ExactGuard AI"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -248,6 +248,9 @@ type App struct {
 }
 
 func main() {
+	if handled, exitCode := maybeRunNativeUpdater(os.Args); handled {
+		os.Exit(exitCode)
+	}
 	a, err := newApp()
 	if err != nil {
 		log.Fatal(err)
