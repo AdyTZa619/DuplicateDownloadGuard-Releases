@@ -68,13 +68,20 @@ func runNativeUpdater(reqPath string) int {
 		versionLabel = "update local"
 	}
 	logUpdate("Updater nativ pornit pentru " + versionLabel)
-	// The HTTP response must reach the UI before the parent exits. Its normal
-	// shutdown is scheduled 900 ms after staging, so give it a small head start.
-	time.Sleep(1500 * time.Millisecond)
 
-	// The old application is still alive when this helper starts. Windows will
-	// reject writes to its mapped executable, so replacement is retried instead
-	// of reporting success before the copy actually happened.
+	// The UI responds first, then the parent exits. Do not touch the mapped EXE
+	// until Windows confirms that the original DDG process has actually ended.
+	if req.ParentPID > 0 {
+		logUpdate(fmt.Sprintf("Aștept închiderea procesului DDG PID %d...", req.ParentPID))
+		if !waitForProcessExit(req.ParentPID, 30*time.Second) {
+			logUpdate("Procesul DDG nu s-a închis în 30s; update abandonat fără a modifica EXE-ul.")
+			return 7
+		}
+		logUpdate("Procesul DDG s-a închis; continui înlocuirea.")
+	} else {
+		time.Sleep(1500 * time.Millisecond)
+	}
+
 	if err := retryFor(60*time.Second, func() error {
 		return copyFileDurable(req.Current, req.Backup)
 	}); err != nil {
@@ -132,6 +139,9 @@ func validateNativeUpdateRequest(req nativeUpdateRequest) error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("%s nu este cale absolută", label)
 		}
+	}
+	if req.ParentPID < 0 {
+		return errors.New("parentPid invalid")
 	}
 	if !strings.HasSuffix(strings.ToLower(req.Current), ".exe") || !strings.HasSuffix(strings.ToLower(req.Pending), ".exe") {
 		return errors.New("fișierele de update trebuie să fie EXE")
