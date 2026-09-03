@@ -94,11 +94,17 @@ func (m *AriaRPCManager) ensure(a *App) error {
 	}
 	if m.started && m.exe == exe {
 		ctx, c := context.WithTimeout(context.Background(), 700*time.Millisecond)
-		defer c()
 		var v map[string]any
-		if m.call(ctx, "aria2.getVersion", nil, &v) == nil {
+		err := m.call(ctx, "aria2.getVersion", nil, &v)
+		c()
+		if err == nil {
 			return nil
 		}
+		if m.cmd != nil && m.cmd.Process != nil {
+			_ = m.cmd.Process.Kill()
+			_, _ = m.cmd.Process.Wait()
+		}
+		m.cmd = nil
 		m.started = false
 	}
 	port, e := freeLocalPort()
@@ -125,7 +131,11 @@ func (m *AriaRPCManager) ensure(a *App) error {
 		}
 		time.Sleep(120 * time.Millisecond)
 	}
-	_ = cmd.Process.Kill()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}
+	m.cmd = nil
 	m.started = false
 	return errors.New("aria2 RPC nu a pornit în 6 secunde")
 }
@@ -216,6 +226,44 @@ func (m *AriaRPCManager) remove(ctx context.Context, gid string) error {
 	return m.call(ctx, "aria2.forceRemove", []any{gid}, &x)
 }
 
+func (m *AriaRPCManager) shutdown() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.started {
+		return
+	}
+	if m.endpoint != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		var result string
+		_ = m.call(ctx, "aria2.shutdown", nil, &result)
+		cancel()
+	}
+	if m.cmd != nil && m.cmd.Process != nil {
+		done := make(chan struct{})
+		go func(p *os.Process) {
+			_, _ = p.Wait()
+			close(done)
+		}(m.cmd.Process)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			_ = m.cmd.Process.Kill()
+			<-done
+		}
+	}
+	m.cmd = nil
+	m.started = false
+}
+
+func shutdownAriaRPC(a *App) {
+	if a == nil {
+		return
+	}
+	if x, ok := ariaRPCRegistry.LoadAndDelete(a); ok {
+		x.(*AriaRPCManager).shutdown()
+	}
+}
+
 func parseAriaInt(s string) int64 { n, _ := strconv.ParseInt(s, 10, 64); return n }
 
 func runAriaRPCQueueJob(ctx context.Context, a *App, q *DownloadQueue, id string, res Result, dest string) (string, error) {
@@ -258,8 +306,18 @@ func runAriaRPCQueueJob(ctx context.Context, a *App, q *DownloadQueue, id string
 	for {
 		select {
 		case <-ctx.Done():
+			q.mu.Lock()
+			state := ""
+			if j := q.findLocked(id); j != nil {
+				state = j.Status
+			}
+			q.mu.Unlock()
 			c, cc := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-			_ = m.pause(c, gid)
+			if state == "cancelled" || state == "blocked" {
+				_ = m.remove(c, gid)
+			} else {
+				_ = m.pause(c, gid)
+			}
 			cc()
 			return "", ctx.Err()
 		case <-tick.C:
