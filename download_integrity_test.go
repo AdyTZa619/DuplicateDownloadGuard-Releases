@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,5 +29,30 @@ func TestVerifyDownloadedAgainstRemoteAllowsApproximateMetadataSize(t *testing.T
 	}
 	if err := verifyDownloadedAgainstRemote(path, RemoteItem{Size: 999, ApproxSize: true}); err != nil {
 		t.Fatalf("approximate source size must not be enforced as exact: %v", err)
+	}
+}
+
+func TestInternalDownloadClosesPartAndProducesFinalFile(t *testing.T) {
+	data := []byte("durable internal download payload")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "33")
+		_, _ = w.Write(data)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	path, err := internalDownload(context.Background(), server.URL, dir, "result.bin", func(int64, int64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("got %q, want %q", got, data)
+	}
+	if _, err := os.Stat(path + ".part"); !os.IsNotExist(err) {
+		t.Fatalf("part file survived successful finalization: %v", err)
 	}
 }
