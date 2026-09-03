@@ -47,3 +47,48 @@ web = ensure_once(
     "heartbeat timer",
 )
 web_path.write_text(web, encoding="utf-8")
+
+extra_path = Path("v8_extra.go")
+extra = extra_path.read_text(encoding="utf-8")
+old_cleanup = '''func removeAriaQueueJobsAsync(a *App, gids []string) {
+	if len(gids) == 0 {
+		return
+	}
+	go func(gids []string) {
+		time.Sleep(150 * time.Millisecond)
+		m, err := ariaRPCFor(a)
+		if err != nil {
+			return
+		}
+		for _, gid := range gids {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = m.remove(ctx, gid)
+			cancel()
+		}
+	}(append([]string(nil), gids...))
+}
+'''
+new_cleanup = '''func removeAriaQueueJobsAsync(a *App, gids []string) {
+	if len(gids) == 0 {
+		return
+	}
+	// Cleanup must never start a fresh aria2 daemon merely to remove stale GIDs.
+	// If the current RPC manager is already gone, the old daemon is gone too
+	// (it is started with --stop-with-process), so there is nothing left to do.
+	raw, ok := ariaRPCRegistry.Load(a)
+	if !ok {
+		return
+	}
+	m := raw.(*AriaRPCManager)
+	go func(gids []string) {
+		time.Sleep(150 * time.Millisecond)
+		for _, gid := range gids {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = m.remove(ctx, gid)
+			cancel()
+		}
+	}(append([]string(nil), gids...))
+}
+'''
+extra = ensure_once(extra, old_cleanup, new_cleanup, "aria cleanup without daemon spawn")
+extra_path.write_text(extra, encoding="utf-8")
