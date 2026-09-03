@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.2.0 Pro Portable AI Download Studio + Direct Updater"
+const appVersion = "8.2.1 Pro Portable AI Download Studio + Silent Child Processes"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -678,6 +678,7 @@ func (a *App) handlePickFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	script := `$s=New-Object -ComObject Shell.Application; $f=$s.BrowseForFolder(0,'Alege folderul sau discul pentru indexare',0,0); if($f){[Console]::OutputEncoding=[Text.Encoding]::UTF8; $f.Self.Path}`
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-STA", "-Command", script)
+	hideChildWindow(cmd)
 	b, e := cmd.Output()
 	if e != nil {
 		http.Error(w, e.Error(), 500)
@@ -694,6 +695,7 @@ func (a *App) handlePickPlayer(w http.ResponseWriter, r *http.Request) {
 	}
 	script := `Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title='Alege playerul extern (VLC, MPC-HC etc.)'; $d.Filter='Executabile (*.exe)|*.exe|Toate fișierele (*.*)|*.*'; if($d.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8; $d.FileName}`
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-STA", "-Command", script)
+	hideChildWindow(cmd)
 	b, e := cmd.Output()
 	if e != nil {
 		http.Error(w, e.Error(), 500)
@@ -710,6 +712,7 @@ func (a *App) handlePickFFprobe(w http.ResponseWriter, r *http.Request) {
 	}
 	script := `Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title='Alege ffprobe.exe (din FFmpeg)'; $d.Filter='ffprobe.exe|ffprobe.exe|Executabile (*.exe)|*.exe|Toate fișierele (*.*)|*.*'; if($d.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8; $d.FileName}`
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-STA", "-Command", script)
+	hideChildWindow(cmd)
 	b, e := cmd.Output()
 	if e != nil {
 		http.Error(w, e.Error(), 500)
@@ -924,6 +927,9 @@ func (a *App) detectMegaClient() string {
 }
 func runMega(ctx context.Context, exe string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, exe, args...)
+	// MEGAcmd is a console program. Background MEGA operations must never
+	// steal focus or create visible console windows on Windows.
+	hideChildWindow(cmd)
 	cmd.Env = os.Environ()
 	b, e := cmd.CombinedOutput()
 	s := strings.TrimSpace(string(b))
@@ -2451,6 +2457,7 @@ func (a *App) detectFFprobe() string {
 func probeMedia(ctx context.Context, ff, target, source string) MediaInfo {
 	mi := MediaInfo{Source: source}
 	cmd := exec.CommandContext(ctx, ff, "-v", "error", "-show_entries", "format=duration,format_name,bit_rate:stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels", "-of", "json", target)
+	hideChildWindow(cmd)
 	b, err := cmd.Output()
 	if err != nil {
 		mi.Error = err.Error()
@@ -2805,7 +2812,9 @@ func (a *App) handleOpenLocalPlayer(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Windows opens the file with the application associated with its extension.
-			err = exec.Command("cmd.exe", "/C", "start", "", req.Path).Start()
+			cmd := exec.Command("cmd.exe", "/C", "start", "", req.Path)
+			hideChildWindow(cmd)
+			err = cmd.Start()
 		}
 	} else if runtime.GOOS == "darwin" {
 		err = exec.Command("open", req.Path).Start()
