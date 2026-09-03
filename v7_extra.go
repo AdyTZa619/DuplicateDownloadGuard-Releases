@@ -1345,6 +1345,15 @@ func (a *App) downloadMegaResults(ctx context.Context, rows []Result, dest strin
 	if len(rows) == 0 {
 		return nil
 	}
+	if err := acquireMegaSession(ctx); err != nil {
+		return err
+	}
+	defer releaseMegaSession()
+	// A running WebDAV preview owns the public-folder session. Stop/restore it
+	// before MEGAcmd login/get so a preview can never invalidate a download.
+	if err := a.stopMegaPreviewWhileSessionOwned("pornire download MEGA"); err != nil {
+		a.logf("MEGA: cleanup preview înainte de download: %v", err)
+	}
 	exe := a.detectMegaClient()
 	if exe == "" {
 		return errors.New("MEGAcmd nu este disponibil")

@@ -1056,6 +1056,19 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		a.progress.CanCancel = false
 		a.mu.Unlock()
 	}()
+	a.updateProgress(func(p *Progress) {
+		p.State = "running"
+		p.Message = "MEGA • aștept sesiunea exclusivă"
+		p.Detail = "Scanarea, preview-ul și downloadul MEGA folosesc pe rând aceeași sesiune pentru a evita logout/login concurent."
+	})
+	if err := acquireMegaSession(ctx); err != nil {
+		a.failOp("MEGA: operație anulată", "Nu am putut obține sesiunea MEGA: "+err.Error())
+		return
+	}
+	defer releaseMegaSession()
+	if err := a.stopMegaPreviewWhileSessionOwned("pornire scanare MEGA"); err != nil {
+		a.logf("MEGA: cleanup preview înainte de scanare: %v", err)
+	}
 	a.logf("MEGA: scanare folder public")
 	oldSession := ""
 
@@ -3067,12 +3080,33 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 }
 
 func (a *App) stopMegaPreview(reason string) error {
+	// Fast path: most Stop calls arrive after another MEGA operation has already
+	// cleaned the preview. Do not wait for a long download when there is nothing
+	// left to stop.
+	a.previewMu.Lock()
+	active := a.preview.Active
+	a.previewMu.Unlock()
+	if !active {
+		return nil
+	}
+	gateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := acquireMegaSession(gateCtx); err != nil {
+		return fmt.Errorf("MEGA este ocupat cu altă operație; preview-ul nu a putut fi oprit încă: %w", err)
+	}
+	defer releaseMegaSession()
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 	return a.stopMegaPreviewLocked(reason)
 }
 
 func (a *App) startMegaPreview(item RemoteItem) (string, error) {
+	gateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := acquireMegaSession(gateCtx); err != nil {
+		return "", fmt.Errorf("MEGA este ocupat cu scanare sau download; încearcă preview-ul din nou după terminarea operației: %w", err)
+	}
+	defer releaseMegaSession()
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 
