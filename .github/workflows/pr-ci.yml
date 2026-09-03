@@ -35,7 +35,8 @@ jobs:
 
       - name: Format Go
         shell: pwsh
-        run: gofmt -w *.go
+        run: |
+          Get-ChildItem -Filter *.go | ForEach-Object { gofmt -w $_.FullName }
 
       - name: Tests and vet
         shell: pwsh
