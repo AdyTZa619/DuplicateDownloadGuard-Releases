@@ -1,0 +1,61 @@
+name: Apply DDG 8.4.1 repair patch
+
+on:
+  push:
+    branches:
+      - 'fix/lifecycle-8.4.1'
+    paths:
+      - 'fixes/apply_841.py'
+      - '.github/workflows/apply-fixes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/lifecycle-8.4.1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Apply deterministic patch
+        shell: pwsh
+        run: python fixes/apply_841.py
+
+      - name: Format Go
+        shell: pwsh
+        run: gofmt -w *.go
+
+      - name: Test and vet
+        shell: pwsh
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Build Windows x64
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_8.4.1_REPAIR_CHECK.exe .
+
+      - name: Commit patched source
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add main.go web/index.html *.go
+          if (git diff --cached --quiet) {
+            Write-Host 'Patch already applied.'
+            exit 0
+          }
+          git commit -m 'Wire v8.4.1 lifecycle shutdown and UI heartbeat'
+          git push origin HEAD:fix/lifecycle-8.4.1
