@@ -52,16 +52,29 @@ func TestWaitForExpectedHealthRejectsStaleVersion(t *testing.T) {
 	}
 }
 
-func TestValidateNativeUpdateRequest(t *testing.T) {
+func validUpdaterRequestForTest(t *testing.T) nativeUpdateRequest {
+	t.Helper()
 	dir := t.TempDir()
 	sum := sha256.Sum256([]byte("x"))
-	req := nativeUpdateRequest{
+	return nativeUpdateRequest{
 		Current: filepath.Join(dir, "current.exe"), Pending: filepath.Join(dir, "pending.exe"),
 		Backup: filepath.Join(dir, "backup.exe"), Health: filepath.Join(dir, "health.ok"),
-		Log: filepath.Join(dir, "updater.log"), ExpectedVersion: "8.3.1",
+		Log: filepath.Join(dir, "updater.log"), ExpectedVersion: "8.4.1",
 		ExpectedSHA256: hex.EncodeToString(sum[:]),
 	}
+}
+
+func TestValidateNativeUpdateRequest(t *testing.T) {
+	req := validUpdaterRequestForTest(t)
 	if err := validateNativeUpdateRequest(req); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateNativeUpdateRequestRejectsNegativeParentPID(t *testing.T) {
+	req := validUpdaterRequestForTest(t)
+	req.ParentPID = -1
+	if err := validateNativeUpdateRequest(req); err == nil {
+		t.Fatal("negative parent PID was accepted")
 	}
 }
