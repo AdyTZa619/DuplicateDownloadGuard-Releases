@@ -91,4 +91,16 @@ new_cleanup = '''func removeAriaQueueJobsAsync(a *App, gids []string) {
 }
 '''
 extra = ensure_once(extra, old_cleanup, new_cleanup, "aria cleanup without daemon spawn")
+extra = ensure_once(
+    extra,
+    '\t\tif attempts > cfgRetries {\n',
+    '\t\tif err == nil {\n\t\t\terr = errors.New("motorul de download nu a returnat nici fișier, nici eroare")\n\t\t}\n\t\tif attempts > cfgRetries {\n',
+    "silent downloader result",
+)
+extra = ensure_once(
+    extra,
+    '\t\t\t\tx.Stage = "finalizat și verificat"\n',
+    '\t\t\t\tx.Stage = "finalizat; validarea disponibilă a trecut"\n',
+    "truthful completion stage",
+)
 extra_path.write_text(extra, encoding="utf-8")
