@@ -29,7 +29,7 @@ new_tail = '''\tshutdownCh := make(chan struct{}, 1)\n\tstartUIWatchdog(shutdown
 main = replace_once(main, old_tail, new_tail, "server lifecycle")
 main_path.write_text(main, encoding="utf-8")
 
-web_path = Path("web/app.html")
+web_path = Path("web/index.html")
 web = web_path.read_text(encoding="utf-8")
 web = replace_once(
     web,
