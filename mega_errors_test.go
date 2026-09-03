@@ -23,6 +23,8 @@ func TestClassifyMegaProblem(t *testing.T) {
 		{"No space left on device", "DISK_FULL"},
 		{"ETEMPUNAVAIL, try again later", "MEGA_TEMPORARY"},
 		{"connection timed out", "MEGA_TIMEOUT"},
+		{"dimensiune diferită după download: local 10 bytes, remote 11 bytes", "DOWNLOAD_VERIFY_FAILED"},
+		{"checksum sha256 diferit după download", "DOWNLOAD_VERIFY_FAILED"},
 	}
 	for _, test := range tests {
 		if got := classifyMegaProblem(test.text, errors.New("exit status 1")); got.Code != test.code {
@@ -35,6 +37,13 @@ func TestMegaCancellationIsNotRetryable(t *testing.T) {
 	got := classifyMegaProblem("", context.Canceled)
 	if got.Code != "CANCELLED" || got.Retryable {
 		t.Fatalf("unexpected cancellation classification: %#v", got)
+	}
+}
+
+func TestMegaVerificationFailureIsNotRetryable(t *testing.T) {
+	got := classifyMegaProblem("", errors.New("checksum sha256 diferit după download"))
+	if got.Code != "DOWNLOAD_VERIFY_FAILED" || got.Retryable {
+		t.Fatalf("unexpected verification classification: %#v", got)
 	}
 }
 
