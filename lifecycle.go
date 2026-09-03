@@ -32,7 +32,9 @@ func (a *App) handleUIExitHint(w http.ResponseWriter, r *http.Request) {
 }
 
 // startUIWatchdog terminates the local backend after the app-mode UI has gone
-// away. It waits long enough to survive an ordinary Edge reload.
+// away. pagehide gives a fast close path, while the heartbeat fallback is kept
+// deliberately generous because Edge can throttle timers when minimized and a
+// sleeping Windows machine can resume after a long wall-clock gap.
 func startUIWatchdog(stop chan<- struct{}) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
@@ -47,12 +49,12 @@ func startUIWatchdog(stop chan<- struct{}) {
 			}
 			last := time.Unix(0, lastNS)
 			hintNS := uiExitHintNS.Load()
-			shouldStop := now.Sub(last) > 10*time.Second
+			shouldStop := now.Sub(last) > 90*time.Second
 			if hintNS > 0 {
 				hint := time.Unix(0, hintNS)
 				// If no heartbeat newer than pagehide arrived, this was a real
-				// window close rather than a reload.
-				shouldStop = lastNS <= hintNS && now.Sub(hint) > 3*time.Second
+				// window close rather than a reload/navigation.
+				shouldStop = lastNS <= hintNS && now.Sub(hint) > 4*time.Second
 			}
 			if shouldStop {
 				appStopOnce.Do(func() {
