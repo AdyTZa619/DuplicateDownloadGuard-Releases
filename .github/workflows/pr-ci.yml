@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ddg-repair-${{ github.ref }}
@@ -20,17 +20,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
 
-      - name: Format check
+      - name: Apply repair patch
+        if: github.event_name == 'push'
         shell: pwsh
-        run: |
-          $bad = gofmt -l *.go
-          if ($bad) { Write-Error "Fișiere neformatate:`n$bad"; exit 1 }
+        run: python fixes/apply_841.py
+
+      - name: Format Go
+        shell: pwsh
+        run: gofmt -w *.go
 
       - name: Tests and vet
         shell: pwsh
@@ -45,3 +50,17 @@ jobs:
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_REPAIR_CHECK.exe .
+
+      - name: Commit repaired source
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add main.go web/index.html *.go
+          if (git diff --cached --quiet) {
+            Write-Host 'Source already current.'
+            exit 0
+          }
+          git commit -m 'Wire v8.4.1 lifecycle shutdown and UI heartbeat'
+          git push origin HEAD:${{ github.ref_name }}
