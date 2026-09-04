@@ -12,6 +12,10 @@ func TestDurationCompatibleV85(t *testing.T) {
 	if ratio, ok := durationCompatibleV85(remote, near); !ok || ratio <= 0 {
 		t.Fatalf("near re-encode should be compatible, ratio=%f ok=%v", ratio, ok)
 	}
+	withIntro := MediaInfo{OK: true, Duration: 630, Width: 1920, Height: 1080}
+	if ratio, ok := durationCompatibleV85(remote, withIntro); !ok || ratio < .04 || ratio > .06 {
+		t.Fatalf("modest intro/outro variant should remain a candidate, ratio=%f ok=%v", ratio, ok)
+	}
 	wrongDuration := MediaInfo{OK: true, Duration: 500, Width: 1920, Height: 1080}
 	if _, ok := durationCompatibleV85(remote, wrongDuration); ok {
 		t.Fatal("materially different duration must be rejected")
