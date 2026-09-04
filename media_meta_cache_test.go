@@ -20,7 +20,7 @@ func TestDurationCompatibleV85(t *testing.T) {
 
 func TestLocalMediaMetaCacheInvalidatesOnFileChange(t *testing.T) {
 	a := &App{appDir: t.TempDir()}
-	e := FileEntry{Path: `D:\video\clip.mp4`, Size: 1000, MTime: 1234}
+	e := FileEntry{Path: `D:\video\clip.mp4`, Name: "clip.mp4", Size: 1000, MTime: 1234}
 	info := MediaInfo{OK: true, Source: "LOCAL", Duration: 42, Width: 1920, Height: 1080}
 	cacheLocalMediaInfo(a, e, info)
 	if err := saveLocalMediaMetaCache(a); err != nil {
@@ -38,5 +38,23 @@ func TestLocalMediaMetaCacheInvalidatesOnFileChange(t *testing.T) {
 	changed.MTime++
 	if _, ok := cachedLocalMediaInfo(a, changed); ok {
 		t.Fatal("cache must invalidate when mtime changes")
+	}
+}
+
+func TestPruneLocalMediaMetaCacheRemovesStaleEntries(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	keep := FileEntry{Path: `D:\video\keep.mp4`, Name: "keep.mp4", Size: 1000, MTime: 10}
+	stale := FileEntry{Path: `D:\video\stale.mp4`, Name: "stale.mp4", Size: 2000, MTime: 20}
+	info := MediaInfo{OK: true, Source: "LOCAL", Duration: 10, Width: 1920, Height: 1080}
+	cacheLocalMediaInfo(a, keep, info)
+	cacheLocalMediaInfo(a, stale, info)
+	if !pruneLocalMediaMetaCache(a, []FileEntry{keep}) {
+		t.Fatal("prune should report a removed stale entry")
+	}
+	if _, ok := cachedLocalMediaInfo(a, keep); !ok {
+		t.Fatal("valid cache entry was removed")
+	}
+	if _, ok := cachedLocalMediaInfo(a, stale); ok {
+		t.Fatal("stale cache entry was not removed")
 	}
 }
