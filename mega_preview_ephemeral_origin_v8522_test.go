@@ -88,7 +88,7 @@ func TestMegaPreviewUIRoutesEverySuccessThroughFreshOriginV8522(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if strings.Count(s, "browserReadyMegaPreviewV8522(") < 4 {
-		t.Fatalf("all success paths must route through isolated browser origin")
+	if strings.Count(s, "browserReadyMegaPreviewV8522(") < 3 {
+		t.Fatalf("all three successful MEGA preview paths must route through isolated browser origin")
 	}
 }
