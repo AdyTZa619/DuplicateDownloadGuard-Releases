@@ -100,11 +100,19 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 		"media.pause()",
 		"media.removeAttribute('src')",
 		"media.load()",
-		"releaseRemoteMediaV8512();\n      reset(r);",
 	} {
 		if !strings.Contains(js, required) {
 			t.Fatalf("browser stream release regression missing %q", required)
 		}
+	}
+	showDetailStart := strings.Index(js, "const wrapped = async function(r) {")
+	showDetailEnd := strings.Index(js[showDetailStart:], "const out = await original.apply(this, arguments);")
+	if showDetailStart < 0 || showDetailEnd < 0 {
+		t.Fatal("wrapped showDetail block missing")
+	}
+	showDetailBlock := js[showDetailStart : showDetailStart+showDetailEnd]
+	if !strings.Contains(showDetailBlock, "releaseRemoteMediaV8512()") || !strings.Contains(showDetailBlock, "reset(r)") {
+		t.Fatal("showDetail must release the previous browser media before loading the next row")
 	}
 }
 
