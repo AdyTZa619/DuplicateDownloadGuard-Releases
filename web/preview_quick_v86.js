@@ -108,6 +108,61 @@
   }
   window.releaseRemoteMediaV8512 = releaseRemoteMediaV8512;
 
+  // v8.5.17: "Stop stream" is a browser stop, not a MEGAcmd teardown. Removing
+  // src stops the actual transfer immediately while keeping the MEGA session and
+  // WebDAV endpoint warm for the next row. The old backend /stop could restore
+  // sessions for tens of seconds and the intentional media abort could also fire
+  // remotePreviewError(), creating a false per-file fallback behind the next click.
+  function markIntentionalRemoteAbortV8517() {
+    const current = typeof currentRow !== 'undefined' ? currentRow : null;
+    const id = Number(current?.id || 0);
+    if (id) {
+      trueFallbackIDV858 = id;
+      trueFallbackAtV858 = Date.now();
+    }
+    releaseRemoteMediaV8512();
+  }
+
+  function installSoftRemoteStopV8517() {
+    const original = window.stopRemotePreview;
+    if (typeof original !== 'function' || original.__softStopV8517) return;
+    const wrapped = async function () {
+      markIntentionalRemoteAbortV8517();
+      try { remotePreviewActive = false; } catch (_) {}
+      const stop = document.getElementById('stopRemote');
+      if (stop) stop.disabled = true;
+      const sourceEl = document.getElementById('remoteSource');
+      if (sourceEl) {
+        sourceEl.classList.remove('remoteLive');
+        const current = typeof currentRow !== 'undefined' ? currentRow : null;
+        sourceEl.textContent = current?.remote?.source || 'REMOTE';
+      }
+      const preview = document.getElementById('remotePreview');
+      if (preview) preview.innerHTML = '<div class="previewEmpty">Preview remote oprit. Sesiunea MEGA rămâne pregătită; selectează din nou rândul pentru pornire rapidă.</div>';
+    };
+    wrapped.__softStopV8517 = true;
+    window.stopRemotePreview = wrapped;
+  }
+
+  function installSoftClearResultsV8517() {
+    const original = window.clearResults;
+    if (typeof original !== 'function' || original.__softClearV8517) return;
+    const wrapped = async function () {
+      if (!confirm('Golești rezultatele curente?')) return;
+      markIntentionalRemoteAbortV8517();
+      try { remotePreviewActive = false; } catch (_) {}
+      await api('/api/results/clear', {method:'POST'});
+      try { currentRow = null; } catch (_) {}
+      const remote = document.getElementById('remotePreview');
+      const local = document.getElementById('localPreview');
+      if (remote) remote.innerHTML = '<div class="previewEmpty">Selectează un rezultat.</div>';
+      if (local) local.innerHTML = '<div class="previewEmpty">Selectează un rezultat.</div>';
+      if (typeof loadResults === 'function') loadResults();
+    };
+    wrapped.__softClearV8517 = true;
+    window.clearResults = wrapped;
+  }
+
   // One browser-level retry is allowed for a root-derived stream. After this
   // patch a cold resume normally promotes to the whole-folder root too, even
   // though the older API label still says MEGA DIRECT RESUME.
@@ -232,6 +287,10 @@
     const original = window.showDetail;
     if (typeof original !== 'function' || original.__previewQuickV86) return;
     const wrapped = async function(r) {
+      // A new intentional selection is allowed to use one real fallback again;
+      // the stop marker above only suppresses the abort caused by stopping.
+      trueFallbackIDV858 = 0;
+      trueFallbackAtV858 = 0;
       // Abort the previous remote request, but suppress its inline onerror first;
       // an intentional row switch must never enter MEGA TRUE FALLBACK.
       releaseRemoteMediaV8512();
@@ -258,6 +317,8 @@
     fixDownloadHelpV857();
     wrapMegaRootFailureV858();
     wrapShowDetail();
+    installSoftRemoteStopV8517();
+    installSoftClearResultsV8517();
     observe();
     render();
     window.addEventListener('pagehide', releaseRemoteMediaV8512, {capture:true});
