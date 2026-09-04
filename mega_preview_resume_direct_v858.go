@@ -28,12 +28,6 @@ func (a *App) activateMegaRootV8511(item RemoteItem, exe, rootURL, previousSessi
 	return child, nil
 }
 
-// startMegaPreviewResumeDirectV858 is the restart/hot-session path. v8.5.12
-// never spends another 15+ seconds rebuilding a root on a user click when the
-// scan already left the correct public-folder session active. It first
-// rediscovers a root that may already exist, then uses the bounded per-file
-// compatibility endpoint. A true cold login --resume is reserved for the case
-// where DDG has no known hot session for this source at all.
 func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
@@ -56,24 +50,17 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 
-	// A fresh scan may already have a working warm root. This is the ideal path:
-	// it is command-free and only derives the child URL locally.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == megaWarmRootRefV86 && a.preview.StreamURL != "" {
 		if child, err := megaWebDAVChildURL(a.preview.StreamURL, item.Path); err == nil && child != "" {
 			a.resetPreviewTTLLocked()
 			return child, nil
 		}
 	}
-	// Exact per-file cache hit.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == remoteRef && a.preview.StreamURL != "" {
 		a.resetPreviewTTLLocked()
 		return a.preview.StreamURL, nil
 	}
 
-	// The scan (or a previous preview) proves this exact public-folder session is
-	// already active. Do not run another long `webdav /` command on the click.
-	// First ask MEGAcmd whether the root actually exists; if it does not, create
-	// only the requested per-file endpoint with the short v8.5.9 recovery budget.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		ctx := context.Background()
@@ -88,7 +75,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		}
 
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return runMegaTimedPreviewV8514(ctx, timeout, old.Exe, args...)
 		}
 		fallbackStarted := time.Now()
 		result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
@@ -123,13 +110,9 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 	ctx := context.Background()
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return runMegaTimedPreviewV8514(ctx, timeout, exe, args...)
 	}
 
-	// A graceful previous DDG run leaves the exact public session alive. Reuse
-	// an existing root if possible; if that root disappeared, use the bounded
-	// per-file endpoint immediately rather than forcing a 15-second root rebuild
-	// on the user's first click.
 	if a.matchesMegaPreviewRestartHintV859(item.URL) {
 		if rootURL, err := listMegaWarmRootV8511(ctx, exe, 2500*time.Millisecond); err == nil && rootURL != "" {
 			child, childErr := a.activateMegaRootV8511(item, exe, rootURL, "")
@@ -158,15 +141,13 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		a.logf("MEGA CURRENT SESSION indisponibil; abia acum folosesc --resume: %v", err)
 	}
 
-	// No DDG-owned hot session exists for this source. This is the only path that
-	// is allowed to pay the cold public-folder login cost.
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	_, _ = runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "logout", "--keep-session")
 	loginStarted := time.Now()
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	loginOut, err := runMegaTimedPreviewV8514(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
@@ -174,7 +155,6 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 	a.logf("MEGA COLD RESUME: login --resume a durat %d ms", time.Since(loginStarted).Milliseconds())
 
-	// After a true cold resume establish one root for the rest of the run.
 	if rootURL, rootErr := startMegaWarmRootV86(ctx, exe); rootErr == nil && rootURL != "" {
 		warmMegaWebDAVTransportV8512(rootURL)
 		child, childErr := a.activateMegaRootV8511(item, exe, rootURL, oldSession)
