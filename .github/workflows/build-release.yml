@@ -51,7 +51,7 @@ jobs:
           if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
           $replacement = 'const appVersion = "' + $version + ' Pro Smart Media Guard"'
           $main = [regex]::Replace($main, $pattern, $replacement, 1)
-          Set-Content -Path main.go -Value $main -Encoding utf8NoBOM
+          [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
           "DDG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Pregătit release $version; versiunea din binar și jurnalul sunt sincronizate."
 
