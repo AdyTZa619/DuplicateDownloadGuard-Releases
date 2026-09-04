@@ -4,6 +4,8 @@
   let row = null;
   const meta = { remote: {}, local: {} };
   let restartPrewarmStarted = false;
+  let trueFallbackIDV858 = 0;
+  let trueFallbackAtV858 = 0;
 
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmtDuration = sec => {
@@ -64,6 +66,53 @@
         cells[1].textContent = 'Downloader intern (Auto); aria2 opțional';
       }
     }
+  }
+
+  // v8.5.8: exact_guard.js historically retried only MEGA FAST ROOT. After a
+  // restart the backend labels the same warm-root strategy MEGA FAST RESUME, so
+  // a browser media error could skip fallback entirely. Wrap the handler after
+  // exact_guard.js and force both root-based modes through the backend's true
+  // per-file fallback. One retry per selected result prevents loops.
+  function wrapMegaRootFailureV858() {
+    const original = window.remotePreviewError;
+    if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
+    const wrapped = async function () {
+      const current = typeof currentRow !== 'undefined' ? currentRow : null;
+      const id = Number(current?.id || 0);
+      const sourceEl = document.getElementById('remoteSource');
+      const sourceText = String(sourceEl?.textContent || '').toUpperCase();
+      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME');
+      const now = Date.now();
+      const recentlyRetried = id && trueFallbackIDV858 === id && now - trueFallbackAtV858 < 15000;
+      if (!id || !rootMode || recentlyRetried) return original.apply(this, arguments);
+
+      trueFallbackIDV858 = id;
+      trueFallbackAtV858 = now;
+      const preview = document.getElementById('remotePreview');
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Fără reluarea aceluiași URL fast.</span></div>';
+      try {
+        const d = await api('/api/remote-preview/start', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({id, forceFallback:true})
+        });
+        if (!currentRow || Number(currentRow.id) !== id) return;
+        const kind = d.kind || previewKind(current.remote?.name || current.remote?.path || '');
+        remotePreviewActive = true;
+        const stop = document.getElementById('stopRemote');
+        if (stop) stop.disabled = false;
+        if (sourceEl) {
+          sourceEl.textContent = `${d.source || 'MEGA TRUE FALLBACK'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''} • LIVE`;
+          sourceEl.classList.add('remoteLive');
+        }
+        if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, current.remote?.name || current.remote?.path || 'remote');
+        return;
+      } catch (_) {
+        return original.apply(this, arguments);
+      }
+    };
+    wrapped.__megaTrueFallbackV858 = true;
+    window.remotePreviewError = wrapped;
   }
 
   function readElement(which) {
@@ -183,6 +232,7 @@
   function boot() {
     install();
     fixDownloadHelpV857();
+    wrapMegaRootFailureV858();
     wrapShowDetail();
     observe();
     render();
