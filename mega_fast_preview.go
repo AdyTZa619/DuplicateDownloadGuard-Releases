@@ -105,21 +105,72 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	return rootURL, nil
 }
 
+// The scan already paid the public-folder login/listing cost. At that point we
+// can afford one reliable root setup instead of making the first preview click
+// retry the same expensive MEGAcmd work. First rediscover an already-served root
+// (common when MEGAcmd finished the previous command just after our timeout),
+// then give the one root creation a larger scan-only budget.
+func ensureMegaWarmRootAfterScanV8512(ctx context.Context, exe string) (string, error) {
+	if rootURL, err := listMegaWarmRootV8511(ctx, exe, 1500*time.Millisecond); err == nil && rootURL != "" {
+		return rootURL, nil
+	}
+	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", megaWarmRootRefV86)
+	if err != nil {
+		// A timed-out client command can still have reached MEGAcmdServer. Check
+		// once more before declaring the root unavailable.
+		if rootURL, listErr := listMegaWarmRootV8511(ctx, exe, 2500*time.Millisecond); listErr == nil && rootURL != "" {
+			return rootURL, nil
+		}
+		return "", err
+	}
+	if rootURL := extractExactWebDAVURLV8511(out, megaWarmRootRefV86); rootURL != "" {
+		return rootURL, nil
+	}
+	rootURL, listErr := listMegaWarmRootV8511(ctx, exe, 2500*time.Millisecond)
+	if listErr != nil {
+		return "", listErr
+	}
+	if rootURL == "" {
+		return "", errors.New("MEGAcmd nu a returnat URL pentru WebDAV root după scanare")
+	}
+	return rootURL, nil
+}
+
+// Touch only the WebDAV root itself (Depth: 0) so the local HTTP server and its
+// connection path are awake before the user selects the first media row. This
+// does not download a media file and failure is non-fatal.
+func warmMegaWebDAVTransportV8512(rootURL string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", rootURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Depth", "0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
+}
+
 // prepareMegaWarmRootAfterScanV86 pays the WebDAV startup cost while the MEGA
 // public-folder session is already hot. The scan context may be almost expired
-// after a long listing, so root preparation gets its own short bounded context.
+// after a long listing, so root preparation gets its own bounded context.
 func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceURL, previousSession string) error {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
-	rootCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	rootCtx, cancel := context.WithTimeout(context.Background(), 38*time.Second)
 	defer cancel()
-	rootURL, err := startMegaWarmRootV86(rootCtx, exe)
+	started := time.Now()
+	rootURL, err := ensureMegaWarmRootAfterScanV8512(rootCtx, exe)
 	if err != nil {
 		return err
 	}
+	warmMegaWebDAVTransportV8512(rootURL)
 	a.previewMu.Lock()
 	a.preview = MegaPreviewState{
 		Active:          true,
@@ -131,7 +182,7 @@ func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceUR
 	}
 	a.resetPreviewTTLLocked()
 	a.previewMu.Unlock()
-	a.logf("MEGA Fast Preview: WebDAV root pregătit -> %s", rootURL)
+	a.logf("MEGA Fast Preview: WebDAV root pregătit și încălzit în %d ms -> %s", time.Since(started).Milliseconds(), rootURL)
 	return nil
 }
 
