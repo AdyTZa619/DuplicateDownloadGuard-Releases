@@ -5,6 +5,9 @@ on:
     branches: [fix/v8511-mega-root-reuse-v859]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: mega-preview-v8511-root-reuse-test
   cancel-in-progress: true
@@ -73,3 +76,42 @@ jobs:
           path: artifacts/*
           retention-days: 14
           if-no-files-found: error
+
+      - name: Publish test candidate to in-app updater
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '8.5.11-test.3'
+          $built = (Resolve-Path 'artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.3_MEGA.exe').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $built).Hash.ToLowerInvariant()
+          if ($sha -notmatch '^[0-9a-f]{64}$') { throw 'SHA-256 invalid.' }
+          $staged = Join-Path $env:RUNNER_TEMP 'DuplicateDownloadGuard_PRO_LATEST.exe'
+          Copy-Item -Force $built $staged
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git checkout -B main origin/main
+
+          New-Item -ItemType Directory -Force releases | Out-Null
+          Copy-Item -Force $staged 'releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+          $manifest = [ordered]@{
+            version = $version
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+            sha256 = $sha
+            notes = 'TEST MEGA Preview 8.5.11-test.3: pornit din 8.5.9; reutilizează root-ul WebDAV existent, păstrează root-ul după fallback per-fișier și evită dublul fallback. Build pentru validare reală înainte de stable.'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 update.json
+          "$sha  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content -Encoding ascii SHA256SUMS.txt
+
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe update.json SHA256SUMS.txt
+          if (git diff --cached --quiet) {
+            Write-Host 'Testul este deja publicat în updater.'
+            exit 0
+          }
+          git commit -m "Publish updater test $version [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'git commit failed; test updater not published' }
+          git push origin main
+          if ($LASTEXITCODE -ne 0) { throw 'git push failed; test updater not published' }
