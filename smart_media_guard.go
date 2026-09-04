@@ -11,24 +11,24 @@ import (
 )
 
 const (
-	userHaveExact       = "AI DEJA"
-	userSameContent     = "ACELAȘI CONȚINUT"
-	userOtherVersion    = "ALTĂ VERSIUNE"
-	userLooksSame       = "PARE ACELAȘI"
-	userPossible        = "POSIBIL DUPLICAT"
-	userMissing         = "NU ÎL AI"
-	userDownloaded      = "DESCĂRCAT DEJA"
-	userUnverified      = "NU S-A PUTUT VERIFICA"
-	userUnavailable     = "INDISPONIBIL"
-	userQuota           = "LIMITĂ / COTĂ"
-	userError           = "EROARE"
+	userHaveExact    = "AI DEJA"
+	userSameContent  = "ACELAȘI CONȚINUT"
+	userOtherVersion = "ALTĂ VERSIUNE"
+	userLooksSame    = "PARE ACELAȘI"
+	userPossible     = "POSIBIL DUPLICAT"
+	userMissing      = "NU ÎL AI"
+	userDownloaded   = "DESCĂRCAT DEJA"
+	userUnverified   = "NU S-A PUTUT VERIFICA"
+	userUnavailable  = "INDISPONIBIL"
+	userQuota        = "LIMITĂ / COTĂ"
+	userError        = "EROARE"
 
-	actionDontDownload  = "NU DESCĂRCA"
-	actionDownload      = "DESCARCĂ"
-	actionReview        = "VERIFICĂ MANUAL"
-	actionRemoteBetter  = "REMOTE E MAI BUN"
-	actionLocalBetter   = "AI DEJA VERSIUNEA MAI BUNĂ"
-	actionRetry         = "REÎNCEARCĂ"
+	actionDontDownload = "NU DESCĂRCA"
+	actionDownload     = "DESCARCĂ"
+	actionReview       = "VERIFICĂ MANUAL"
+	actionRemoteBetter = "REMOTE E MAI BUN"
+	actionLocalBetter  = "AI DEJA VERSIUNEA MAI BUNĂ"
+	actionRetry        = "REÎNCEARCĂ"
 )
 
 // decorateGuardDecision translates internal safety verdicts into short labels
