@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $path = 'main.go'
 $src = Get-Content $path -Raw
+$src = $src -replace "`r`n", "`n"
 
 $routeNeedle = 'mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)'
 $routeReplacement = @'
