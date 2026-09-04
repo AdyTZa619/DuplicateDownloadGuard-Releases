@@ -14,7 +14,7 @@ Replace-Required 'streamURL, previewMode, prepareDuration, err := a.startMegaPre
 Replace-Required '"url":         streamURL,' '"url":         localURL,' 'MEGA response url'
 Replace-Required '"source":      previewMode,' '"source":      "MEGA ASYNC LOCAL",' 'MEGA response source'
 Replace-Required '"previewMode": previewMode,' '"previewMode": "MEGA ASYNC LOCAL",' 'MEGA response mode'
-Replace-Required '"prepareMs":   prepareDuration.Milliseconds(),' '"prepareMs":   0,`n`t`t"generation":  job.generation,' 'MEGA response prepareMs'
+Replace-Required '"prepareMs":   prepareDuration.Milliseconds(),' "`"prepareMs`":   0,`n`t`t`"generation`":  job.generation," 'MEGA response prepareMs'
 Replace-Required '"note":        "Fast-path-ul UI reutilizează WebDAV-ul pregătit la scanare fără comandă MEGAcmd suplimentară. Fallback-ul per-fișier rămâne disponibil dacă nu există cache.",' '"note":        "Playerul primește imediat URL-ul local. Pregătirea MEGA rulează separat, serializat și anulabil; Range este transmis către upstream.",' 'MEGA response note'
 
 Replace-Required "func (a *App) handleRemotePreviewStop(w http.ResponseWriter, r *http.Request) {`n" "func (a *App) handleRemotePreviewStop(w http.ResponseWriter, r *http.Request) {`n`tcancelMegaAsyncPreviewV8524()`n" 'remote preview stop handler'
