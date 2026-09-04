@@ -80,7 +80,7 @@ func ensureMegaPreviewProxyV8513() (string, error) {
 		upReq.Header.Set("Connection", "close")
 		resp, err := client.Do(upReq)
 		if err != nil {
-			if errors.Is(err, contextCanceledErrV8513(r.Context())) {
+			if r.Context().Err() != nil {
 				return
 			}
 			http.Error(w, "MEGA proxy: "+err.Error(), http.StatusBadGateway)
@@ -111,13 +111,6 @@ func ensureMegaPreviewProxyV8513() (string, error) {
 		_ = srv.Serve(ln)
 	}()
 	return megaPreviewProxyV8513.addr, nil
-}
-
-func contextCanceledErrV8513(ctx interface{ Err() error }) error {
-	if ctx == nil {
-		return nil
-	}
-	return ctx.Err()
 }
 
 func wrapMegaPreviewProxyURLV8513(upstream string) (string, error) {
