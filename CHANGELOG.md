@@ -2,6 +2,37 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.5] — 2026-09-04
+
+### Download Studio — nucleu refăcut
+- Joburile din coadă păstrează snapshotul complet al sursei remote și o identitate stabilă; `ResultID` nu mai este folosit ca dovadă că un rezultat dintr-o scanare nouă este același fișier.
+- Joburile vechi 8.5.4 sunt migrate numai când sursa, numele și URL-ul se potrivesc; dacă identitatea nu poate fi demonstrată, transferul este oprit sigur și utilizatorul primește motiv + acțiune.
+- Smart Guard verifică joburile desprinse de tabelul curent fără să poată marca/bloca accidental un rând care a reutilizat același ID după rescanare.
+- Detectarea unui job deja aflat în coadă folosește identitatea remote stabilă, nu doar ID-ul rezultatului.
+
+### Motoare de download
+- `Auto` este determinist: MEGA → MEGAcmd, surse yt-dlp și HLS/DASH → yt-dlp, HTTP/direct/gallery → downloaderul intern. aria2 rămâne opțiune explicită și nu mai este ales doar pentru că este instalat.
+- Motorul este validat înainte ca jobul să intre efectiv în transfer; lipsa yt-dlp/aria2/MEGAcmd, HLS/DASH pe motor incompatibil sau URL lipsă apar explicit ca `NU S-A PORNIT`, cu recomandarea concretă.
+- yt-dlp folosește URL-ul paginii pentru sursele yt-dlp și URL-ul streamului direct pentru manifestele HLS/DASH.
+- aria2 transmite `Referer` atunci când fișierul direct provine dintr-o pagină sursă care îl cere.
+
+### Downloader HTTP intern
+- Trimite `Referer` pentru linkurile directe provenite din pagini/gallery-dl, reducând erorile 403 ale CDN-urilor care verifică originea.
+- `.part` are identitate stabilă per sursă, astfel încât două URL-uri diferite cu același nume nu se calcă și resume-ul rămâne legat de fișierul corect.
+- Un `.part` deja complet după crash este verificat și finalizat fără redescărcarea inutilă a întregului fișier.
+- Numele final este collision-safe (`file.ext`, `file (1).ext` etc.); un fișier existent nu mai este suprascris accidental.
+- Un răspuns `text/html` primit în locul fișierului media este respins și raportat ca URL expirat/autentificare necesară, nu salvat fals ca video/imagine.
+- Erorile HTTP și de motor primesc cod, titlu și acțiune distincte; cazurile nerecuperabile nu mai consumă retry-uri fără sens.
+
+### Interfață
+- Butonul principal este simplificat la `Descarcă selectate`; Smart Guard continuă să ruleze automat înainte de transfer.
+- Folderul și motorul selectate în Download Studio sunt trimise direct backendului; folderul portabil `downloads\` rămâne fallback dacă nu este ales nimic.
+- Fișierele respinse înainte de coadă sunt afișate cu `NU S-A PORNIT`, motorul, cauza și ce trebuie făcut; dacă există joburi acceptate, interfața deschide automat Download Studio.
+
+### Validare
+- Teste HTTP reale pentru server care cere `Referer`, coliziuni de nume, resume `.part`, răspuns HTML în loc de media, alegerea deterministă a motorului și identitatea jobului după rescanare.
+- Nucleul final a trecut verificarea JavaScript, toate testele Go, `go vet` și build Windows x64 pe CI independent înainte de pregătirea release-ului.
+
 ## [8.5.4] — 2026-09-04
 
 ### MEGA Preview — hotfix latență
