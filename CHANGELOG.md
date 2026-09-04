@@ -2,6 +2,21 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.4] — 2026-09-04
+
+### MEGA Preview — hotfix latență
+- Eliminată verificarea `HEAD` sincronă din calea rapidă a preview-ului MEGA. După ce scanarea a pregătit WebDAV root, URL-ul fișierului este construit local și trimis imediat playerului.
+- Un cache hit `MEGA FAST ROOT` sau `MEGA FAST CACHE` nu mai așteaptă mutexul global MEGA și nu mai lansează nicio comandă MEGAcmd.
+- Endpointul de preview raportează modul folosit și timpul de pregătire în milisecunde, pentru diagnosticarea clară a cazurilor care cad pe fallback.
+- Dacă URL-ul root rapid nu poate fi consumat de browser, interfața încearcă automat o singură dată fallback-ul WebDAV per-fișier înainte să ofere player extern/MEGA.
+- Debounce-ul navigării prin rezultate a fost redus de la 320 ms la 140 ms; rămâne suficient pentru a evita comutări WebDAV inutile când se navighează rapid.
+- Analizele Smart Guard, ffprobe și fingerprint rămân pe traseele lor verificate; optimizarea zero-command este limitată la preview-ul interactiv din Compare Studio.
+
+### Validare
+- Test nou care demonstrează că un cache hit root nu execută nicio cerere de rețea și se rezolvă local.
+- Teste pentru reutilizarea nodului WebDAV per-fișier și izolarea între două surse MEGA diferite.
+- Hotfixul a trecut `gofmt`, verificarea JavaScript, toate testele Go, `go vet` și build Windows x64 înainte de release.
+
 ## [8.5.3] — 2026-09-04
 
 ### MEGA Fast Preview
