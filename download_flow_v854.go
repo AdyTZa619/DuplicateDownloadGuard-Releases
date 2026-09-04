@@ -178,7 +178,7 @@ func resultFromDownloadJobV854(job DownloadJob, live *Result) (Result, error) {
 	if strings.TrimSpace(job.Remote.Name) != "" || strings.TrimSpace(job.Remote.Source) != "" {
 		return Result{ID: job.ResultID, Remote: job.Remote}, nil
 	}
-	if live != nil {
+	if live != nil && legacyQueueJobMatchesResultV854(job, *live) {
 		return *live, nil
 	}
 	// Legacy queue entries stored only the final URL. That is enough for a

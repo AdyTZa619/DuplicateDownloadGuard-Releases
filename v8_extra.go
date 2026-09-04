@@ -1093,9 +1093,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				return
 			}
 		}
-		if refreshed, exists := a.resultByID(rid); exists {
-			res = refreshed
-		}
+		// Keep the persistent source snapshot authoritative after Guard.
 	}
 	plan, planErr := chooseDownloadPlanV854(a, res, engine)
 	if planErr != nil {
@@ -1362,7 +1360,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	// If the same result was left in an old queue, apply the new deterministic
 	// guard verdict immediately so a later Resume cannot bypass the protection.
 	for _, job := range q.Jobs {
-		decision, exists := decisions[job.ResultID]
+		decision, exists := decisionForQueueJobV854(job, selectedRows, decisions)
 		if !exists || job.Status == "completed" || job.Status == "cancelled" || job.Status == "blocked" {
 			continue
 		}
@@ -1396,7 +1394,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		dup := false
 		for _, j := range q.Jobs {
-			if j.ResultID == res.ID && (j.Status == "queued" || j.Status == "running" || j.Status == "paused") {
+			if queueJobMatchesResultV854(j, res) && (j.Status == "queued" || j.Status == "running" || j.Status == "paused") {
 				dup = true
 				break
 			}
