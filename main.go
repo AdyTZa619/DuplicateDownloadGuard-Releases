@@ -3227,17 +3227,19 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formatul nu are preview media integrat", 415)
 		return
 	}
-	streamURL, err := a.startMegaPreview(res.Remote)
+	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	jsonOut(w, map[string]any{
-		"url":       streamURL,
-		"kind":      kind,
-		"streaming": true,
-		"source":    "MEGA WebDAV",
-		"note":      "MEGAcmd transmite numai datele cerute de player/preview. Video folosește streaming; imaginea este citită la afișare.",
+		"url":         streamURL,
+		"kind":        kind,
+		"streaming":   true,
+		"source":      previewMode,
+		"previewMode": previewMode,
+		"prepareMs":   prepareDuration.Milliseconds(),
+		"note":        "Fast-path-ul UI reutilizează WebDAV-ul pregătit la scanare fără comandă MEGAcmd suplimentară. Fallback-ul per-fișier rămâne disponibil dacă nu există cache.",
 	})
 }
 
