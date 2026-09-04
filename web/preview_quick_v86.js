@@ -3,6 +3,7 @@
 
   let row = null;
   const meta = { remote: {}, local: {} };
+  let restartPrewarmStarted = false;
 
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmtDuration = sec => {
@@ -142,11 +143,34 @@
     }
   }
 
+  async function prewarmMegaAfterRestart() {
+    if (restartPrewarmStarted) return;
+    restartPrewarmStarted = true;
+    try {
+      const st = await api('/api/status');
+      if (st?.active) return;
+      const d = await api('/api/results?offset=0&limit=100');
+      const candidate = (d?.rows || []).find(r => String(r?.remote?.source || '').toUpperCase() === 'MEGA' && r?.remote?.url && ['image','video','audio'].includes(previewKind(r.remote.name || r.remote.path || '')));
+      if (!candidate) return;
+      await api('/api/remote-preview/start', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({id:candidate.id})
+      });
+      const src = document.getElementById('remoteSource');
+      if (src && !currentRow) src.title = 'MEGA preview preîncălzit după restart';
+    } catch (_) {
+      // Opportunistic only: normal row selection keeps the compatibility path
+      // and will surface a concrete MEGA error when the user actually needs it.
+    }
+  }
+
   function boot() {
     install();
     wrapShowDetail();
     observe();
     render();
+    setTimeout(prewarmMegaAfterRestart, 2500);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true});
