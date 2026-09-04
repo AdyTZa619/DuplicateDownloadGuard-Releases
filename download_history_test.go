@@ -96,6 +96,77 @@ func TestYtDlpHistoryIdentityIgnoresExpiringDirectURLAndTitle(t *testing.T) {
 	}
 }
 
+func TestStableYtDlpSourceHistoryReviewsDifferentQuality(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-1080p.mp4")
+	if err := os.WriteFile(path, []byte("previous download"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quick, err := quickFileFingerprintV85(path, st.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Result{ID: 44, Remote: RemoteItem{
+		Source:     "YT-DLP",
+		URL:        "https://video.example/watch?v=abc",
+		ProviderID: "abc",
+		Extractor:  "ExampleVideo",
+		Name:       "same-video-4k.webm",
+		Size:       st.Size() * 4,
+	}}
+	row := downloadHistoryEntryV85{
+		Source:     "YT-DLP",
+		Identity:   stableHistoryIdentityV85(res),
+		Name:       "same-video-1080p.mp4",
+		Bytes:      st.Size(),
+		OutputPath: path,
+		FinishedAt: time.Now().Add(-time.Hour).Unix(),
+		FileSize:   st.Size(),
+		FileMTime:  st.ModTime().UnixNano(),
+		QuickHash:  quick,
+	}
+	got, ok := stableSourceHistoryDecisionV85(res, row)
+	if !ok {
+		t.Fatal("same yt-dlp provider identity should surface prior-download evidence")
+	}
+	if got.Verdict != guardReview || got.Method != "download-history-source" || got.UserStatus != userDownloaded || got.Action != actionReview {
+		t.Fatalf("different quality must be review-only, not auto-blocked: %#v", got)
+	}
+}
+
+func TestStableYtDlpSourceHistoryRejectsDifferentProviderOrChangedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.mp4")
+	if err := os.WriteFile(path, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quick, err := quickFileFingerprintV85(path, st.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := Result{Remote: RemoteItem{Source: "YT-DLP", URL: "https://video.example/watch?v=abc", ProviderID: "abc", Extractor: "ExampleVideo", Name: "clip.mp4", Size: 999}}
+	row := downloadHistoryEntryV85{Source: "YT-DLP", Identity: stableHistoryIdentityV85(original), OutputPath: path, FileSize: st.Size(), FileMTime: st.ModTime().UnixNano(), QuickHash: quick}
+
+	other := original
+	other.Remote.ProviderID = "other"
+	if _, ok := stableSourceHistoryDecisionV85(other, row); ok {
+		t.Fatal("different provider ID must not reuse source history")
+	}
+
+	if err := os.WriteFile(path, []byte("modified"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stableSourceHistoryDecisionV85(original, row); ok {
+		t.Fatal("changed historical output must invalidate source-history evidence")
+	}
+}
+
 func TestQuickFileFingerprintV85DetectsSameSizeReplacement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "same-size.bin")
 	if err := os.WriteFile(path, []byte("abcdefgh"), 0600); err != nil {
