@@ -116,10 +116,10 @@ func TestHeartbeatFolderRemovalPrunesStaleIndexAndResultV857(t *testing.T) {
 	remote := RemoteItem{ID: 1, Name: "original.jpg", Path: "/pack/original.jpg", Size: int64(len(data)), Source: "MEGA"}
 	entry := FileEntry{Path: local, Name: filepath.Base(local), Size: st.Size(), MTime: st.ModTime().UnixNano()}
 	a := &App{
-		appDir: t.TempDir(),
-		index:  map[string]FileEntry{local: entry},
-		bySize: map[int64][]string{entry.Size: {local}},
-		byName: map[string][]string{normalizeName(entry.Name): {local}},
+		appDir:    t.TempDir(),
+		index:     map[string]FileEntry{local: entry},
+		bySize:    map[int64][]string{entry.Size: {local}},
+		byName:    map[string][]string{normalizeName(entry.Name): {local}},
 		decisions: map[string]Decision{},
 		results: []Result{{
 			ID:         1,
@@ -170,7 +170,11 @@ func TestRemovedParentKeepsFileCoveredByActiveNestedRootV857(t *testing.T) {
 	}
 	st, _ := os.Stat(local)
 	entry := FileEntry{Path: local, Name: filepath.Base(local), Size: st.Size(), MTime: st.ModTime().UnixNano()}
-	a := &App{index: map[string]FileEntry{local: entry}, bySize: map[int64][]string{}, byName: map[string][]string{}}
+	a := &App{
+		index:  map[string]FileEntry{local: entry},
+		bySize: map[int64][]string{},
+		byName: map[string][]string{},
+	}
 	a.cfg = Config{LocalPaths: []string{nested}}
 	if changed := pruneRemovedLocalRootsV857(a, normalizedLocalFoldersV857([]string{parent, nested}), normalizedLocalFoldersV857([]string{nested})); changed {
 		t.Fatal("file under still-active nested root was pruned")
