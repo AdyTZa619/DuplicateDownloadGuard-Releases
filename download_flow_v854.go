@@ -41,6 +41,13 @@ func remoteDirectURLV854(r RemoteItem) string {
 	return ""
 }
 
+func ytDlpInputV854(r RemoteItem) string {
+	if strings.TrimSpace(r.URL) != "" {
+		return strings.TrimSpace(r.URL)
+	}
+	return remoteDirectURLV854(r)
+}
+
 func remoteManifestV854(r RemoteItem) bool {
 	ct := strings.ToLower(strings.TrimSpace(r.ContentType))
 	if strings.Contains(ct, "stream/manifest") || strings.Contains(ct, "mpegurl") || strings.Contains(ct, "dash") {
@@ -94,7 +101,7 @@ func chooseDownloadPlanCoreV854(r RemoteItem, requested string, caps downloadCap
 			if !caps.YtDlp {
 				return downloadPlanV854{}, errors.New("yt-dlp nu este instalat")
 			}
-			if strings.TrimSpace(r.URL) == "" && direct == "" {
+			if ytDlpInputV854(r) == "" {
 				return downloadPlanV854{}, errors.New("yt-dlp nu are un URL sursă utilizabil")
 			}
 			return downloadPlanV854{Engine: "yt-dlp", Reason: "yt-dlp selectat explicit"}, nil
@@ -292,6 +299,7 @@ func internalDownloadV854(ctx context.Context, remote RemoteItem, dest, name str
 				progress(done, total)
 				last = time.Now()
 			}
+		}
 		if readErr == io.EOF {
 			break
 		}
