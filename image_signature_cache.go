@@ -104,9 +104,12 @@ type localImageSignatureCacheEntry struct {
 
 var localImageSignatureCacheState = struct {
 	sync.Mutex
-	AppDir  string
-	Loaded  bool
-	Entries map[string]localImageSignatureCacheEntry
+	SaveMu     sync.Mutex
+	AppDir     string
+	Loaded     bool
+	Dirty      bool
+	Generation uint64
+	Entries    map[string]localImageSignatureCacheEntry
 }{}
 
 func localImageSignatureCacheFile(a *App) string {
@@ -122,6 +125,8 @@ func ensureLocalImageSignatureCacheLoaded(a *App) {
 	}
 	localImageSignatureCacheState.AppDir = appDir
 	localImageSignatureCacheState.Loaded = true
+	localImageSignatureCacheState.Dirty = false
+	localImageSignatureCacheState.Generation = 0
 	localImageSignatureCacheState.Entries = map[string]localImageSignatureCacheEntry{}
 	b, err := os.ReadFile(localImageSignatureCacheFile(a))
 	if err != nil {
@@ -148,6 +153,8 @@ func cacheLocalImageSignatureV85(a *App, e FileEntry, sig imageSignatureV85) {
 	ensureLocalImageSignatureCacheLoaded(a)
 	localImageSignatureCacheState.Lock()
 	localImageSignatureCacheState.Entries[pathKey(e.Path)] = localImageSignatureCacheEntry{Size: e.Size, MTime: e.MTime, Signature: sig}
+	localImageSignatureCacheState.Dirty = true
+	localImageSignatureCacheState.Generation++
 	localImageSignatureCacheState.Unlock()
 }
 
@@ -168,13 +175,25 @@ func pruneLocalImageSignatureCacheV85(a *App, entries []FileEntry) bool {
 			changed = true
 		}
 	}
+	if changed {
+		localImageSignatureCacheState.Dirty = true
+		localImageSignatureCacheState.Generation++
+	}
 	localImageSignatureCacheState.Unlock()
 	return changed
 }
 
 func saveLocalImageSignatureCacheV85(a *App) error {
 	ensureLocalImageSignatureCacheLoaded(a)
+	localImageSignatureCacheState.SaveMu.Lock()
+	defer localImageSignatureCacheState.SaveMu.Unlock()
+
 	localImageSignatureCacheState.Lock()
+	if !localImageSignatureCacheState.Dirty {
+		localImageSignatureCacheState.Unlock()
+		return nil
+	}
+	generation := localImageSignatureCacheState.Generation
 	rows := make(map[string]localImageSignatureCacheEntry, len(localImageSignatureCacheState.Entries))
 	for k, v := range localImageSignatureCacheState.Entries {
 		rows[k] = v
@@ -189,7 +208,15 @@ func saveLocalImageSignatureCacheV85(a *App) error {
 	if err := os.WriteFile(tmp, b, 0644); err != nil {
 		return err
 	}
-	return replaceCacheFileV85(tmp, path)
+	if err := replaceCacheFileV85(tmp, path); err != nil {
+		return err
+	}
+	localImageSignatureCacheState.Lock()
+	if localImageSignatureCacheState.Generation == generation {
+		localImageSignatureCacheState.Dirty = false
+	}
+	localImageSignatureCacheState.Unlock()
+	return nil
 }
 
 func readLocalImageSignatureV85(path string) (imageSignatureV85, error) {
