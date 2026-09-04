@@ -3,11 +3,9 @@
 
   let row = null;
   const meta = { remote: {}, local: {} };
-  let restartPrewarmStarted = false;
   let trueFallbackIDV858 = 0;
   let trueFallbackAtV858 = 0;
 
-  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmtDuration = sec => {
     sec = Number(sec);
     if (!Number.isFinite(sec) || sec <= 0) return '';
@@ -37,25 +35,22 @@
   }
 
   function install() {
-    if (document.getElementById('previewQuickV86Styles')) return;
-    const style = document.createElement('style');
-    style.id = 'previewQuickV86Styles';
-    style.textContent = `
-      .previewHead .previewQuickV86{flex:1;min-width:0;text-align:center;color:#d7e7f8;font-size:11px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
-      .previewHead .previewQuickV86.good{color:#8ee6bd}.previewHead .previewQuickV86.warn{color:#ffd979}.previewHead .previewQuickV86.bad{color:#ff9aa5}
-      @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}}
-    `;
-    document.head.appendChild(style);
-
+    if (!document.getElementById('previewQuickV86Styles')) {
+      const style = document.createElement('style');
+      style.id = 'previewQuickV86Styles';
+      style.textContent = `
+        .previewHead .previewQuickV86{flex:1;min-width:0;text-align:center;color:#d7e7f8;font-size:11px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
+        .previewHead .previewQuickV86.good{color:#8ee6bd}.previewHead .previewQuickV86.warn{color:#ffd979}.previewHead .previewQuickV86.bad{color:#ff9aa5}
+        @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}}
+      `;
+      document.head.appendChild(style);
+    }
     const remoteHead = document.getElementById('remotePreview')?.closest('.previewCard')?.querySelector('.previewHead');
     const localHead = document.getElementById('localPreview')?.closest('.previewCard')?.querySelector('.previewHead');
     if (remoteHead && !document.getElementById('remoteQuickV86')) remoteHead.querySelector('b')?.insertAdjacentHTML('afterend','<span class="previewQuickV86" id="remoteQuickV86">—</span>');
     if (localHead && !document.getElementById('localQuickV86')) localHead.querySelector('b')?.insertAdjacentHTML('afterend','<span class="previewQuickV86" id="localQuickV86">—</span>');
   }
 
-  // The help text predates the deterministic Auto routing introduced in 8.5.5.
-  // Keep the visible documentation aligned with the actual engine selector:
-  // direct HTTP/CDN uses the internal downloader in Auto; aria2 is explicit.
   function fixDownloadHelpV857() {
     const help = document.getElementById('help-download');
     if (!help) return;
@@ -68,11 +63,9 @@
     }
   }
 
-  // v8.5.8: exact_guard.js historically retried only MEGA FAST ROOT. After a
-  // restart the backend labels the same warm-root strategy MEGA FAST RESUME, so
-  // a browser media error could skip fallback entirely. Wrap the handler after
-  // exact_guard.js and force both root-based modes through the backend's true
-  // per-file fallback. One retry per selected result prevents loops.
+  // v8.5.8: a FAST ROOT browser error must use a genuinely different WebDAV
+  // endpoint. The backend forceFallback path now switches to the file handle/
+  // path directly. Retry exactly once per selected result to avoid loops.
   function wrapMegaRootFailureV858() {
     const original = window.remotePreviewError;
     if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
@@ -89,7 +82,7 @@
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
       const preview = document.getElementById('remotePreview');
-      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Fără reluarea aceluiași URL fast.</span></div>';
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Nu repet același URL fast.</span></div>';
       try {
         const d = await api('/api/remote-preview/start', {
           method: 'POST',
@@ -207,28 +200,6 @@
     }
   }
 
-  async function prewarmMegaAfterRestart() {
-    if (restartPrewarmStarted) return;
-    restartPrewarmStarted = true;
-    try {
-      const st = await api('/api/status');
-      if (st?.active) return;
-      const d = await api('/api/results?offset=0&limit=100');
-      const candidate = (d?.rows || []).find(r => String(r?.remote?.source || '').toUpperCase() === 'MEGA' && r?.remote?.url && ['image','video','audio'].includes(previewKind(r.remote.name || r.remote.path || '')));
-      if (!candidate) return;
-      await api('/api/remote-preview/start', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({id:candidate.id})
-      });
-      const src = document.getElementById('remoteSource');
-      if (src && !currentRow) src.title = 'MEGA preview preîncălzit după restart';
-    } catch (_) {
-      // Opportunistic only: normal row selection keeps the compatibility path
-      // and will surface a concrete MEGA error when the user actually needs it.
-    }
-  }
-
   function boot() {
     install();
     fixDownloadHelpV857();
@@ -236,7 +207,8 @@
     wrapShowDetail();
     observe();
     render();
-    setTimeout(prewarmMegaAfterRestart, 2500);
+    // No MEGA startup prewarm. A user click must never wait behind unsolicited
+    // background login/WebDAV work. Fresh scans may still leave their root warm.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true});
