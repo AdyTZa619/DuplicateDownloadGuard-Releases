@@ -8,6 +8,8 @@ import (
 	"math"
 	"math/bits"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -70,11 +72,15 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 	case "media-looks-same", "deterministic-samples":
 		d.UserStatus = userLooksSame
 		d.Action = actionReview
-	case "metadata-incomplete", "mega-busy", "remote-unavailable", "full-sha256-error", "sample-error":
+	case "metadata-incomplete", "mega-busy", "remote-unavailable", "full-sha256-error", "sample-error", "media-tools-missing", "media-index-incomplete", "image-index-incomplete", "media-unverified":
 		d.UserStatus = userUnverified
 		d.Action = actionRetry
 	}
 	return d
+}
+
+func mediaReviewDecisionV85(res Result, method, reason string, candidates int, localPath string) (DownloadGuardDecision, bool) {
+	return decorateGuardDecision(guardReviewDecision(res, method, reason, candidates, localPath)), true
 }
 
 func downloadHistoryDecision(res Result) (DownloadGuardDecision, bool) {
@@ -86,9 +92,6 @@ func downloadHistoryDecision(res Result) (DownloadGuardDecision, bool) {
 	if err != nil || st.IsDir() {
 		return DownloadGuardDecision{}, false
 	}
-	// A path can be reused later for a different file. Do not trust history if
-	// the current bytes have a different known size or were modified after the
-	// application recorded the completed download.
 	if res.Remote.Size > 0 && !res.Remote.ApproxSize && st.Size() != res.Remote.Size {
 		return DownloadGuardDecision{}, false
 	}
@@ -165,6 +168,16 @@ func mediaGuardCandidates(remote RemoteItem, entries []FileEntry, limit int) []F
 	return out
 }
 
+func mediaEntryCountV85(entries []FileEntry, kind string) int {
+	n := 0
+	for _, e := range entries {
+		if remoteMediaKind(e.Name) == kind {
+			n++
+		}
+	}
+	return n
+}
+
 func filepathExt(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if i := strings.LastIndex(name, "."); i >= 0 {
@@ -188,6 +201,53 @@ type videoFingerprintV85 struct {
 	Valid  []bool
 }
 
+// frameSignatureV85 filters low-information frames before they enter dHash
+// scoring. Flat black/white/fade frames otherwise create deceptively similar
+// hashes across unrelated videos.
+func frameSignatureV85(ctx context.Context, ff, target string, sec float64) (uint64, bool, error) {
+	args := []string{"-v", "error", "-ss", fmt.Sprintf("%.3f", sec), "-i", target, "-frames:v", "1", "-vf", "scale=9:8:flags=fast_bilinear,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"}
+	cmd := exec.CommandContext(ctx, ff, args...)
+	hideChildWindow(cmd)
+	b, err := cmd.Output()
+	if err != nil {
+		return 0, false, err
+	}
+	if len(b) < 72 {
+		return 0, false, fmt.Errorf("cadru incomplet: %d/72 bytes", len(b))
+	}
+	var h uint64
+	bit := 0
+	minV, maxV := 255, 0
+	sum, sumSq := 0.0, 0.0
+	for i := 0; i < 72; i++ {
+		v := int(b[i])
+		if v < minV {
+			minV = v
+		}
+		if v > maxV {
+			maxV = v
+		}
+		sum += float64(v)
+		sumSq += float64(v * v)
+	}
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			if b[y*9+x] > b[y*9+x+1] {
+				h |= uint64(1) << bit
+			}
+			bit++
+		}
+	}
+	mean := sum / 72
+	variance := sumSq/72 - mean*mean
+	if variance < 0 {
+		variance = 0
+	}
+	std := math.Sqrt(variance)
+	informative := maxV-minV >= 24 || std >= 7
+	return h, informative, nil
+}
+
 func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string) (videoFingerprintV85, error) {
 	ff := a.detectFFmpeg()
 	fp := a.detectFFprobe()
@@ -201,26 +261,32 @@ func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string)
 	out := videoFingerprintV85{Info: ri, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints))}
 	valid := 0
 	for i, p := range v85FramePoints {
-		h, err := frameHash(ctx, ff, target, ri.Duration*p)
-		if err != nil {
+		h, informative, err := frameSignatureV85(ctx, ff, target, ri.Duration*p)
+		if err != nil || !informative {
 			continue
 		}
 		out.Hashes[i], out.Valid[i] = h, true
 		valid++
 	}
 	if valid < 4 {
-		return videoFingerprintV85{}, fmt.Errorf("prea puține cadre remote disponibile: %d/7", valid)
+		return videoFingerprintV85{}, fmt.Errorf("prea puține cadre informative remote: %d/7", valid)
 	}
 	return out, nil
 }
 
-func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoFingerprintV85, local string) (int, string, MediaInfo, error) {
+func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoFingerprintV85, candidate FileEntry) (int, string, MediaInfo, error) {
 	ff := a.detectFFmpeg()
 	fp := a.detectFFprobe()
 	if ff == "" || fp == "" {
 		return 0, "", MediaInfo{}, fmt.Errorf("ffmpeg + ffprobe lipsesc")
 	}
-	li := probeMedia(ctx, fp, local, "LOCAL")
+	li, ok := cachedLocalMediaInfo(a, candidate)
+	if !ok {
+		li = probeMedia(ctx, fp, candidate.Path, "LOCAL")
+		if li.OK {
+			cacheLocalMediaInfo(a, candidate, li)
+		}
+	}
 	if !li.OK || li.Duration <= 0 {
 		return 0, "", li, fmt.Errorf("nu pot citi durata videoclipului local")
 	}
@@ -240,8 +306,8 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 		if i >= len(remoteFP.Valid) || !remoteFP.Valid[i] {
 			continue
 		}
-		lh, err := frameHash(ctx, ff, local, li.Duration*p)
-		if err != nil {
+		lh, informative, err := frameSignatureV85(ctx, ff, candidate.Path, li.Duration*p)
+		if err != nil || !informative {
 			continue
 		}
 		d := bits.OnesCount64(remoteFP.Hashes[i] ^ lh)
@@ -256,7 +322,7 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 		}
 	}
 	if matched < 4 {
-		return 0, "", li, fmt.Errorf("prea puține cadre comparabile: %d/7", matched)
+		return 0, "", li, fmt.Errorf("prea puține cadre informative comparabile: %d/7", matched)
 	}
 
 	score := int(math.Round(float64(sum) / float64(matched)))
@@ -272,7 +338,7 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 		score = 97
 	}
 
-	note := fmt.Sprintf("%d/7 cadre • %d foarte apropiate • durată Δ %.2fs", matched, highMatches, delta)
+	note := fmt.Sprintf("%d/7 cadre informative • %d foarte apropiate • durată Δ %.2fs", matched, highMatches, delta)
 	return score, note, li, nil
 }
 
@@ -281,33 +347,35 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 	if err != nil {
 		return 0, "", MediaInfo{}, MediaInfo{}, err
 	}
-	score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, local)
+	st, err := os.Stat(local)
+	if err != nil {
+		return 0, "", remoteFP.Info, MediaInfo{}, err
+	}
+	candidate := FileEntry{Path: local, Name: filepath.Base(local), Size: st.Size(), MTime: st.ModTime().UnixNano()}
+	score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate)
 	return score, note, remoteFP.Info, li, err
 }
 
-func remoteImageDHashV85(ctx context.Context, target string, max int64) (uint64, error) {
+func remoteImageSignatureV85(ctx context.Context, target string, max int64) (imageSignatureV85, error) {
 	rb, err := fetchAllLimit(ctx, target, max)
 	if err != nil {
-		return 0, err
+		return imageSignatureV85{}, err
 	}
 	img, _, err := image.Decode(bytes.NewReader(rb))
 	if err != nil {
-		return 0, fmt.Errorf("imagine remote: %w", err)
+		return imageSignatureV85{}, fmt.Errorf("imagine remote: %w", err)
 	}
-	return dhashImage(img), nil
+	return makeImageSignatureV85(img), nil
+}
+
+func remoteImageDHashV85(ctx context.Context, target string, max int64) (uint64, error) {
+	sig, err := remoteImageSignatureV85(ctx, target, max)
+	return sig.Hash, err
 }
 
 func localImageDHashV85(path string) (uint64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	img, _, err := image.Decode(f)
-	if err != nil {
-		return 0, fmt.Errorf("imagine locală: %w", err)
-	}
-	return dhashImage(img), nil
+	sig, err := readLocalImageSignatureV85(path)
+	return sig.Hash, err
 }
 
 func imageHashSimilarityV85(remoteHash, localHash uint64) int {
@@ -329,7 +397,9 @@ func mediaQualityHint(remote, local MediaInfo) string {
 			return "local"
 		}
 	}
-	if remote.BitRate > 0 && local.BitRate > 0 {
+	// Bitrate is only a useful quality hint when the video codec is the same.
+	// HEVC/AV1 can legitimately look better than H.264 at a lower bitrate.
+	if remote.BitRate > 0 && local.BitRate > 0 && remote.VideoCodec != "" && strings.EqualFold(remote.VideoCodec, local.VideoCodec) {
 		if remote.BitRate >= local.BitRate*3/2 {
 			return "remote"
 		}
@@ -343,41 +413,28 @@ func mediaQualityHint(remote, local MediaInfo) string {
 func mediaQualityReason(hint string) string {
 	switch hint {
 	case "remote":
-		return " Versiunea remote pare mai bună după rezoluție/bitrate; recomandare: REMOTE E MAI BUN."
+		return " Versiunea remote pare mai bună după rezoluție sau bitrate comparabil în același codec; recomandare: REMOTE E MAI BUN."
 	case "local":
-		return " Versiunea locală pare mai bună după rezoluție/bitrate; recomandare: AI DEJA VERSIUNEA MAI BUNĂ."
+		return " Versiunea locală pare mai bună după rezoluție sau bitrate comparabil în același codec; recomandare: AI DEJA VERSIUNEA MAI BUNĂ."
 	default:
 		return ""
 	}
 }
 
-func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, candidates []FileEntry) (int, string, string) {
+func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, remote RemoteItem, entries, candidates []FileEntry) (int, string, string, int, error) {
 	a.mu.RLock()
 	mb := a.cfg.VisualImageMaxMB
 	a.mu.RUnlock()
 	if mb <= 0 {
 		mb = 25
 	}
-	remoteHash, err := remoteImageDHashV85(ctx, target, int64(mb)<<20)
+	remoteSig, err := remoteImageSignatureV85(ctx, target, int64(mb)<<20)
 	if err != nil {
-		return -1, "", ""
+		return -1, "", "", 0, err
 	}
-	bestScore := -1
-	bestPath := ""
-	for _, candidate := range candidates {
-		if ctx.Err() != nil {
-			break
-		}
-		localHash, err := localImageDHashV85(candidate.Path)
-		if err != nil {
-			continue
-		}
-		score := imageHashSimilarityV85(remoteHash, localHash)
-		if score > bestScore {
-			bestScore, bestPath = score, candidate.Path
-		}
-	}
-	return bestScore, bestPath, "fingerprint perceptual imagine"
+	search := a.imageCandidatesCachedV85(ctx, remoteSig, remote, entries, candidates, 7)
+	note := fmt.Sprintf("semnătură perceptuală imagine • cache %d • analizate %d", search.Cached, search.Probed)
+	return search.BestScore, search.BestPath, note, search.Pending, nil
 }
 
 func (a *App) scoreVideoCandidatesV85(ctx context.Context, remoteFP videoFingerprintV85, candidates []FileEntry) (int, string, string, string) {
@@ -389,7 +446,7 @@ func (a *App) scoreVideoCandidatesV85(ctx context.Context, remoteFP videoFingerp
 		if ctx.Err() != nil {
 			break
 		}
-		score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate.Path)
+		score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate)
 		if err != nil {
 			continue
 		}
@@ -406,12 +463,16 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	if kind != "image" && kind != "video" {
 		return DownloadGuardDecision{}, false
 	}
-	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
+	localCount := mediaEntryCountV85(entries, kind)
+	if localCount == 0 {
 		return DownloadGuardDecision{}, false
+	}
+	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
+		return mediaReviewDecisionV85(res, "mega-busy", "Există fișiere locale de același tip, dar sesiunea MEGA este ocupată. Nu declar fișierul nou fără verificarea media.", localCount, res.LocalPath)
 	}
 	target, err := remoteTarget(a, res)
 	if err != nil {
-		return DownloadGuardDecision{}, false
+		return mediaReviewDecisionV85(res, "remote-unavailable", "Nu pot accesa conținutul remote pentru verificarea media: "+err.Error(), localCount, res.LocalPath)
 	}
 
 	candidates := mediaGuardCandidates(res.Remote, entries, 5)
@@ -419,18 +480,37 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	bestPath := ""
 	bestNote := ""
 	bestQuality := ""
+	pending := 0
+
 	if kind == "image" {
-		bestScore, bestPath, bestNote = a.scoreImageCandidatesV85(ctx, target, candidates)
-	} else {
-		remoteFP, err := a.buildRemoteVideoFingerprintV85(ctx, target)
+		bestScore, bestPath, bestNote, pending, err = a.scoreImageCandidatesV85(ctx, target, res.Remote, entries, candidates)
 		if err != nil {
-			return DownloadGuardDecision{}, false
+			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+err.Error(), localCount, res.LocalPath)
+		}
+		if bestScore < 85 && pending > 0 {
+			return mediaReviewDecisionV85(res, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
+		}
+	} else {
+		if a.detectFFmpeg() == "" || a.detectFFprobe() == "" {
+			return mediaReviewDecisionV85(res, "media-tools-missing", "Pentru a exclude un video recodat sau complet redenumit sunt necesare FFmpeg și ffprobe. Instalează-le din Tool Manager și reîncearcă.", localCount, res.LocalPath)
+		}
+		remoteFP, fpErr := a.buildRemoteVideoFingerprintV85(ctx, target)
+		if fpErr != nil {
+			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul video remote nu a putut fi calculat sigur: "+fpErr.Error(), localCount, res.LocalPath)
 		}
 		bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
 		if bestScore < 85 && ctx.Err() == nil {
-			candidates = a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
+			search := a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
+			candidates = search.Candidates
+			pending = search.Pending
 			bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
+			if bestScore < 85 && pending > 0 {
+				return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Mai există %d videoclipuri locale fără metadate media validate. Au fost analizate %d acum; cache-ul se completează progresiv. Nu declar fișierul nou până nu pot exclude un re-encode complet redenumit.", pending, search.Probed), localCount, bestPath)
+			}
 		}
+	}
+	if ctx.Err() != nil {
+		return mediaReviewDecisionV85(res, "media-unverified", "Verificarea media a fost întreruptă înainte de un verdict sigur.", localCount, bestPath)
 	}
 	if bestScore < 85 || bestPath == "" {
 		return DownloadGuardDecision{}, false
