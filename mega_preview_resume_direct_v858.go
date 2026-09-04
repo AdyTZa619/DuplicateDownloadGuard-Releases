@@ -61,6 +61,8 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		return a.preview.StreamURL, nil
 	}
 
+	// The scan (or a previous preview) proves this exact public-folder session
+	// is already active. Never rebuild the long whole-folder root on this click.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		ctx := context.Background()
