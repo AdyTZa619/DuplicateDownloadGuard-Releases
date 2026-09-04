@@ -83,10 +83,10 @@
     }
   }
 
-  // Stop the previous browser Range request without manufacturing a codec/network
-  // error. The previous test cleared src and called load() while the element still
-  // had onerror=remotePreviewError(); Chromium can fire that handler for the
-  // intentional abort and DDG then starts a needless MEGA per-file fallback.
+  // v8.5.18: never call media.load() while tearing down the previous player.
+  // Chromium may synchronously wait for the old media pipeline/network request to
+  // settle, which can block the UI before the next preview request is even sent.
+  // Detaching the element is enough: the browser cancels its stream asynchronously.
   function releaseRemoteMediaV8512() {
     const preview = document.getElementById('remotePreview');
     if (!preview) return;
@@ -94,22 +94,18 @@
       try { media.onerror = null; } catch (_) {}
       try { media.removeAttribute('onerror'); } catch (_) {}
       try { media.pause(); } catch (_) {}
-      try { media.removeAttribute('src'); } catch (_) {}
-      try {
-        for (const source of media.querySelectorAll('source')) source.removeAttribute('src');
-      } catch (_) {}
-      try { media.load(); } catch (_) {}
+      try { media.remove(); } catch (_) {}
     }
     for (const img of preview.querySelectorAll('img')) {
       try { img.onerror = null; } catch (_) {}
       try { img.removeAttribute('onerror'); } catch (_) {}
-      try { img.removeAttribute('src'); } catch (_) {}
+      try { img.remove(); } catch (_) {}
     }
   }
   window.releaseRemoteMediaV8512 = releaseRemoteMediaV8512;
 
   // v8.5.17: "Stop stream" is a browser stop, not a MEGAcmd teardown. Removing
-  // src stops the actual transfer immediately while keeping the MEGA session and
+  // the media element stops the transfer while keeping the MEGA session and
   // WebDAV endpoint warm for the next row. The old backend /stop could restore
   // sessions for tens of seconds and the intentional media abort could also fire
   // remotePreviewError(), creating a false per-file fallback behind the next click.
@@ -291,8 +287,9 @@
       // the stop marker above only suppresses the abort caused by stopping.
       trueFallbackIDV858 = 0;
       trueFallbackAtV858 = 0;
-      // Abort the previous remote request, but suppress its inline onerror first;
-      // an intentional row switch must never enter MEGA TRUE FALLBACK.
+      // Detach the previous player without forcing HTMLMediaElement.load().
+      // The old load() call could synchronously stall Chromium before the new
+      // /api/remote-preview/start request was sent.
       releaseRemoteMediaV8512();
       reset(r);
       const out = await original.apply(this, arguments);
