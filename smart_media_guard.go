@@ -51,6 +51,9 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 	}
 
 	switch d.Method {
+	case "download-history":
+		d.UserStatus = userDownloaded
+		d.Action = actionDontDownload
 	case "media-same-content":
 		d.UserStatus = userSameContent
 		d.Action = actionDontDownload
@@ -71,6 +74,24 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 		d.Action = actionRetry
 	}
 	return d
+}
+
+func downloadHistoryDecision(res Result) (DownloadGuardDecision, bool) {
+	path := strings.TrimSpace(res.DownloadPath)
+	if res.DownloadedAt <= 0 || path == "" || !fileExists(path) {
+		return DownloadGuardDecision{}, false
+	}
+	d := DownloadGuardDecision{
+		ResultID:   res.ID,
+		Name:       res.Remote.Name,
+		Verdict:    guardDuplicate,
+		Reason:     "Acest rezultat a fost descărcat anterior de aplicație, iar fișierul rezultat există încă pe disc.",
+		LocalPath:  path,
+		Method:     "download-history",
+		Candidates: 1,
+		Exact:      true,
+	}
+	return decorateGuardDecision(d), true
 }
 
 type mediaGuardCandidate struct {
@@ -97,9 +118,8 @@ func mediaGuardCandidates(remote RemoteItem, entries []FileEntry, limit int) []F
 			ratio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
 		}
 		// Re-encoding can change bytes and size substantially, but an unrelated
-		// name plus a very different size is too weak to justify an expensive
-		// perceptual probe. Exact same-size candidates remain eligible because
-		// they are cheap and are a useful safety net for renamed files.
+		// name plus a very different size is too weak for the first-pass probe.
+		// A second video-only duration pass handles fully renamed files later.
 		if name < 45 && ratio > .35 {
 			continue
 		}
@@ -141,6 +161,124 @@ func filepathExt(name string) string {
 		return name[i:]
 	}
 	return ""
+}
+
+func hasEntryPath(rows []FileEntry, path string) bool {
+	for _, row := range rows {
+		if pathKey(row.Path) == pathKey(path) {
+			return true
+		}
+	}
+	return false
+}
+
+type durationGuardCandidate struct {
+	Entry         FileEntry
+	DurationRatio float64
+	NameScore     int
+	SizeRatio     float64
+}
+
+// videoDurationCandidates is the second-stage search for fully renamed videos.
+// It probes a bounded pool of plausible files with ffprobe and keeps only
+// candidates whose duration is nearly identical. This avoids probing the whole
+// collection visually while no longer requiring the filename to be similar.
+func (a *App) videoDurationCandidates(ctx context.Context, target string, remote RemoteItem, entries, existing []FileEntry, limit int) []FileEntry {
+	if limit <= 0 {
+		limit = 7
+	}
+	fp := a.detectFFprobe()
+	if fp == "" {
+		return existing
+	}
+	ri := probeMedia(ctx, fp, target, "REMOTE")
+	if !ri.OK || ri.Duration <= 0 {
+		return existing
+	}
+
+	type rough struct {
+		Entry     FileEntry
+		NameScore int
+		SizeRatio float64
+		Rank      int
+	}
+	roughRows := make([]rough, 0, 128)
+	for _, e := range entries {
+		if remoteMediaKind(e.Name) != "video" || hasEntryPath(existing, e.Path) {
+			continue
+		}
+		nameScore := nameSimilarity(remote.Name, e.Name)
+		sizeRatio := 1.0
+		if remote.Size > 0 {
+			sizeRatio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
+		}
+		// Size is only a probe-order hint here, not a duplicate criterion.
+		closeness := int(math.Round(1000 / (1 + sizeRatio*8)))
+		rank := closeness + nameScore*8
+		if strings.EqualFold(filepathExt(remote.Name), filepathExt(e.Name)) {
+			rank += 80
+		}
+		roughRows = append(roughRows, rough{Entry: e, NameScore: nameScore, SizeRatio: sizeRatio, Rank: rank})
+	}
+	sort.SliceStable(roughRows, func(i, j int) bool {
+		if roughRows[i].Rank != roughRows[j].Rank {
+			return roughRows[i].Rank > roughRows[j].Rank
+		}
+		return strings.ToLower(roughRows[i].Entry.Path) < strings.ToLower(roughRows[j].Entry.Path)
+	})
+	if len(roughRows) > 28 {
+		roughRows = roughRows[:28]
+	}
+
+	matched := make([]durationGuardCandidate, 0, 8)
+	for _, row := range roughRows {
+		if ctx.Err() != nil {
+			break
+		}
+		li := probeMedia(ctx, fp, row.Entry.Path, "LOCAL")
+		if !li.OK || li.Duration <= 0 {
+			continue
+		}
+		maxD := math.Max(ri.Duration, li.Duration)
+		durationRatio := math.Abs(ri.Duration-li.Duration) / maxD
+		// 1.5% accepts minor intro/outro and container timing differences while
+		// still being selective enough for a renamed-file fallback.
+		if durationRatio > .015 && math.Abs(ri.Duration-li.Duration) > 1.5 {
+			continue
+		}
+		if ri.Width > 0 && ri.Height > 0 && li.Width > 0 && li.Height > 0 {
+			ra := float64(ri.Width) / float64(ri.Height)
+			la := float64(li.Width) / float64(li.Height)
+			aspectDelta := math.Abs(ra-la) / math.Max(ra, la)
+			if aspectDelta > .08 {
+				continue
+			}
+		}
+		matched = append(matched, durationGuardCandidate{Entry: row.Entry, DurationRatio: durationRatio, NameScore: row.NameScore, SizeRatio: row.SizeRatio})
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].DurationRatio != matched[j].DurationRatio {
+			return matched[i].DurationRatio < matched[j].DurationRatio
+		}
+		if matched[i].NameScore != matched[j].NameScore {
+			return matched[i].NameScore > matched[j].NameScore
+		}
+		if matched[i].SizeRatio != matched[j].SizeRatio {
+			return matched[i].SizeRatio < matched[j].SizeRatio
+		}
+		return strings.ToLower(matched[i].Entry.Path) < strings.ToLower(matched[j].Entry.Path)
+	})
+
+	out := append([]FileEntry(nil), existing...)
+	for _, row := range matched {
+		if len(out) >= limit {
+			break
+		}
+		if !hasEntryPath(out, row.Entry.Path) {
+			out = append(out, row.Entry)
+		}
+	}
+	return out
 }
 
 // visualVideoScoreV85 samples seven distributed frames instead of three. A
@@ -197,16 +335,12 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 	}
 
 	score := int(math.Round(float64(sum) / float64(matched)))
-	// Require consistency across the timeline, not just one or two matching
-	// scenes. Weak consistency can still be surfaced as POSIBIL DUPLICAT.
 	if highMatches < 4 && score > 88 {
 		score = 88
 	}
 	if veryHighMatches < 4 && score > 93 {
 		score = 93
 	}
-	// Small edits/intros are allowed as another version. Large duration changes
-	// cannot claim ACELAȘI CONȚINUT even if sampled frames happen to match.
 	if durationRatio > .12 && score > 88 {
 		score = 88
 	} else if durationRatio > .03 && score > 97 {
@@ -242,22 +376,8 @@ func mediaQualityHint(remote, local MediaInfo) string {
 	return ""
 }
 
-func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entries []FileEntry, megaRemoteAvailable bool) (DownloadGuardDecision, bool) {
+func (a *App) scoreMediaCandidates(ctx context.Context, target string, res Result, candidates []FileEntry) (int, string, string, string) {
 	kind := remoteMediaKind(res.Remote.Name)
-	if kind != "image" && kind != "video" {
-		return DownloadGuardDecision{}, false
-	}
-	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
-		return DownloadGuardDecision{}, false
-	}
-	candidates := mediaGuardCandidates(res.Remote, entries, 5)
-	if len(candidates) == 0 {
-		return DownloadGuardDecision{}, false
-	}
-	target, err := remoteTarget(a, res)
-	if err != nil {
-		return DownloadGuardDecision{}, false
-	}
 	bestScore := -1
 	bestPath := ""
 	bestNote := ""
@@ -269,6 +389,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		score := 0
 		note := ""
 		quality := ""
+		var err error
 		if kind == "image" {
 			a.mu.RLock()
 			mb := a.cfg.VisualImageMaxMB
@@ -289,6 +410,30 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if score > bestScore {
 			bestScore, bestPath, bestNote, bestQuality = score, candidate.Path, note, quality
 		}
+	}
+	return bestScore, bestPath, bestNote, bestQuality
+}
+
+func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entries []FileEntry, megaRemoteAvailable bool) (DownloadGuardDecision, bool) {
+	kind := remoteMediaKind(res.Remote.Name)
+	if kind != "image" && kind != "video" {
+		return DownloadGuardDecision{}, false
+	}
+	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
+		return DownloadGuardDecision{}, false
+	}
+	target, err := remoteTarget(a, res)
+	if err != nil {
+		return DownloadGuardDecision{}, false
+	}
+
+	candidates := mediaGuardCandidates(res.Remote, entries, 5)
+	bestScore, bestPath, bestNote, bestQuality := a.scoreMediaCandidates(ctx, target, res, candidates)
+	// If the normal name/size shortlist failed, search videos again using exact
+	// duration/aspect metadata. This is the renamed/re-encoded fallback.
+	if kind == "video" && bestScore < 85 && ctx.Err() == nil {
+		candidates = a.videoDurationCandidates(ctx, target, res.Remote, entries, candidates, 7)
+		bestScore, bestPath, bestNote, bestQuality = a.scoreMediaCandidates(ctx, target, res, candidates)
 	}
 	if bestScore < 85 || bestPath == "" {
 		return DownloadGuardDecision{}, false
