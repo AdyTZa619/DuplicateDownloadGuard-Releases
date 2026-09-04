@@ -23,6 +23,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare release version + changelog
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path VERSION)) { throw 'VERSION lipsește; release-ul este oprit.' }
+          if (-not (Test-Path CHANGELOG.md)) { throw 'CHANGELOG.md lipsește; release-ul este oprit.' }
+          $version = (Get-Content -Raw VERSION).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION invalid: $version" }
+          $changelog = Get-Content -Raw CHANGELOG.md
+          if (-not $changelog.Contains("## [$version]")) { throw "CHANGELOG.md nu conține secțiunea ## [$version]" }
+
+          if (Test-Path update.json) {
+            try {
+              $published = (Get-Content -Raw update.json | ConvertFrom-Json).version
+              if ($published -eq $version) {
+                throw "VERSION $version este deja publicată. Mărește VERSION și adaugă o secțiune nouă în CHANGELOG.md înainte de alt release."
+              }
+            } catch {
+              if ($_.Exception.Message -like 'VERSION * este deja publicată*') { throw }
+              Write-Host 'Manifestul anterior nu a putut fi citit; continui deoarece va fi regenerat și validat.'
+            }
+          }
+
+          $main = Get-Content -Raw main.go
+          $pattern = 'const appVersion = "[^"]+"'
+          if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
+          $replacement = 'const appVersion = "' + $version + ' Pro Smart Media Guard"'
+          $main = [regex]::Replace($main, $pattern, $replacement, 1)
+          Set-Content -Path main.go -Value $main -Encoding utf8NoBOM
+          "DDG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Pregătit release $version; versiunea din binar și jurnalul sunt sincronizate."
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -58,10 +90,23 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -Raw VERSION).Trim()
           $main = Get-Content -Raw main.go
           $m = [regex]::Match($main, 'const appVersion = "([0-9]+\.[0-9]+\.[0-9]+)[^"]*"')
           if (-not $m.Success) { throw 'Nu am putut extrage versiunea din appVersion.' }
-          $version = $m.Groups[1].Value
+          if ($m.Groups[1].Value -ne $version) { throw "Versiune inconsistentă: VERSION=$version, appVersion=$($m.Groups[1].Value)" }
+
+          $changelog = Get-Content -Raw CHANGELOG.md
+          $escapedVersion = [regex]::Escape($version)
+          $section = [regex]::Match($changelog, "(?ms)^## \[$escapedVersion\][^\r\n]*\r?\n(?<body>.*?)(?=^## \[|\z)")
+          if (-not $section.Success) { throw "Nu pot extrage jurnalul pentru $version." }
+          $bullets = [regex]::Matches($section.Groups['body'].Value, '(?m)^- (.+)$') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 6
+          if ($bullets.Count -gt 0) {
+            $notes = "Noutăți $version: " + ($bullets -join ' • ')
+          } else {
+            $notes = "Noutăți $version — vezi CHANGELOG.md"
+          }
+
           $exe = 'releases/DuplicateDownloadGuard_PRO_LATEST.exe'
           if (-not (Test-Path $exe)) { throw 'EXE-ul de release lipsește înainte de generarea manifestului.' }
           $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
@@ -71,7 +116,7 @@ jobs:
             version = $version
             url = $url
             sha256 = $sha
-            notes = "Build automat $version din commit $($env:GITHUB_SHA.Substring(0,7))"
+            notes = $notes
             publishedAt = (Get-Date).ToUniversalTime().ToString('o')
             channel = 'stable'
           }
@@ -86,13 +131,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'git config user.name failed' }
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ($LASTEXITCODE -ne 0) { throw 'git config user.email failed' }
-          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe update.json SHA256SUMS.txt
+          # main.go is included so the source tree records the same version that
+          # was embedded into the published binary. VERSION remains the release
+          # source of truth for future releases.
+          git add main.go releases/DuplicateDownloadGuard_PRO_LATEST.exe update.json SHA256SUMS.txt
           if ($LASTEXITCODE -ne 0) { throw 'git add failed' }
           if (git diff --cached --quiet) {
             Write-Host 'Nu sunt schimbări de publicat.'
             exit 0
           }
-          git commit -m "Publish updater build [skip ci]"
+          git commit -m "Publish updater build $env:DDG_VERSION [skip ci]"
           if ($LASTEXITCODE -ne 0) { throw 'git commit failed; updater not published' }
           git push
           if ($LASTEXITCODE -ne 0) { throw 'git push failed; updater not published' }
