@@ -1,0 +1,37 @@
+name: Apply operation HUD patch
+
+on:
+  push:
+    branches:
+      - 'fix/v8.5.1-operation-hud'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v8.5.1-operation-hud
+          fetch-depth: 0
+
+      - name: Apply HUD source patch
+        run: python3 tools/apply_operation_hud.py
+
+      - name: Commit generated source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/exact_guard.js VERSION CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo 'HUD patch already applied.'
+            exit 0
+          fi
+          git commit -m 'Add immersive operation HUD v8.5.1'
+          git push origin HEAD:fix/v8.5.1-operation-hud
