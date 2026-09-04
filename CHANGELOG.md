@@ -2,6 +2,15 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.2] — 2026-09-04
+
+### Updater & lifecycle fereastră
+- Reparat cazul în care după update pornea versiunea nouă, dar fereastra Edge-app a versiunii vechi rămânea deschisă.
+- La o pornire confirmată ca handoff de updater, noua versiune închide nativ fereastra DDG rămasă înainte să-și deschidă propria interfață.
+- Cleanup-ul este activ numai cât timp există markerul real `apply_update.json`; pornirile normale ale aplicației nu închid ferestre.
+- Potrivirea ferestrei este strictă pe titlul dedicat `Duplicate Download Guard Pro`, pentru a evita închiderea unei ferestre Edge/Chrome obișnuite care ar putea conține alte taburi.
+- Updaterul păstrează în continuare backup, verificare SHA-256, health-check și rollback automat.
+
 ## [8.5.1] — 2026-09-04
 
 ### Monitor operațional & interfață
