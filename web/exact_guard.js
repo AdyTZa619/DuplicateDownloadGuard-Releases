@@ -291,6 +291,20 @@
   };
 
   function installFunctionOverrides() {
+    if (typeof label === 'function') {
+      const originalLabel = label;
+      label = function (status) {
+        return ({
+          VERIFIED: 'AI DEJA',
+          SAMPLED: 'PARE ACELAȘI',
+          HAVE: 'AI DEJA',
+          POSSIBLE: 'POSIBIL DUPLICAT',
+          DIFFERENT: 'DIFERIT',
+          MISSING: 'NU ÎL AI'
+        })[status] || originalLabel(status);
+      };
+    }
+
     const originalSaveRules = saveRules;
     saveRules = async function () {
       const mode = document.getElementById('downloadGuardMode');
@@ -439,53 +453,5 @@
     installControls();
     installFunctionOverrides();
     syncModeFromConfig();
-  });
-})();
-
-// v8.5 MEGA player prewarm: selecting a MEGA video prepares WebDAV before the
-// user presses the external-player button. The existing backend fast path then
-// reuses the exact same stream URL instead of paying setup latency on click.
-(() => {
-  'use strict';
-  let prewarmTimer = null;
-  let lastRequestedId = 0;
-  let generation = 0;
-
-  function isMegaVideoRow(row) {
-    const remote = row && row.remote;
-    if (!remote || String(remote.source || '').toUpperCase() !== 'MEGA') return false;
-    const name = String(remote.name || remote.path || '').toLowerCase();
-    return /\.(mp4|webm|ogv|mov|m4v|mkv|avi|flv|ts|mts|m2ts)$/.test(name);
-  }
-
-  function scheduleMegaPrewarm(row) {
-    clearTimeout(prewarmTimer);
-    const id = Number(row && row.id || 0);
-    if (!id || !isMegaVideoRow(row)) return;
-    const myGeneration = ++generation;
-    prewarmTimer = setTimeout(async () => {
-      if (myGeneration !== generation || id === lastRequestedId) return;
-      lastRequestedId = id;
-      try {
-        await api('/api/remote-preview/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id })
-        });
-      } catch (_) {
-        // Prewarm is opportunistic. The normal player action remains the source
-        // of user-visible errors and can retry with the backend's full messages.
-        if (lastRequestedId === id) lastRequestedId = 0;
-      }
-    }, 300);
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    if (typeof showDetail !== 'function') return;
-    const previousShowDetail = showDetail;
-    showDetail = async function (row) {
-      await previousShowDetail(row);
-      scheduleMegaPrewarm(row);
-    };
   });
 })();
