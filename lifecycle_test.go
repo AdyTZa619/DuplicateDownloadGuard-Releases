@@ -54,3 +54,18 @@ func TestShutdownAppPausesActiveQueueAndPersistsIt(t *testing.T) {
 		t.Fatalf("unexpected saved queue: %#v", saved)
 	}
 }
+
+func TestSettleMegaOnShutdownClearsWarmPreview(t *testing.T) {
+	a := &App{
+		appDir:     t.TempDir(),
+		preview:    MegaPreviewState{Active: true, SourceURL: "https://mega.nz/folder/test"},
+		previewTTL: time.NewTimer(time.Hour),
+	}
+	settleMegaOnShutdown(a)
+	if a.preview.Active || a.preview.SourceURL != "" {
+		t.Fatalf("MEGA preview survived shutdown: %#v", a.preview)
+	}
+	if a.previewTTL != nil {
+		t.Fatal("MEGA preview timer survived shutdown")
+	}
+}
