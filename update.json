@@ -1,8 +1,8 @@
 {
-  "version": "8.4.1",
+  "version": "8.5.0",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "5ffd77aed14ef43904a938fa6799a67306249fe6f7f69ca5b48071ae4de573e6",
-  "notes": "Build automat 8.4.1 din commit 38f7604",
-  "publishedAt": "2026-09-04T09:31:33.2224679Z",
+  "sha256": "a23f86ff5a62946b7fa3d87fb77314d556d8c6a3161521d31427b6656462acb4",
+  "notes": "Noutăți 8.5.0: Smart Media Guard nou: separă duplicatele exacte de același conținut recodat/redimensionat, alte versiuni și potrivirile doar probabile. • Statusuri mai intuitive în interfață: `AI DEJA`, `ACELAȘI CONȚINUT`, `ALTĂ VERSIUNE`, `PARE ACELAȘI`, `POSIBIL DUPLICAT`, `NU ÎL AI`, `DESCĂRCAT DEJA` și `NU S-A PUTUT VERIFICA`. • Fișierele identice sunt confirmate prin hash/conținut indiferent de nume. • Imaginile folosesc semnături perceptuale mai robuste, cu structură, culoare și variație de luminanță; sunt tratate și WEBP/BMP/AVIF prin fallback FFmpeg. • Videoclipurile folosesc 7 cadre distribuite, elimină cadrele negre/fade/foarte uniforme și pot compensa intro/outro prin aliniere temporală. • Verificare audio Chromaprint pentru a evita blocarea unui video cu aceleași imagini, dar altă limbă, comentariu sau soundtrack.",
+  "publishedAt": "2026-09-04T09:47:42.7024045Z",
   "channel": "stable"
 }
