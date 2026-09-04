@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const maxDirectSignaturePixelsV85 int64 = 80_000_000
+
 // Go's standard image decoders cover JPEG/PNG/GIF, while Smart Media Guard
 // also accepts WEBP/BMP/AVIF. Register small FFmpeg-backed decoders for those
 // formats so unsupported images do not remain permanently unverifiable.
@@ -109,4 +111,22 @@ func decodeImageConfigViaFFmpegV85(r io.Reader) (image.Config, error) {
 	}
 	b := img.Bounds()
 	return image.Config{ColorModel: img.ColorModel(), Width: b.Dx(), Height: b.Dy()}, nil
+}
+
+// decodeImageForSignatureV85 checks dimensions before a full Go decode. A very
+// compressed JPEG/PNG can expand to hundreds of megabytes even when the remote
+// file itself is small. Oversized images are downscaled through FFmpeg first.
+func decodeImageForSignatureV85(r io.ReadSeeker) (image.Image, error) {
+	cfg, _, cfgErr := image.DecodeConfig(r)
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	if cfgErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+		pixels := int64(cfg.Width) * int64(cfg.Height)
+		if pixels > maxDirectSignaturePixelsV85 {
+			return decodeImageViaFFmpegV85(r)
+		}
+	}
+	img, _, err := image.Decode(r)
+	return img, err
 }
