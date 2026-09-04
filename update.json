@@ -1,8 +1,8 @@
 {
-  "version": "8.5.4",
+  "version": "8.5.5",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "a5bc1d8dcef3f38ff4e6885d5d3d38f76168fe8422a5c23e801bb2e7f9468f23",
-  "notes": "Noutăți 8.5.4: Eliminată verificarea `HEAD` sincronă din calea rapidă a preview-ului MEGA. După ce scanarea a pregătit WebDAV root, URL-ul fișierului este construit local și trimis imediat playerului. • Un cache hit `MEGA FAST ROOT` sau `MEGA FAST CACHE` nu mai așteaptă mutexul global MEGA și nu mai lansează nicio comandă MEGAcmd. • Endpointul de preview raportează modul folosit și timpul de pregătire în milisecunde, pentru diagnosticarea clară a cazurilor care cad pe fallback. • Dacă URL-ul root rapid nu poate fi consumat de browser, interfața încearcă automat o singură dată fallback-ul WebDAV per-fișier înainte să ofere player extern/MEGA. • Debounce-ul navigării prin rezultate a fost redus de la 320 ms la 140 ms; rămâne suficient pentru a evita comutări WebDAV inutile când se navighează rapid. • Analizele Smart Guard, ffprobe și fingerprint rămân pe traseele lor verificate; optimizarea zero-command este limitată la preview-ul interactiv din Compare Studio.",
-  "publishedAt": "2026-09-04T11:26:51.8968739Z",
+  "sha256": "7182233225df7918272a8bfd37c8163f482499620e57aa0f83d23e3633254e6e",
+  "notes": "Noutăți 8.5.5: Joburile din coadă păstrează snapshotul complet al sursei remote și o identitate stabilă; `ResultID` nu mai este folosit ca dovadă că un rezultat dintr-o scanare nouă este același fișier. • Joburile vechi 8.5.4 sunt migrate numai când sursa, numele și URL-ul se potrivesc; dacă identitatea nu poate fi demonstrată, transferul este oprit sigur și utilizatorul primește motiv + acțiune. • Smart Guard verifică joburile desprinse de tabelul curent fără să poată marca/bloca accidental un rând care a reutilizat același ID după rescanare. • Detectarea unui job deja aflat în coadă folosește identitatea remote stabilă, nu doar ID-ul rezultatului. • `Auto` este determinist: MEGA → MEGAcmd, surse yt-dlp și HLS/DASH → yt-dlp, HTTP/direct/gallery → downloaderul intern. aria2 rămâne opțiune explicită și nu mai este ales doar pentru că este instalat. • Motorul este validat înainte ca jobul să intre efectiv în transfer; lipsa yt-dlp/aria2/MEGAcmd, HLS/DASH pe motor incompatibil sau URL lipsă apar explicit ca `NU S-A PORNIT`, cu recomandarea concretă.",
+  "publishedAt": "2026-09-04T12:01:08.2598716Z",
   "channel": "stable"
 }
