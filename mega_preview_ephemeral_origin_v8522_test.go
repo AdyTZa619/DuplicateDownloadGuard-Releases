@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -82,7 +83,7 @@ func TestMegaPreviewEphemeralOriginRejectsNonLoopbackV8522(t *testing.T) {
 }
 
 func TestMegaPreviewUIRoutesEverySuccessThroughFreshOriginV8522(t *testing.T) {
-	b, err := osReadFileForTestV8522("mega_preview_ui_fast_v854.go")
+	b, err := os.ReadFile("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
 	}
