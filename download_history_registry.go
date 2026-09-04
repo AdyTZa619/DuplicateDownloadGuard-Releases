@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ type downloadHistoryEntryV85 struct {
 }
 
 type queueHistoryJobV85 struct {
+	ResultID   int    `json:"resultId"`
 	Name       string `json:"name"`
 	Source     string `json:"source"`
 	URL        string `json:"url"`
@@ -38,6 +40,7 @@ type queueHistoryJobV85 struct {
 
 var downloadHistoryStateV85 = struct {
 	sync.RWMutex
+	SaveMu     sync.Mutex
 	Loaded     bool
 	Entries    map[string]downloadHistoryEntryV85
 	QueueMTime int64
@@ -51,6 +54,10 @@ func downloadHistoryFileV85() string {
 
 func downloadQueueFileV85() string {
 	return filepath.Join(executableDir(), "data", "download_queue.json")
+}
+
+func savedResultsFileV85() string {
+	return filepath.Join(executableDir(), "data", "last_results.json.gz")
 }
 
 func downloadHistoryKeyV85(source, rawURL, name string, size int64) string {
@@ -164,6 +171,9 @@ func loadDownloadHistoryV85() {
 
 func saveDownloadHistoryV85() error {
 	loadDownloadHistoryV85()
+	downloadHistoryStateV85.SaveMu.Lock()
+	defer downloadHistoryStateV85.SaveMu.Unlock()
+
 	downloadHistoryStateV85.RLock()
 	rows := make([]downloadHistoryEntryV85, 0, len(downloadHistoryStateV85.Entries))
 	for _, row := range downloadHistoryStateV85.Entries {
@@ -183,6 +193,28 @@ func saveDownloadHistoryV85() error {
 		return err
 	}
 	return replaceCacheFileV85(tmp, path)
+}
+
+func loadSavedResultsForHistoryV85() map[int]Result {
+	f, err := os.Open(savedResultsFileV85())
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil
+	}
+	defer gz.Close()
+	var rows []Result
+	if json.NewDecoder(gz).Decode(&rows) != nil {
+		return nil
+	}
+	out := make(map[int]Result, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row
+	}
+	return out
 }
 
 func syncCompletedQueueToHistoryV85() {
@@ -207,6 +239,7 @@ func syncCompletedQueueToHistoryV85() {
 	if json.Unmarshal(b, &jobs) != nil {
 		return
 	}
+	savedResults := loadSavedResultsForHistoryV85()
 	updates := make([]downloadHistoryEntryV85, 0, len(jobs))
 	for _, job := range jobs {
 		if job.Status != "completed" || strings.TrimSpace(job.OutputPath) == "" {
@@ -216,14 +249,31 @@ func syncCompletedQueueToHistoryV85() {
 		if statErr != nil || fileInfo.IsDir() {
 			continue
 		}
+		source := job.Source
+		name := job.Name
+		identityURL := job.URL
 		size := job.BytesTotal
+		if saved, ok := savedResults[job.ResultID]; ok {
+			if s := strings.TrimSpace(saved.Remote.Source); s != "" {
+				source = s
+			}
+			if n := strings.TrimSpace(saved.Remote.Name); n != "" {
+				name = n
+			}
+			if stable := historyRemoteURLV85(saved); stable != "" {
+				identityURL = stable
+			}
+			if saved.Remote.Size > 0 && !saved.Remote.ApproxSize {
+				size = saved.Remote.Size
+			}
+		}
 		if size <= 0 {
 			size = job.BytesDone
 		}
 		if size <= 0 {
 			size = fileInfo.Size()
 		}
-		key := downloadHistoryKeyV85(job.Source, job.URL, job.Name, size)
+		key := downloadHistoryKeyV85(source, identityURL, name, size)
 		finished := job.FinishedAt
 		if finished <= 0 {
 			finished = fileInfo.ModTime().Unix()
@@ -231,8 +281,8 @@ func syncCompletedQueueToHistoryV85() {
 		quickHash, _ := quickFileFingerprintV85(job.OutputPath, fileInfo.Size())
 		updates = append(updates, downloadHistoryEntryV85{
 			Key:        key,
-			Source:     job.Source,
-			Name:       job.Name,
+			Source:     source,
+			Name:       name,
 			Bytes:      size,
 			OutputPath: job.OutputPath,
 			FinishedAt: finished,
@@ -301,6 +351,9 @@ func historyRemoteURLV85(res Result) string {
 
 func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bool) {
 	ensureDownloadHistoryWatcherV85()
+	// Close the sub-500ms race between a just-completed queue save and an
+	// immediate second preflight. The sync is cheap when queue mtime is unchanged.
+	syncCompletedQueueToHistoryV85()
 	loadDownloadHistoryV85()
 	size := res.Remote.Size
 	key := downloadHistoryKeyV85(res.Remote.Source, historyRemoteURLV85(res), res.Remote.Name, size)
