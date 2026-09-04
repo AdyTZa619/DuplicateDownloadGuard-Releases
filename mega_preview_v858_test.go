@@ -68,8 +68,7 @@ func TestRestartPreviewUsesRootFirstResumePathV8511(t *testing.T) {
 	}
 
 	// Coalesced user initialization remains the single entry point; the direct
-	// resume implementation now discovers/promotes one root before per-file or
-	// login --resume compatibility work.
+	// resume implementation discovers/reuses one root before compatibility work.
 	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +86,60 @@ func TestRestartPreviewUsesRootFirstResumePathV8511(t *testing.T) {
 	}
 	if !strings.Contains(resumeSrc, "listMegaWarmRootV8511") || !strings.Contains(resumeSrc, "MEGA ROOT REUSE") {
 		t.Fatal("restart path must discover and reuse the existing MEGAcmd root first")
+	}
+}
+
+func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
+	b, err := webFS.ReadFile("web/preview_quick_v86.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	for _, required := range []string{
+		"function releaseRemoteMediaV8512()",
+		"media.pause()",
+		"media.removeAttribute('src')",
+		"media.load()",
+		"releaseRemoteMediaV8512();\n      reset(r);",
+	} {
+		if !strings.Contains(js, required) {
+			t.Fatalf("browser stream release regression missing %q", required)
+		}
+	}
+}
+
+func TestHotSessionClickDoesNotRebuildRootWithLongCommandV8512(t *testing.T) {
+	resumeSrc, err := osReadTextForTestV858("mega_preview_resume_direct_v858.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(resumeSrc, "The scan (or a previous preview) proves this exact public-folder session")
+	end := strings.Index(resumeSrc, "if a.preview.Active {\n\t\t_ = a.stopMegaPreviewLocked")
+	if start < 0 || end <= start {
+		t.Fatal("hot-session recovery block not found")
+	}
+	hot := resumeSrc[start:end]
+	if strings.Contains(hot, "startMegaWarmRootV86") {
+		t.Fatal("hot-session click must not repeat the long root creation command")
+	}
+	if !strings.Contains(hot, "listMegaWarmRootV8511") || !strings.Contains(hot, "tryMegaCurrentSessionWebDAVV859") {
+		t.Fatal("hot-session click must rediscover root then use bounded per-file compatibility")
+	}
+}
+
+func TestPostScanRootWarmupOwnsTheLongSetupV8512(t *testing.T) {
+	src, err := osReadTextForTestV858("mega_fast_preview.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(src, "ensureMegaWarmRootAfterScanV8512") {
+		t.Fatal("post-scan root warmup helper missing")
+	}
+	if !strings.Contains(src, `http.NewRequestWithContext(ctx, "PROPFIND", rootURL, nil)`) {
+		t.Fatal("post-scan WebDAV transport warmup missing")
+	}
+	if !strings.Contains(src, "WebDAV root pregătit și încălzit") {
+		t.Fatal("post-scan warmup timing diagnostic missing")
 	}
 }
 
