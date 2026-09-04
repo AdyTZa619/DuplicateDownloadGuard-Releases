@@ -2,6 +2,22 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.8] — 2026-09-04
+
+### MEGA Preview — reparare regresie de latență
+- Eliminat prewarm-ul MEGA automat de la pornirea interfeței; primul click al utilizatorului nu mai poate rămâne în spatele unei inițializări MEGAcmd pornite în fundal.
+- După restart, preview-ul nu mai pornește mai întâi WebDAV pentru întreg folderul public. Folosește `login <folder-link> --resume`, apoi deschide direct fișierul cerut prin WebDAV per-fișier.
+- Warm-root-ul rămâne disponibil după o scanare MEGA, unde sesiunea folderului este deja deschisă și costul inițializării a fost plătit.
+- Fallback-ul declanșat de player este acum un fallback real: oprește warm-root-ul și pornește explicit `webdav <handle/cale fișier>`, astfel încât nu mai poate întoarce același URL FAST ROOT care tocmai a eșuat.
+- Fallback-ul per-fișier folosește și el `--resume`; nu mai există login rece ascuns pe această cale.
+- Erorile playerului pentru modurile `MEGA FAST ROOT` și `MEGA DIRECT RESUME` pot declanșa retry-ul per-fișier o singură dată, evitând buclele de retry.
+- Diagnosticul expune separat `MEGA DIRECT RESUME` și `MEGA TRUE FALLBACK` pentru a vedea exact traseul folosit.
+
+### Validare
+- Teste dedicate verifică secvența `webdav -d /` → `webdav <fișier>`, faptul că URL-ul fallback este diferit de warm-root și faptul că startup prewarm rămâne eliminat.
+- Test static de regresie confirmă că restart preview este rutat prin direct per-file resume, nu prin whole-folder warm-root.
+- Candidata a trecut verificarea formatării, toate fișierele JavaScript, toate testele Go, `go vet` și build-ul Windows x64 înainte de bump-ul final la 8.5.8; release-ul este revalidat după bump.
+
 ## [8.5.7] — 2026-09-04
 
 ### Foldere locale — actualizare automată și rezultate corecte
