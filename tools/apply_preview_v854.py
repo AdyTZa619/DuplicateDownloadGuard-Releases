@@ -9,4 +9,4 @@ if count != 1:
     raise SystemExit(f'expected exactly one remote preview handler block, found {count}')
 s = s.replace(old, new, 1)
 p.write_text(s, encoding='utf-8', newline='\n')
-print('preview v8.5.4 handler patch applied')
+print('preview v8.5.4 handler patch applied; zero-command cache hits enabled')
