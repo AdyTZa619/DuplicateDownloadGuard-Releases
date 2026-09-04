@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"image"
 	"math"
 	"math/bits"
 	"os"
@@ -279,6 +278,100 @@ func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string)
 	return out, nil
 }
 
+func scoreFrameSetV85(remoteHashes []uint64, remoteValid []bool, localHashes []uint64, localValid []bool) (score, matched, high, veryHigh int) {
+	for i := range remoteHashes {
+		if i >= len(remoteValid) || i >= len(localValid) || i >= len(localHashes) || !remoteValid[i] || !localValid[i] {
+			continue
+		}
+		d := bits.OnesCount64(remoteHashes[i] ^ localHashes[i])
+		frameScore := int(math.Round(float64(64-d) * 100 / 64))
+		score += frameScore
+		matched++
+		if frameScore >= 90 {
+			high++
+		}
+		if frameScore >= 95 {
+			veryHigh++
+		}
+	}
+	if matched > 0 {
+		score = int(math.Round(float64(score) / float64(matched)))
+	}
+	return
+}
+
+func capVideoSimilarityV85(score, high, veryHigh int, durationRatio float64) int {
+	if high < 4 && score > 88 {
+		score = 88
+	}
+	if veryHigh < 4 && score > 93 {
+		score = 93
+	}
+	if durationRatio > .20 && score > 88 {
+		score = 88
+	} else if durationRatio > .08 && score > 93 {
+		score = 93
+	} else if durationRatio > .03 && score > 97 {
+		score = 97
+	}
+	return score
+}
+
+func (a *App) alignedVideoScoreV85(ctx context.Context, remoteFP videoFingerprintV85, candidate FileEntry, localInfo MediaInfo) (int, string) {
+	ff := a.detectFFmpeg()
+	if ff == "" || !localInfo.OK || localInfo.Duration <= 0 || remoteFP.Info.Duration <= 0 {
+		return -1, ""
+	}
+	delta := localInfo.Duration - remoteFP.Info.Duration
+	absDelta := math.Abs(delta)
+	maxD := math.Max(localInfo.Duration, remoteFP.Info.Duration)
+	durationRatio := absDelta / maxD
+	if absDelta < 1.5 || (absDelta > 90 && durationRatio > .12) {
+		return -1, ""
+	}
+	offsets := []float64{0, delta / 2, delta}
+	bestScore := -1
+	bestMatched := 0
+	bestHigh := 0
+	bestOffset := 0.0
+	seenOffset := map[int64]bool{}
+	for _, offset := range offsets {
+		key := int64(math.Round(offset * 1000))
+		if seenOffset[key] {
+			continue
+		}
+		seenOffset[key] = true
+		localHashes := make([]uint64, len(v85FramePoints))
+		localValid := make([]bool, len(v85FramePoints))
+		for i, p := range v85FramePoints {
+			if i >= len(remoteFP.Valid) || !remoteFP.Valid[i] {
+				continue
+			}
+			sec := remoteFP.Info.Duration*p + offset
+			if sec < .05 || sec >= localInfo.Duration-.05 {
+				continue
+			}
+			h, informative, err := frameSignatureV85(ctx, ff, candidate.Path, sec)
+			if err != nil || !informative {
+				continue
+			}
+			localHashes[i], localValid[i] = h, true
+		}
+		score, matched, high, veryHigh := scoreFrameSetV85(remoteFP.Hashes, remoteFP.Valid, localHashes, localValid)
+		if matched < 4 {
+			continue
+		}
+		score = capVideoSimilarityV85(score, high, veryHigh, durationRatio)
+		if score > bestScore {
+			bestScore, bestMatched, bestHigh, bestOffset = score, matched, high, offset
+		}
+	}
+	if bestScore < 0 {
+		return -1, ""
+	}
+	return bestScore, fmt.Sprintf("aliniere temporală %+0.2fs • %d cadre • %d foarte apropiate", bestOffset, bestMatched, bestHigh)
+}
+
 func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoFingerprintV85, candidate FileEntry) (int, string, MediaInfo, error) {
 	localFP, err := a.buildLocalVideoFingerprintV85(ctx, candidate)
 	if err != nil {
@@ -293,43 +386,22 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 		return 0, "", li, fmt.Errorf("duratele diferă prea mult: %.1f%%", durationRatio*100)
 	}
 
-	sum := 0
-	matched := 0
-	highMatches := 0
-	veryHighMatches := 0
-	for i := range v85FramePoints {
-		if i >= len(remoteFP.Valid) || i >= len(localFP.Valid) || !remoteFP.Valid[i] || !localFP.Valid[i] {
-			continue
-		}
-		d := bits.OnesCount64(remoteFP.Hashes[i] ^ localFP.Hashes[i])
-		frameScore := int(math.Round(float64(64-d) * 100 / 64))
-		sum += frameScore
-		matched++
-		if frameScore >= 90 {
-			highMatches++
-		}
-		if frameScore >= 95 {
-			veryHighMatches++
-		}
-	}
+	score, matched, highMatches, veryHighMatches := scoreFrameSetV85(remoteFP.Hashes, remoteFP.Valid, localFP.Hashes, localFP.Valid)
 	if matched < 4 {
 		return 0, "", li, fmt.Errorf("prea puține cadre informative comparabile: %d/7", matched)
 	}
-
-	score := int(math.Round(float64(sum) / float64(matched)))
-	if highMatches < 4 && score > 88 {
-		score = 88
-	}
-	if veryHighMatches < 4 && score > 93 {
-		score = 93
-	}
-	if durationRatio > .12 && score > 88 {
-		score = 88
-	} else if durationRatio > .03 && score > 97 {
-		score = 97
-	}
-
+	score = capVideoSimilarityV85(score, highMatches, veryHighMatches, durationRatio)
 	note := fmt.Sprintf("%d/7 cadre informative • %d foarte apropiate • durată Δ %.2fs", matched, highMatches, delta)
+
+	// Relative frame positions are ideal for re-encodes, but an added intro or
+	// outro shifts them. Only ambiguous, modest-duration-delta cases pay for a
+	// second pass that tries start/mid/end temporal alignment.
+	if score < 94 && delta >= 1.5 && durationRatio <= .35 {
+		if alignedScore, alignedNote := a.alignedVideoScoreV85(ctx, remoteFP, candidate, li); alignedScore > score {
+			score = alignedScore
+			note += " • " + alignedNote
+		}
+	}
 	return score, note, li, nil
 }
 
@@ -355,7 +427,7 @@ func remoteImageSignatureV85(ctx context.Context, target string, max int64) (ima
 	if err != nil {
 		return imageSignatureV85{}, err
 	}
-	img, _, err := image.Decode(bytes.NewReader(rb))
+	img, err := decodeImageForSignatureV85(bytes.NewReader(rb))
 	if err != nil {
 		return imageSignatureV85{}, fmt.Errorf("imagine remote: %w", err)
 	}
