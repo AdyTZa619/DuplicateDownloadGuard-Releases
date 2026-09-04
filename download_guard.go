@@ -25,18 +25,22 @@ const (
 	guardDuplicate = "DUPLICATE"
 	guardReview    = "REVIEW"
 
-	downloadGuardVersion = 1
+	downloadGuardVersion = 2
 )
 
 type DownloadGuardDecision struct {
-	ResultID   int    `json:"resultId"`
-	Name       string `json:"name"`
-	Verdict    string `json:"verdict"`
-	Reason     string `json:"reason"`
-	LocalPath  string `json:"localPath,omitempty"`
-	Method     string `json:"method"`
-	Candidates int    `json:"candidates"`
-	Exact      bool   `json:"exact"`
+	ResultID    int    `json:"resultId"`
+	Name        string `json:"name"`
+	Verdict     string `json:"verdict"`
+	Reason      string `json:"reason"`
+	LocalPath   string `json:"localPath,omitempty"`
+	Method      string `json:"method"`
+	Candidates  int    `json:"candidates"`
+	Exact       bool   `json:"exact"`
+	UserStatus  string `json:"userStatus,omitempty"`
+	Action      string `json:"action,omitempty"`
+	Similarity  int    `json:"similarity,omitempty"`
+	QualityHint string `json:"qualityHint,omitempty"`
 }
 
 type DownloadGuardReport struct {
@@ -150,9 +154,6 @@ func pathUnderAny(path string, roots []string) bool {
 	return false
 }
 
-// refreshLiveIndexForGuard performs one live filesystem pass for the whole
-// selected batch. It catches files added, moved or renamed since the last
-// manual indexing and also removes stale index entries under scanned roots.
 func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) ([]FileEntry, guardScan, error) {
 	roots := a.guardRoots(destination)
 	a.mu.RLock()
@@ -193,7 +194,6 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 				return ctx.Err()
 			}
 			if walkErr != nil {
-				// Inaccessible system folders must not abort a complete disk scan.
 				if d != nil && d.IsDir() {
 					return filepath.SkipDir
 				}
@@ -216,7 +216,6 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 		}
 	}
 
-	// Keep useful index entries from another profile, but validate them live.
 	for path := range old {
 		if seen[pathKey(path)] || pathUnderAny(path, roots) {
 			continue
@@ -252,7 +251,7 @@ func remoteContentSHA256(ctx context.Context, target string, expectedSize int64)
 		return "", 0, err
 	}
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("User-Agent", "DuplicateDownloadGuard/8.3 ExactGuard")
+	req.Header.Set("User-Agent", "DuplicateDownloadGuard/8.5 ExactGuard")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", 0, err
@@ -305,8 +304,6 @@ func (a *App) exactLocalHashMatch(remote RemoteItem, candidates []FileEntry) (st
 	return "", false, nil
 }
 
-// sampleGuardCandidates downloads every remote range once, then eliminates
-// every local candidate that differs in at least one deterministic range.
 func sampleGuardCandidates(ctx context.Context, target string, size int64, candidates []FileEntry, blocks, blockKB int) ([]FileEntry, int64, error) {
 	if size <= 0 {
 		return nil, 0, errors.New("mărimea remote este necunoscută")
@@ -379,7 +376,10 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 	candidates := rankGuardCandidates(res.Remote, bySize[res.Remote.Size])
 	base.Candidates = len(candidates)
 	if len(candidates) == 0 {
-		base.Reason = "Scanarea live a HDD-urilor și a folderului de download nu a găsit niciun fișier cu aceeași mărime exactă."
+		if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+			return mediaDecision
+		}
+		base.Reason = "Scanarea live și verificarea candidaților media nu au găsit un corespondent relevant în colecția locală."
 		if res.Manual && strings.EqualFold(res.Status, "HAVE") {
 			return guardReviewDecision(res, "manual-have", "Rezultatul este marcat manual «Ai deja», dar fișierul local nu mai este disponibil; necesită confirmare.", 0, res.LocalPath)
 		}
@@ -392,6 +392,9 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 			return DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDuplicate, Reason: "Hash-ul remote coincide cu hash-ul fișierului local, indiferent de nume.", LocalPath: path, Method: "remote-hash", Candidates: len(candidates), Exact: true}
 		}
 		if err == nil {
+			if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+				return mediaDecision
+			}
 			base.Method = "remote-hash"
 			base.Reason = fmt.Sprintf("Toți cei %d candidați de aceeași mărime au hash diferit de hash-ul remote.", len(candidates))
 			return base
@@ -399,7 +402,7 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 	}
 
 	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
-		return guardReviewDecision(res, "mega-busy", "MEGA este ocupat cu altă scanare/descărcare; candidații de aceeași mărime rămân REVIEW și nu sunt descărcați automat.", len(candidates), candidates[0].Path)
+		return guardReviewDecision(res, "mega-busy", "MEGA este ocupat cu altă scanare/descărcare; candidații rămân pentru verificare manuală și nu sunt descărcați automat.", len(candidates), candidates[0].Path)
 	}
 	target, err := remoteTarget(a, res)
 	if err != nil {
@@ -430,6 +433,9 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 				return DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDuplicate, Reason: fmt.Sprintf("Conținut identic confirmat prin SHA-256 după citirea integrală a %s remote.", human(transferred)), LocalPath: candidate.Path, Method: "full-sha256", Candidates: len(candidates), Exact: true}
 			}
 		}
+		if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+			return mediaDecision
+		}
 		base.Method = "full-sha256"
 		base.Reason = fmt.Sprintf("Verificarea integrală SHA-256 (%s remote) a demonstrat că toți candidații de aceeași mărime au conținut diferit.", human(transferred))
 		return base
@@ -441,6 +447,9 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 	}
 	if len(survivors) > 0 {
 		return guardReviewDecision(res, "deterministic-samples", fmt.Sprintf("%d candidat(ți) au trecut toate mostrele distribuite (%s trafic). Pot fi identici, dar mostrele nu sunt dovadă integrală.", len(survivors), human(transferred)), len(candidates), survivors[0].Path)
+	}
+	if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+		return mediaDecision
 	}
 	base.Method = "deterministic-samples"
 	base.Reason = fmt.Sprintf("Fiecare candidat de aceeași mărime diferă în cel puțin o mostră; %s transferați pentru verificare.", human(transferred))
@@ -461,7 +470,9 @@ func (a *App) applyAIAdvisory(ctx context.Context, res Result, entries []FileEnt
 
 	visual := httptestLikeVisual(a, res, candidate.Path, ctx)
 	if visual.err == nil && visual.score >= 90 {
-		return guardReviewDecision(res, "ai-visual-advisory", fmt.Sprintf("Fingerprint-ul media indică %d%% similaritate cu %s. Este REVIEW, nu duplicat confirmat.", visual.score, candidate.Path), max(1, decision.Candidates), candidate.Path)
+		d := guardReviewDecision(res, "media-looks-same", fmt.Sprintf("Fingerprint-ul media indică %d%% similaritate cu %s. Verifică înainte de download.", visual.score, candidate.Path), max(1, decision.Candidates), candidate.Path)
+		d.Similarity = visual.score
+		return d
 	}
 	a.mu.RLock()
 	aiEnabled, useVision := a.cfg.AIEnabled, a.cfg.AIVision
@@ -471,7 +482,7 @@ func (a *App) applyAIAdvisory(ctx context.Context, res Result, entries []FileEnt
 	}
 	answer, err := a.callOllama(ctx, res, candidate.Path, useVision)
 	if err == nil && (answer.Verdict == "same" || answer.Verdict == "probably_same") && answer.Confidence >= 65 {
-		return guardReviewDecision(res, "ollama-advisory", fmt.Sprintf("AI local: %s (%d%%) — %s. AI este consultativ, deci rezultatul rămâne REVIEW.", answer.Verdict, answer.Confidence, answer.Reason), max(1, decision.Candidates), candidate.Path)
+		return guardReviewDecision(res, "ollama-advisory", fmt.Sprintf("AI local: %s (%d%%) — %s. AI este consultativ, deci rezultatul necesită verificare.", answer.Verdict, answer.Confidence, answer.Reason), max(1, decision.Candidates), candidate.Path)
 	}
 	return decision
 }
@@ -506,12 +517,18 @@ func (a *App) applyGuardDecisions(decisions []DownloadGuardDecision) {
 				status = "SAMPLED"
 				x.MatchScore = 99
 			}
+			if decision.Similarity > 0 {
+				x.VisualScore = decision.Similarity
+				if x.MatchScore < decision.Similarity {
+					x.MatchScore = decision.Similarity
+				}
+			}
 			x.AutoStatus = status
-			x.AutoConfidence = "ExactGuard • necesită review"
+			x.AutoConfidence = "ExactGuard • necesită verificare"
 			x.AutoReason = decision.Reason
 		case guardDownload:
 			x.AutoStatus = "MISSING"
-			x.AutoConfidence = "ExactGuard • lipsă confirmată live"
+			x.AutoConfidence = "ExactGuard • fără corespondent relevant"
 			x.AutoReason = decision.Reason
 		}
 		if !x.Manual {
@@ -550,7 +567,9 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 
 	hasMega := false
 	for _, row := range rows {
-		if strings.EqualFold(row.Remote.Source, "MEGA") && (mode == guardModeAI || (row.Remote.Size > 0 && len(bySize[row.Remote.Size]) > 0 && row.Remote.Hash == "")) {
+		kind := remoteMediaKind(row.Remote.Name)
+		needsMedia := kind == "image" || kind == "video"
+		if strings.EqualFold(row.Remote.Source, "MEGA") && (mode == guardModeAI || needsMedia || (row.Remote.Size > 0 && len(bySize[row.Remote.Size]) > 0 && row.Remote.Hash == "")) {
 			hasMega = true
 			break
 		}
@@ -579,6 +598,7 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 		if decision.Verdict == guardDownload && row.Manual && strings.EqualFold(row.Status, "HAVE") {
 			decision = guardReviewDecision(row, "manual-have", "Fișierul este marcat manual «Ai deja». Download Guard nu suprascrie această decizie fără confirmare explicită. "+decision.Reason, decision.Candidates, row.LocalPath)
 		}
+		decision = decorateGuardDecision(decision)
 		report.Decisions = append(report.Decisions, decision)
 		report.Counts[decision.Verdict]++
 	}
