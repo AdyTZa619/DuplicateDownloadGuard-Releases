@@ -298,6 +298,7 @@ func main() {
 	mux.HandleFunc("/api/results/visual-verify", a.handleVisualVerify)
 	mux.HandleFunc("/api/download/start", a.handleDownloadStart)
 	mux.HandleFunc("/api/download/preflight", a.handleDownloadPreflight)
+	mux.HandleFunc("/api/download/diagnostic", a.handleDownloadDiagnosticV860)
 	mux.HandleFunc("/api/download/jd2", a.handleDownloadJD2)
 	mux.HandleFunc("/api/media/compare", a.handleMediaCompare)
 	mux.HandleFunc("/api/results/mark", a.handleMark)
