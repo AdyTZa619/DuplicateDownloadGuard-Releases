@@ -3261,8 +3261,8 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, map[string]any{
 		"url":          previewResult.URL,
-		"kind":        kind,
-		"streaming":   true,
+		"kind":         kind,
+		"streaming":    true,
 		"source":       previewResult.Mode,
 		"previewMode":  previewResult.Mode,
 		"prepareMs":    previewResult.Prepare.Milliseconds(),
