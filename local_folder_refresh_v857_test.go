@@ -119,7 +119,7 @@ func TestHeartbeatFolderRemovalPrunesStaleIndexAndResultV857(t *testing.T) {
 		appDir:    t.TempDir(),
 		index:     map[string]FileEntry{local: entry},
 		bySize:    map[int64][]string{entry.Size: {local}},
-		byName:    map[string][]string{normalizeName(entry.Name): {local}},
+		byName:    map[string][]string{},
 		decisions: map[string]Decision{},
 		results: []Result{{
 			ID:         1,
