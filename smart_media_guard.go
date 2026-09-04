@@ -275,21 +275,11 @@ func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string)
 }
 
 func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoFingerprintV85, candidate FileEntry) (int, string, MediaInfo, error) {
-	ff := a.detectFFmpeg()
-	fp := a.detectFFprobe()
-	if ff == "" || fp == "" {
-		return 0, "", MediaInfo{}, fmt.Errorf("ffmpeg + ffprobe lipsesc")
+	localFP, err := a.buildLocalVideoFingerprintV85(ctx, candidate)
+	if err != nil {
+		return 0, "", localFP.Info, err
 	}
-	li, ok := cachedLocalMediaInfo(a, candidate)
-	if !ok {
-		li = probeMedia(ctx, fp, candidate.Path, "LOCAL")
-		if li.OK {
-			cacheLocalMediaInfo(a, candidate, li)
-		}
-	}
-	if !li.OK || li.Duration <= 0 {
-		return 0, "", li, fmt.Errorf("nu pot citi durata videoclipului local")
-	}
+	li := localFP.Info
 	ri := remoteFP.Info
 	maxD := math.Max(ri.Duration, li.Duration)
 	delta := math.Abs(ri.Duration - li.Duration)
@@ -302,15 +292,11 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 	matched := 0
 	highMatches := 0
 	veryHighMatches := 0
-	for i, p := range v85FramePoints {
-		if i >= len(remoteFP.Valid) || !remoteFP.Valid[i] {
+	for i := range v85FramePoints {
+		if i >= len(remoteFP.Valid) || i >= len(localFP.Valid) || !remoteFP.Valid[i] || !localFP.Valid[i] {
 			continue
 		}
-		lh, informative, err := frameSignatureV85(ctx, ff, candidate.Path, li.Duration*p)
-		if err != nil || !informative {
-			continue
-		}
-		d := bits.OnesCount64(remoteFP.Hashes[i] ^ lh)
+		d := bits.OnesCount64(remoteFP.Hashes[i] ^ localFP.Hashes[i])
 		frameScore := int(math.Round(float64(64-d) * 100 / 64))
 		sum += frameScore
 		matched++
@@ -353,6 +339,9 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 	}
 	candidate := FileEntry{Path: local, Name: filepath.Base(local), Size: st.Size(), MTime: st.ModTime().UnixNano()}
 	score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate)
+	if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
+		a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
+	}
 	return score, note, remoteFP.Info, li, err
 }
 
@@ -493,6 +482,19 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	} else {
 		if a.detectFFmpeg() == "" || a.detectFFprobe() == "" {
 			return mediaReviewDecisionV85(res, "media-tools-missing", "Pentru a exclude un video recodat sau complet redenumit sunt necesare FFmpeg și ffprobe. Instalează-le din Tool Manager și reîncearcă.", localCount, res.LocalPath)
+		}
+		if pruneLocalVideoFingerprintCacheV85(a, entries) {
+			defer func() {
+				if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
+					a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
+				}
+			}()
+		} else {
+			defer func() {
+				if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
+					a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
+				}
+			}()
 		}
 		remoteFP, fpErr := a.buildRemoteVideoFingerprintV85(ctx, target)
 		if fpErr != nil {
