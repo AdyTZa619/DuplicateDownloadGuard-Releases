@@ -39,7 +39,7 @@ func TestMegaPreviewProxyForwardsRangeV8513(t *testing.T) {
 	if resp.StatusCode != http.StatusPartialContent || string(b) != "0123456789" {
 		t.Fatalf("status=%d body=%q", resp.StatusCode, string(b))
 	}
-	if resp.Header.Get("Content-Range") != "bytes 10-19/100" || resp.Header.Get("X-DDG-MEGA-Proxy") != "v8513" {
+	if resp.Header.Get("Content-Range") != "bytes 10-19/100" || resp.Header.Get("X-DDG-MEGA-Proxy") != "v8514" {
 		t.Fatalf("proxy headers missing: %#v", resp.Header)
 	}
 }
