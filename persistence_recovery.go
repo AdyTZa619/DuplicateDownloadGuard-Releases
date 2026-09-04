@@ -138,24 +138,44 @@ func copyValidatedPersistenceV85(src, dst string, validate func(string) error) e
 	return nil
 }
 
+func persistenceFileNewerV85(candidate, primary string) bool {
+	candidateInfo, err := os.Stat(candidate)
+	if err != nil || candidateInfo.IsDir() {
+		return false
+	}
+	primaryInfo, err := os.Stat(primary)
+	if err != nil || primaryInfo.IsDir() {
+		return true
+	}
+	return candidateInfo.ModTime().After(primaryInfo.ModTime())
+}
+
 func recoverPersistenceDirV85(dir string) []string {
 	recovered := []string{}
 	for _, spec := range persistenceSpecsV85() {
 		primary := filepath.Join(dir, spec.Name)
-		if validPersistenceFileV85(primary, spec.Validate) {
+		primaryValid := validPersistenceFileV85(primary, spec.Validate)
+		pending := primary + ".tmp"
+
+		// saveIndex/saveResults/saveDecisions write a fully closed .tmp before the
+		// final rename. If Windows/process termination left that newer transaction
+		// behind, it represents the latest committed state even when the old primary
+		// is still perfectly readable. Promote only a fully validated, newer temp.
+		if validPersistenceFileV85(pending, spec.Validate) && (!primaryValid || persistenceFileNewerV85(pending, primary)) {
+			if copyValidatedPersistenceV85(pending, primary, spec.Validate) == nil {
+				recovered = append(recovered, spec.Name)
+				primaryValid = true
+				_ = os.Remove(pending)
+			}
+		}
+		if primaryValid {
 			continue
 		}
-		// saveIndex/saveResults/saveDecisions already write through .tmp. If the
-		// process died after the temporary file was fully closed but before rename,
-		// that file is newer evidence than the last known-good backup.
-		candidates := []string{primary + ".tmp", primary + ".good.bak"}
-		for _, candidate := range candidates {
-			if !validPersistenceFileV85(candidate, spec.Validate) {
-				continue
-			}
-			if copyValidatedPersistenceV85(candidate, primary, spec.Validate) == nil {
+
+		backup := primary + ".good.bak"
+		if validPersistenceFileV85(backup, spec.Validate) {
+			if copyValidatedPersistenceV85(backup, primary, spec.Validate) == nil {
 				recovered = append(recovered, spec.Name)
-				break
 			}
 		}
 	}
