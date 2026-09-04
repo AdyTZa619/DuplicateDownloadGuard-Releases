@@ -225,7 +225,7 @@ func readLocalImageSignatureV85(path string) (imageSignatureV85, error) {
 		return imageSignatureV85{}, err
 	}
 	defer f.Close()
-	img, _, err := image.Decode(f)
+	img, err := decodeImageForSignatureV85(f)
 	if err != nil {
 		return imageSignatureV85{}, err
 	}
