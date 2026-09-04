@@ -71,7 +71,8 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			child, childErr := a.activateMegaRootV8511(item, old.Exe, rootURL, old.PreviousSession)
 			if childErr == nil {
 				a.cleanupPreviousMegaPreviewAsyncV86(old, megaWarmRootRefV86)
-				a.logf("MEGA ROOT REDISCOVER: root existent găsit în %d ms -> %s", time.Since(lookupStarted).Milliseconds(), rootURL)
+				megaPreviewDiagfV8514("RETURN PREP  item=%q path=root-rediscover elapsed=%s", item.Path, time.Since(lookupStarted).Round(time.Millisecond))
+				a.previewLogfAsyncV8515("MEGA ROOT REDISCOVER: root existent găsit în %d ms -> %s", time.Since(lookupStarted).Milliseconds(), rootURL)
 				return child, nil
 			}
 		}
@@ -88,6 +89,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			problem := classifyMegaProblem(result.StartOutput, err)
 			return "", newMegaProblemError(problem, result.StartOutput)
 		}
+		megaPreviewDiagfV8514("POST CMD     item=%q path=hot-per-file elapsed=%s", item.Path, time.Since(fallbackStarted).Round(time.Millisecond))
 		a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
 		a.preview = MegaPreviewState{
 			Active:          true,
@@ -98,7 +100,8 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			Exe:             old.Exe,
 		}
 		a.resetPreviewTTLLocked()
-		a.logf("MEGA HOT PER-FILE: root absent; endpointul cerut a fost pregătit în %d ms", time.Since(fallbackStarted).Milliseconds())
+		megaPreviewDiagfV8514("RETURN PREP  item=%q path=hot-per-file elapsed=%s", item.Path, time.Since(fallbackStarted).Round(time.Millisecond))
+		a.previewLogfAsyncV8515("MEGA HOT PER-FILE: root absent; endpointul cerut a fost pregătit în %d ms", time.Since(fallbackStarted).Milliseconds())
 		return result.StreamURL, nil
 	}
 
@@ -119,15 +122,18 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		if rootURL, err := listMegaWarmRootV8511(ctx, exe, 2500*time.Millisecond); err == nil && rootURL != "" {
 			child, childErr := a.activateMegaRootV8511(item, exe, rootURL, "")
 			if childErr == nil {
-				a.logf("MEGA ROOT REUSE: root existent găsit în MEGAcmd -> %s", rootURL)
+				megaPreviewDiagfV8514("RETURN PREP  item=%q path=restart-root-reuse", item.Path)
+				a.previewLogfAsyncV8515("MEGA ROOT REUSE: root existent găsit în MEGAcmd -> %s", rootURL)
 				return child, nil
 			}
 		} else if err != nil {
-			a.logf("MEGA ROOT REUSE: listarea WebDAV nu a răspuns normal: %v", err)
+			a.previewLogfAsyncV8515("MEGA ROOT REUSE: listarea WebDAV nu a răspuns normal: %v", err)
 		}
 
+		restartStarted := time.Now()
 		result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
 		if err == nil && result.StreamURL != "" {
+			megaPreviewDiagfV8514("POST CMD     item=%q path=current-session elapsed=%s", item.Path, time.Since(restartStarted).Round(time.Millisecond))
 			a.preview = MegaPreviewState{
 				Active:     true,
 				SourceURL:  item.URL,
@@ -136,11 +142,12 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 				Exe:        exe,
 			}
 			a.resetPreviewTTLLocked()
-			a.logf("MEGA CURRENT SESSION: compatibilitate per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+			megaPreviewDiagfV8514("RETURN PREP  item=%q path=current-session elapsed=%s", item.Path, time.Since(restartStarted).Round(time.Millisecond))
+			a.previewLogfAsyncV8515("MEGA CURRENT SESSION: compatibilitate per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 			return result.StreamURL, nil
 		}
 		a.clearMegaPreviewRestartHintV859()
-		a.logf("MEGA CURRENT SESSION indisponibil; abia acum folosesc --resume: %v", err)
+		a.previewLogfAsyncV8515("MEGA CURRENT SESSION indisponibil; abia acum folosesc --resume: %v", err)
 	}
 
 	oldSession := ""
@@ -155,7 +162,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		problem := classifyMegaProblem(loginOut, err)
 		return "", newMegaProblemError(problem, loginOut)
 	}
-	a.logf("MEGA COLD RESUME: login --resume a durat %d ms", time.Since(loginStarted).Milliseconds())
+	a.previewLogfAsyncV8515("MEGA COLD RESUME: login --resume a durat %d ms", time.Since(loginStarted).Milliseconds())
 
 	if rootURL, rootErr := startMegaWarmRootV86(ctx, exe); rootErr == nil && rootURL != "" {
 		warmMegaWebDAVTransportV8512(rootURL)
@@ -166,11 +173,11 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			} else {
 				a.clearMegaPreviewRestartHintV859()
 			}
-			a.logf("MEGA ROOT RESUME: --resume + un singur WebDAV root -> %s", rootURL)
+			a.previewLogfAsyncV8515("MEGA ROOT RESUME: --resume + un singur WebDAV root -> %s", rootURL)
 			return child, nil
 		}
 	} else {
-		a.logf("MEGA ROOT RESUME indisponibil; folosesc per-file: %v", rootErr)
+		a.previewLogfAsyncV8515("MEGA ROOT RESUME indisponibil; folosesc per-file: %v", rootErr)
 	}
 
 	result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
@@ -197,6 +204,6 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		a.clearMegaPreviewRestartHintV859()
 	}
 	a.resetPreviewTTLLocked()
-	a.logf("MEGA DIRECT RESUME fallback: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+	a.previewLogfAsyncV8515("MEGA DIRECT RESUME fallback: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 	return result.StreamURL, nil
 }
