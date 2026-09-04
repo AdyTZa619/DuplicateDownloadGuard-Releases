@@ -2,6 +2,23 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.10] — 2026-09-04
+
+### MEGA Preview — root persistent și eliminarea blocajelor recurente
+- Un fallback pentru un singur fișier nu mai execută `webdav -d /`; WebDAV root rămâne activ pentru fișierele următoare, în loc ca primul child problematic să împingă toată sesiunea pe ruta per-fișier lentă.
+- Fallback-ul per-fișier este temporar când root-ul este sănătos: URL-ul alternativ este folosit numai pentru fișierul care a eșuat, iar starea canonică a preview-ului rămâne root-ul.
+- După un login/cold resume, DDG încearcă să pornească un singur WebDAV root și derivă local URL-urile tuturor fișierelor; `webdav <fișier>` rămâne doar fallback de compatibilitate dacă root-ul nu poate fi expus.
+- La închiderea normală, dacă DDG este proprietarul sesiunii publice și nu există o sesiune MEGA anterioară de restaurat, root-ul WebDAV nu mai este oprit. URL-ul local al root-ului este păstrat pentru restart.
+- La pornirea următoare, DDG verifică doar listenerul local și construiește child URL-ul fără `session`, `logout`, `login` sau `webdav`; dacă listenerul nu mai există, cache-ul este invalidat și se revine la mecanismul sigur de resume.
+- Cache-ul persistent acceptă exclusiv endpointuri loopback (`127.0.0.1`, `localhost`, `::1`) și nu salvează niciodată tokenul/session ID-ul MEGA sau credențiale de cont.
+- Cele două straturi JavaScript de fallback nu mai pot porni două încercări per-fișier succesive pentru aceeași eroare; fallback-ul nou marchează eroarea finală înainte de a delega handlerului vechi.
+- Pregătirea root-ului după scanare are propriul context scurt, astfel încât un context de scanare aproape expirat nu mai poate trimite primul click direct pe ruta lentă.
+
+### Validare
+- Testele de regresie interzic explicit `webdav -d /` în fallback-ul unui child și verifică faptul că URL-ul fallback rămâne diferit de URL-ul root.
+- Teste noi verifică round-trip-ul root-ului persistent, respingerea URL-urilor non-loopback și păstrarea root-ului la shutdown fără comandă de teardown.
+- Candidata funcțională a trecut `gofmt`, verificarea tuturor fișierelor JavaScript, toate testele Go, `go vet` și build-ul Windows x64 înainte de bump-ul final la 8.5.10; release-ul este revalidat după bump.
+
 ## [8.5.9] — 2026-09-04
 
 ### MEGA Preview — cold-start și blocaje după mai multe vizualizări
