@@ -527,6 +527,15 @@ func (a *App) handleUniversalScan(w http.ResponseWriter, r *http.Request) {
 			errs = append(errs, e.Error())
 		}
 	}
+	if len(items) == 0 && (adapter == "auto" || adapter == "html") {
+		if x, e := a.probeHTMLMediaV860(ctx, req.URL); e == nil {
+			items = x
+			used = "html"
+		} else {
+			errs = append(errs, "HTML: "+e.Error())
+		}
+	}
+
 	if len(items) == 0 {
 		http.Error(w, "Nicio metodă nu a putut extrage fișiere. "+strings.Join(errs, " | "), 422)
 		return
