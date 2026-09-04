@@ -16,8 +16,6 @@ if s.count(old_call) != 1:
 s = s.replace(old_call, new_call, 1)
 p.write_text(s, encoding='utf-8', newline='\n')
 
-# Frontend: shorter debounce and one automatic forced fallback if the optimistic
-# root URL cannot actually be consumed by the browser.
 p = Path('web/exact_guard.js')
 s = p.read_text(encoding='utf-8')
 old_delay = '      }, 320);'
@@ -78,4 +76,4 @@ block = r'''// MEGA fast-root recovery v8.5.4. Root URLs are returned optimistic
 '''
 s = s.replace(marker, block + marker, 1)
 p.write_text(s, encoding='utf-8', newline='\n')
-print('preview v8.5.4 fallback + debounce patch applied')
+print('preview v8.5.4 fallback + debounce patch applied; validation triggered')
