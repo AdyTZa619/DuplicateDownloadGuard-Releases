@@ -10,6 +10,7 @@ func TestDecorateGuardDecisionUsesIntuitiveLabels(t *testing.T) {
 	}{
 		{DownloadGuardDecision{Verdict: guardDuplicate}, userHaveExact, actionDontDownload},
 		{DownloadGuardDecision{Verdict: guardDownload}, userMissing, actionDownload},
+		{DownloadGuardDecision{Verdict: guardDuplicate, Method: "download-history"}, userDownloaded, actionDontDownload},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-same-content"}, userSameContent, actionDontDownload},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "remote"}, userOtherVersion, actionRemoteBetter},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "local"}, userOtherVersion, actionLocalBetter},
