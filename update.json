@@ -1,8 +1,8 @@
 {
-  "version": "8.5.12-test.1",
+  "version": "8.5.12-test.2",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "f2859efbb14bf12ae653c19d66ab55469b14be7e7037f05d08d83cf9066e751d",
-  "notes": "TEST MEGA Preview 8.5.12-test.1: închide explicit streamul media vechi înainte de fiecare rând ca să nu se acumuleze conexiuni WebDAV; după scanare pregătește și încălzește root-ul; pe sesiune MEGA deja caldă nu mai repetă webdav / lung la primul click și folosește fallback per-fișier cu buget scurt.",
-  "publishedAt": "2026-09-04T19:04:42.4051544Z",
+  "sha256": "92841ec1dd2d1952ac7ee99b2e5ec9f11909d6774a1a468a55549256d3731dbe",
+  "notes": "TEST MEGA Preview 8.5.12-test.2: oprirea intenționată a playerului dezactivează mai întâi onerror, astfel schimbarea rândului nu mai declanșează artificial MEGA TRUE FALLBACK și nu mai transformă fiecare preview într-o inițializare lentă. Păstrează eliberarea conexiunii vechi și adaugă sus doar ceasul real HH:MM:SS.",
+  "publishedAt": "2026-09-04T19:25:50.5774701Z",
   "channel": "test"
 }
