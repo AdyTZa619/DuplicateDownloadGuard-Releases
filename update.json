@@ -1,8 +1,8 @@
 {
-  "version": "8.5.22-test.1",
+  "version": "8.5.21-recovery.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "291023b49d47b995265421c08fd0c11143b02dec6c52daff7d844961e0ed0b05",
-  "notes": "TEST 8.5.22-test.1: bază exactă 8.5.9. Fiecare preview MEGA primește un port/origin local nou, astfel încât conexiunile Range rămase de la playerul anterior să nu mai poată bloca următorul preview în Chromium. Nu schimbă playerul, sesiunea MEGA sau logica de matching.",
-  "publishedAt": "2026-09-04T22:15:15.8553010Z",
+  "sha256": "d378264ed812467d33229b6329e89ddfdce07b057e95f3f0209a55a65aebaca1",
+  "notes": "RECOVERY: executabil construit din baza exactă 8.5.9, fără modificările experimentale MEGA Preview 8.5.10-8.5.20. Scop: revenire sigură la comportamentul cunoscut înainte de continuarea remedierii exclusiv pe ramură separată.",
+  "publishedAt": "2026-09-04T22:23:22.7260327Z",
   "channel": "test"
 }
