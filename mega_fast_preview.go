@@ -66,6 +66,10 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	return rootURL, nil
 }
 
+func newMegaPostScanWarmContextV8520() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 22*time.Second)
+}
+
 // prepareMegaWarmRootAfterScanV86 pays the WebDAV startup cost while the MEGA
 // public-folder session is still active. The scan context must NOT control this
 // final warm-up: by the time comparison finishes that context can already be
@@ -73,7 +77,7 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 // forces the first click (and later switches) back through slower per-file
 // MEGAcmd commands. Give warm-root preparation its own bounded context instead.
 func (a *App) prepareMegaWarmRootAfterScanV86(_ context.Context, exe, sourceURL, previousSession string) error {
-	warmCtx, warmCancel := context.WithTimeout(context.Background(), 22*time.Second)
+	warmCtx, warmCancel := newMegaPostScanWarmContextV8520()
 	defer warmCancel()
 
 	rootURL, err := startMegaWarmRootV86(warmCtx, exe)
