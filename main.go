@@ -3198,7 +3198,8 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 
 func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID int `json:"id"`
+		ID            int  `json:"id"`
+		ForceFallback bool `json:"forceFallback,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.ID <= 0 {
 		http.Error(w, "ID rezultat invalid", 400)
@@ -3227,7 +3228,7 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formatul nu are preview media integrat", 415)
 		return
 	}
-	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote)
+	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote, req.ForceFallback)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

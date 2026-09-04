@@ -607,7 +607,7 @@
         scheduledResolve = null;
         if (job) await startNow(job.row, job.seq);
         resolve();
-      }, 320);
+      }, 140);
     });
   };
 
@@ -624,6 +624,54 @@
       }
     }
     return originalPlayRemote();
+  };
+})();
+
+// MEGA fast-root recovery v8.5.4. Root URLs are returned optimistically for
+// speed. If the browser reports a real media error, retry once through the
+// proven per-file WebDAV path instead of leaving the user at a dead preview.
+(() => {
+  'use strict';
+  if (typeof window.remotePreviewError !== 'function') return;
+  const originalRemotePreviewErrorV854 = window.remotePreviewError;
+  let lastFallbackID = 0;
+  let lastFallbackAt = 0;
+
+  window.remotePreviewError = async function () {
+    const row = typeof currentRow !== 'undefined' ? currentRow : null;
+    const id = Number(row?.id || 0);
+    const sourceEl = document.getElementById('remoteSource');
+    const sourceText = String(sourceEl?.textContent || '').toUpperCase();
+    const now = Date.now();
+    const recentlyRetried = id && lastFallbackID === id && now - lastFallbackAt < 15000;
+    if (id && sourceText.includes('MEGA FAST ROOT') && !recentlyRetried) {
+      lastFallbackID = id;
+      lastFallbackAt = now;
+      const preview = document.getElementById('remotePreview');
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Fast preview nu a răspuns; comut pe fallback MEGA…</b><span class="small">O singură încercare WebDAV per-fișier.</span></div>';
+      try {
+        const d = await api('/api/remote-preview/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, forceFallback: true })
+        });
+        if (!currentRow || Number(currentRow.id) !== id) return;
+        const kind = d.kind || previewKind(row.remote?.name || row.remote?.path || '');
+        remotePreviewActive = true;
+        const stop = document.getElementById('stopRemote');
+        if (stop) stop.disabled = false;
+        if (sourceEl) {
+          sourceEl.textContent = `${d.source || 'MEGA FALLBACK'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''} • LIVE`;
+          sourceEl.classList.add('remoteLive');
+        }
+        if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, row.remote?.name || row.remote?.path || 'remote');
+        return;
+      } catch (error) {
+        if (preview) preview.innerHTML = `<div class="previewEmpty"><b>Fallback MEGA eșuat.</b><br>${esc(error.message)}<br><br><button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ MEGA</button></div>`;
+        return;
+      }
+    }
+    return originalRemotePreviewErrorV854();
   };
 })();
 
