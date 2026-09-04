@@ -38,8 +38,12 @@ func megaProblemFromError(err error) MegaProblem {
 	return classifyMegaProblem("", err)
 }
 
-var megaRetryDurationRxV85 = regexp.MustCompile(`(?i)(?:retry|try again|wait|available again|reset(?:s)?|quota[^\n]{0,30})(?:[^0-9]{0,20})([0-9]{1,6})\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b`)
-var megaRetryClockRxV85 = regexp.MustCompile(`(?i)(?:retry|try again|wait|available again|reset(?:s)?|quota[^\n]{0,30})[^0-9]{0,20}([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?`)
+// Keep the cue and the numeric value separate. The older expression allowed the
+// generic "quota..." prefix to consume the first digit of a value (12 -> 2),
+// producing incorrect retry times. These forms intentionally recognize only a
+// duration explicitly tied to retry/wait/reset wording.
+var megaRetryDurationRxV85 = regexp.MustCompile(`(?i)(?:retry(?:\s+(?:after|in))?|try\s+again(?:\s+(?:after|in))?|wait(?:\s+for)?|available\s+again(?:\s+(?:after|in))?|reset(?:s)?(?:\s+(?:after|in))?|quota(?:\s+reset)?(?:\s+(?:after|in)))\D{0,20}([0-9]{1,6})\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b`)
+var megaRetryClockRxV85 = regexp.MustCompile(`(?i)(?:retry(?:\s+(?:after|in))?|try\s+again(?:\s+(?:after|in))?|wait(?:\s+for)?|available\s+again(?:\s+(?:after|in))?|reset(?:s)?(?:\s+(?:after|in))?|quota(?:\s+reset)?(?:\s+(?:after|in)))\D{0,20}([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?`)
 
 func megaRetrySecondsV85(raw string) int64 {
 	if m := megaRetryClockRxV85.FindStringSubmatch(raw); len(m) >= 3 {
