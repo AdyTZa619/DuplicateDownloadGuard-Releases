@@ -72,6 +72,17 @@ func scheduleMediaCacheWarmV85(a *App, entries []FileEntry) {
 	go runMediaCacheWarmLoopV85(a, st)
 }
 
+func foregroundIdleForWarmV85(a *App) bool {
+	if a == nil || a.opRunning.Load() {
+		return false
+	}
+	if !a.guardMu.TryLock() {
+		return false
+	}
+	a.guardMu.Unlock()
+	return true
+}
+
 func runMediaCacheWarmLoopV85(a *App, st *mediaWarmStateV85) {
 	defer func() {
 		st.Lock()
@@ -86,14 +97,22 @@ func runMediaCacheWarmLoopV85(a *App, st *mediaWarmStateV85) {
 		st.Pending = false
 		st.Unlock()
 
-		// Let the foreground verification finish first. If another guard/index is
-		// busy, postpone rather than compete for disk/CPU with the user's action.
+		// Let foreground work win. If DDG stays busy for ~10 seconds, retain the
+		// request for the next foreground-triggered opportunity instead of
+		// competing with scan/guard for CPU and disk.
+		idle := false
 		for tries := 0; tries < 20; tries++ {
-			if !a.opRunning.Load() && a.guardMu.TryLock() {
-				a.guardMu.Unlock()
+			if foregroundIdleForWarmV85(a) {
+				idle = true
 				break
 			}
 			time.Sleep(500 * time.Millisecond)
+		}
+		if !idle {
+			st.Lock()
+			st.Entries = mergeWarmEntriesV85(st.Entries, entries)
+			st.Unlock()
+			return
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
@@ -122,7 +141,7 @@ func warmMediaCachePassV85(ctx context.Context, a *App, entries []FileEntry) {
 	ffprobe := a.detectFFprobe()
 
 	for _, e := range entries {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || !foregroundIdleForWarmV85(a) {
 			break
 		}
 		switch remoteMediaKind(e.Name) {
