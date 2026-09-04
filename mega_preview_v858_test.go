@@ -73,7 +73,7 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item)") {
+	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item, traceID)") {
 		t.Fatal("restart click is not routed through direct per-file resume")
 	}
 	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
