@@ -1,0 +1,44 @@
+name: Apply v8.6 post-download intelligence
+
+on:
+  push:
+    branches:
+      - feature/v8.6.0-media-orchestrator
+    paths:
+      - .github/workflows/apply-v860-post-download.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v8.6.0-media-orchestrator
+          fetch-depth: 0
+      - name: Apply exact post-download patch
+        run: python tools/apply_v860_post_download.py
+      - name: Format
+        run: |
+          gofmt -w download_core_v855.go content_graph_v860.go content_graph_v860_test.go post_download_reconcile_v860.go post_download_reconcile_v860_test.go
+          git diff --check
+      - name: JavaScript syntax
+        run: |
+          node --check web/preview_quick_v86.js
+          node --check web/download_diagnostic_v860.js
+      - name: Tests
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Remove temporary helpers
+        run: rm -f tools/apply_v860_post_download.py .github/workflows/apply-v860-post-download.yml
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Integrate post-download content intelligence"
+          git push origin HEAD:feature/v8.6.0-media-orchestrator
