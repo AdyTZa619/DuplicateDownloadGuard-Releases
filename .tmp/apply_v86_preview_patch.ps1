@@ -47,4 +47,4 @@ $newTag = '<script defer src="/exact_guard.js"></script><script defer src="/prev
 $index = Replace-Once $index $oldTag $newTag 'preview quick script tag'
 [System.IO.File]::WriteAllText((Resolve-Path $indexPath), $index, [System.Text.UTF8Encoding]::new($false))
 
-Write-Host 'v8.6 preview integration patch applied.'
+Write-Host 'v8.6 preview integration patch applied (retry 2).'
