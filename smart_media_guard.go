@@ -84,6 +84,11 @@ func mediaReviewDecisionV85(res Result, method, reason string, candidates int, l
 }
 
 func downloadHistoryDecision(res Result) (DownloadGuardDecision, bool) {
+	if persistent, ok := persistentDownloadHistoryDecisionV85(res); ok {
+		return persistent, true
+	}
+	// Backward-compatible fallback for old result files that may already carry
+	// DownloadedAt/DownloadPath even before the persistent registry existed.
 	path := strings.TrimSpace(res.DownloadPath)
 	if res.DownloadedAt <= 0 || path == "" {
 		return DownloadGuardDecision{}, false
@@ -483,19 +488,12 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if a.detectFFmpeg() == "" || a.detectFFprobe() == "" {
 			return mediaReviewDecisionV85(res, "media-tools-missing", "Pentru a exclude un video recodat sau complet redenumit sunt necesare FFmpeg și ffprobe. Instalează-le din Tool Manager și reîncearcă.", localCount, res.LocalPath)
 		}
-		if pruneLocalVideoFingerprintCacheV85(a, entries) {
-			defer func() {
-				if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
-					a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
-				}
-			}()
-		} else {
-			defer func() {
-				if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
-					a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
-				}
-			}()
-		}
+		pruneLocalVideoFingerprintCacheV85(a, entries)
+		defer func() {
+			if flushErr := flushLocalVideoFingerprintCacheV85(a); flushErr != nil {
+				a.logf("Smart Media Guard: nu am putut salva cache-ul fingerprint video: %v", flushErr)
+			}
+		}()
 		remoteFP, fpErr := a.buildRemoteVideoFingerprintV85(ctx, target)
 		if fpErr != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul video remote nu a putut fi calculat sigur: "+fpErr.Error(), localCount, res.LocalPath)
