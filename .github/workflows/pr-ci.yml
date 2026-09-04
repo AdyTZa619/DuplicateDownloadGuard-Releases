@@ -32,6 +32,21 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION invalid: $version" }
           $changelog = Get-Content -Raw CHANGELOG.md
           if (-not $changelog.Contains("## [$version]")) { throw "CHANGELOG.md nu conține secțiunea ## [$version]" }
+
+          # Execute the same changelog-section and release-notes logic used by
+          # build-release.yml, so PowerShell/parser regressions are caught in PR CI.
+          $escapedVersion = [regex]::Escape($version)
+          $section = [regex]::Match($changelog, "(?ms)^## \[$escapedVersion\][^\r\n]*\r?\n(?<body>.*?)(?=^## \[|\z)")
+          if (-not $section.Success) { throw "Nu pot extrage jurnalul pentru $version." }
+          $bullets = [regex]::Matches($section.Groups['body'].Value, '(?m)^- (.+)$') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 6
+          if ($bullets.Count -gt 0) {
+            $notesPreview = "Noutăți ${version}: " + ($bullets -join ' • ')
+          } else {
+            $notesPreview = "Noutăți $version — vezi CHANGELOG.md"
+          }
+          if ([string]::IsNullOrWhiteSpace($notesPreview)) { throw 'Rezumatul updaterului este gol.' }
+          Write-Host $notesPreview
+
           $main = Get-Content -Raw main.go
           $pattern = 'const appVersion = "[^"]+"'
           if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }

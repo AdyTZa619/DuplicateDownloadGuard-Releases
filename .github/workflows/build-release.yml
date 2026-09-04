@@ -102,7 +102,7 @@ jobs:
           if (-not $section.Success) { throw "Nu pot extrage jurnalul pentru $version." }
           $bullets = [regex]::Matches($section.Groups['body'].Value, '(?m)^- (.+)$') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 6
           if ($bullets.Count -gt 0) {
-            $notes = "Noutăți $version: " + ($bullets -join ' • ')
+            $notes = "Noutăți ${version}: " + ($bullets -join ' • ')
           } else {
             $notes = "Noutăți $version — vezi CHANGELOG.md"
           }
