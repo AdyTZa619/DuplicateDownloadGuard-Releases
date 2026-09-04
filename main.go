@@ -310,6 +310,7 @@ func main() {
 	mux.HandleFunc("/api/open-local-player", a.handleOpenLocalPlayer)
 	mux.HandleFunc("/api/open-remote", a.handleOpenRemote)
 	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
+	mux.HandleFunc("/api/remote-preview/proxy", a.handleRemotePreviewProxyV860)
 	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
 	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
