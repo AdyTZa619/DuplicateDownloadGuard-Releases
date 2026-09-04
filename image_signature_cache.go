@@ -100,6 +100,8 @@ type localImageSignatureCacheEntry struct {
 	Size      int64             `json:"size"`
 	MTime     int64             `json:"mtime"`
 	Signature imageSignatureV85 `json:"signature"`
+	Unusable  bool              `json:"unusable,omitempty"`
+	Error     string            `json:"error,omitempty"`
 }
 
 var localImageSignatureCacheState = struct {
@@ -143,16 +145,37 @@ func cachedLocalImageSignatureV85(a *App, e FileEntry) (imageSignatureV85, bool)
 	localImageSignatureCacheState.Lock()
 	defer localImageSignatureCacheState.Unlock()
 	row, ok := localImageSignatureCacheState.Entries[pathKey(e.Path)]
-	if !ok || row.Size != e.Size || row.MTime != e.MTime {
+	if !ok || row.Size != e.Size || row.MTime != e.MTime || row.Unusable {
 		return imageSignatureV85{}, false
 	}
 	return row.Signature, true
+}
+
+func cachedLocalImageFailureV85(a *App, e FileEntry) bool {
+	ensureLocalImageSignatureCacheLoaded(a)
+	localImageSignatureCacheState.Lock()
+	defer localImageSignatureCacheState.Unlock()
+	row, ok := localImageSignatureCacheState.Entries[pathKey(e.Path)]
+	return ok && row.Size == e.Size && row.MTime == e.MTime && row.Unusable
 }
 
 func cacheLocalImageSignatureV85(a *App, e FileEntry, sig imageSignatureV85) {
 	ensureLocalImageSignatureCacheLoaded(a)
 	localImageSignatureCacheState.Lock()
 	localImageSignatureCacheState.Entries[pathKey(e.Path)] = localImageSignatureCacheEntry{Size: e.Size, MTime: e.MTime, Signature: sig}
+	localImageSignatureCacheState.Dirty = true
+	localImageSignatureCacheState.Generation++
+	localImageSignatureCacheState.Unlock()
+}
+
+func cacheLocalImageFailureV85(a *App, e FileEntry, reason string) {
+	ensureLocalImageSignatureCacheLoaded(a)
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	localImageSignatureCacheState.Lock()
+	localImageSignatureCacheState.Entries[pathKey(e.Path)] = localImageSignatureCacheEntry{Size: e.Size, MTime: e.MTime, Unusable: true, Error: reason}
 	localImageSignatureCacheState.Dirty = true
 	localImageSignatureCacheState.Generation++
 	localImageSignatureCacheState.Unlock()
@@ -239,6 +262,7 @@ type imageCandidateSearchV85 struct {
 	Pending    int
 	Probed     int
 	Cached     int
+	Excluded   int
 }
 
 type scoredImageCandidateV85 struct {
@@ -261,9 +285,9 @@ func imageCandidateRoughRankV85(remote RemoteItem, e FileEntry) int {
 }
 
 // imageCandidatesCachedV85 searches cached perceptual signatures across the
-// whole image collection, not only similarly named/sized files. It hashes a
-// bounded number of uncached files per call and reports the unresolved tail so
-// callers can fail closed rather than declare a completely renamed image new.
+// whole image collection, not only similarly named/sized files. Files that are
+// proven unreadable are cached as unusable until size/mtime changes, so one
+// corrupt local image cannot keep unrelated remote images permanently blocked.
 func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSignatureV85, remote RemoteItem, entries, existing []FileEntry, limit int) imageCandidateSearchV85 {
 	if limit <= 0 {
 		limit = 7
@@ -273,13 +297,24 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 	seen := map[string]bool{}
 	for _, e := range existing {
 		seen[pathKey(e.Path)] = true
+		if cachedLocalImageFailureV85(a, e) {
+			result.Cached++
+			result.Excluded++
+			continue
+		}
 		sig, ok := cachedLocalImageSignatureV85(a, e)
 		if !ok {
 			result.Probed++
 			var err error
 			sig, err = readLocalImageSignatureV85(e.Path)
-			if err != nil {
+			if ctx.Err() != nil {
 				result.Pending++
+				continue
+			}
+			if err != nil {
+				cacheLocalImageFailureV85(a, e, err.Error())
+				cacheChanged = true
+				result.Excluded++
 				continue
 			}
 			cacheLocalImageSignatureV85(a, e, sig)
@@ -312,6 +347,11 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 			}
 			continue
 		}
+		if cachedLocalImageFailureV85(a, e) {
+			result.Cached++
+			result.Excluded++
+			continue
+		}
 		uncached = append(uncached, rough{Entry: e, Rank: imageCandidateRoughRankV85(remote, e)})
 	}
 	sort.SliceStable(uncached, func(i, j int) bool {
@@ -322,17 +362,23 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 	})
 
 	const probeLimit = 64
-	successful := 0
+	resolved := 0
 	for i, row := range uncached {
 		if i >= probeLimit || ctx.Err() != nil {
 			break
 		}
 		result.Probed++
 		sig, err := readLocalImageSignatureV85(row.Entry.Path)
+		if ctx.Err() != nil {
+			break
+		}
+		resolved++
 		if err != nil {
+			cacheLocalImageFailureV85(a, row.Entry, err.Error())
+			cacheChanged = true
+			result.Excluded++
 			continue
 		}
-		successful++
 		cacheLocalImageSignatureV85(a, row.Entry, sig)
 		cacheChanged = true
 		score := imageSignatureSimilarityV85(remoteSig, sig)
@@ -343,7 +389,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 			scored = append(scored, scoredImageCandidateV85{Entry: row.Entry, Score: score})
 		}
 	}
-	result.Pending += len(uncached) - successful
+	result.Pending += len(uncached) - resolved
 	if result.Pending < 0 {
 		result.Pending = 0
 	}
