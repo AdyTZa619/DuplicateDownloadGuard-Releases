@@ -63,9 +63,9 @@
     }
   }
 
-  // v8.5.8: a FAST ROOT browser error must use a genuinely different WebDAV
-  // endpoint. The backend forceFallback path now switches to the file handle/
-  // path directly. Retry exactly once per selected result to avoid loops.
+  // One browser-level retry is allowed for a root-derived stream. After this
+  // patch a cold resume normally promotes to the whole-folder root too, even
+  // though the older API label still says MEGA DIRECT RESUME.
   function wrapMegaRootFailureV858() {
     const original = window.remotePreviewError;
     if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
@@ -74,7 +74,7 @@
       const id = Number(current?.id || 0);
       const sourceEl = document.getElementById('remoteSource');
       const sourceText = String(sourceEl?.textContent || '').toUpperCase();
-      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME');
+      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME') || sourceText.includes('MEGA DIRECT RESUME');
       const now = Date.now();
       const recentlyRetried = id && trueFallbackIDV858 === id && now - trueFallbackAtV858 < 15000;
       if (!id || !rootMode || recentlyRetried) return original.apply(this, arguments);
@@ -82,7 +82,7 @@
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
       const preview = document.getElementById('remotePreview');
-      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Nu repet același URL fast.</span></div>';
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Root-ul rămâne activ pentru următorul fișier.</span></div>';
       try {
         const d = await api('/api/remote-preview/start', {
           method: 'POST',
@@ -101,6 +101,10 @@
         if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, current.remote?.name || current.remote?.path || 'remote');
         return;
       } catch (_) {
+        // exact_guard.js contains an older fallback wrapper. Change the source
+        // marker before delegating so that wrapper cannot issue a second
+        // forceFallback request for the same browser error.
+        if (sourceEl) sourceEl.textContent = 'MEGA TRUE FALLBACK • EROARE';
         return original.apply(this, arguments);
       }
     };
