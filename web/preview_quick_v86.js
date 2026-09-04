@@ -51,6 +51,21 @@
     if (localHead && !document.getElementById('localQuickV86')) localHead.querySelector('b')?.insertAdjacentHTML('afterend','<span class="previewQuickV86" id="localQuickV86">—</span>');
   }
 
+  // The help text predates the deterministic Auto routing introduced in 8.5.5.
+  // Keep the visible documentation aligned with the actual engine selector:
+  // direct HTTP/CDN uses the internal downloader in Auto; aria2 is explicit.
+  function fixDownloadHelpV857() {
+    const help = document.getElementById('help-download');
+    if (!help) return;
+    for (const tr of help.querySelectorAll('tbody tr')) {
+      const cells = tr.querySelectorAll('td');
+      if (cells.length < 2) continue;
+      if (cells[0].textContent.trim() === 'HTTP/CDN direct' && cells[1].textContent.trim() === 'aria2') {
+        cells[1].textContent = 'Downloader intern (Auto); aria2 opțional';
+      }
+    }
+  }
+
   function readElement(which) {
     const body = document.getElementById(which === 'remote' ? 'remotePreview' : 'localPreview');
     if (!body) return;
@@ -167,6 +182,7 @@
 
   function boot() {
     install();
+    fixDownloadHelpV857();
     wrapShowDetail();
     observe();
     render();

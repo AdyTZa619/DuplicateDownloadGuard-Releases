@@ -2,6 +2,25 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.7] — 2026-09-04
+
+### Foldere locale — actualizare automată și rezultate corecte
+- Schimbările listei de foldere locale sunt detectate automat prin heartbeat-ul interfeței; după adăugarea sau eliminarea unei locații este programată o singură reindexare/recomparare, fără să fie necesară o nouă scanare remote.
+- Actualizarea așteaptă operațiile foreground deja active și se serializează cu Smart Guard, astfel încât indexarea, scanarea MEGA și verificarea înainte de download nu se calcă reciproc.
+- Rezultatele deja afișate sunt recalculate după adăugarea unui folder; un fișier existent în noua locație poate fi găsit imediat fără restart.
+- Eliminarea unui folder curăță din index intrările care aparțin exclusiv locației scoase, prevenind verdictul fals `AI DEJA` pentru fișiere care nu mai fac parte din colecția activă.
+- Dacă un folder eliminat conține un subfolder care rămâne configurat sau folderul activ de download, fișierele încă acoperite de acea locație validă nu sunt șterse din index.
+- Actualizarea funcționează atât cu `Live refresh înainte de comparație` activ, cât și dezactivat.
+
+### Download Studio și documentație
+- Tabelul de ajutor pentru motorul `Auto` este aliniat cu nucleul introdus în 8.5.5: HTTP/CDN direct folosește downloaderul intern în modul Auto; aria2 rămâne opțiune explicită.
+
+### Validare și protecții de release
+- CI verifică acum cu `node --check` toate fișierele JavaScript separate din `web/*.js`, nu doar `exact_guard.js`.
+- Pipeline-ul de release verifică `gofmt` pentru toate fișierele Go și sintaxa tuturor fișierelor JavaScript separate înainte de teste și build.
+- Teste de regresie pentru adăugare de folder cu fișier redenumit de tip `original-D3558.jpg`, pentru `LiveRefreshCompare` activ/dezactivat, eliminarea unui folder și păstrarea corectă a unui subfolder încă activ.
+- Pachetul a trecut `gofmt`, verificarea JavaScript, toate testele Go, `go vet` și build-ul Windows x64 înainte de pregătirea release-ului.
+
 ## [8.5.6] — 2026-09-04
 
 ### MEGA Preview — restart și cache real

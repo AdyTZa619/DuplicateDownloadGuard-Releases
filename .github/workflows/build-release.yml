@@ -60,6 +60,29 @@ jobs:
         with:
           go-version: '1.23.x'
 
+      - name: Verify source formatting and all UI JavaScript
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = @()
+          Get-ChildItem -Filter *.go | ForEach-Object {
+            $out = gofmt -l $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+            if ($out) { $bad += $out }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host 'Go files requiring gofmt:'
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Go formatting check failed; release aborted'
+          }
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
+          foreach ($script in $scripts) {
+            Write-Host "node --check $($script.FullName)"
+            node --check $script.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
+
       - name: Test
         shell: pwsh
         run: |

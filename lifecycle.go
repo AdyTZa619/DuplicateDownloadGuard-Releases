@@ -21,6 +21,11 @@ func (a *App) handleUIHeartbeat(w http.ResponseWriter, r *http.Request) {
 	uiSeen.Store(true)
 	// A fresh heartbeat cancels a pagehide hint caused by a reload/navigation.
 	uiExitHintNS.Store(0)
+	// v8.5.7: the UI already persists folder changes through /api/config.
+	// Reuse this cheap heartbeat to notice that configuration change and refresh
+	// the live local index/results once, instead of leaving the old result table
+	// stale until the next explicit remote scan.
+	noteLocalFolderConfigHeartbeatV857(a)
 	jsonOut(w, map[string]any{"ok": true})
 }
 
