@@ -56,9 +56,11 @@ func ensureMegaPreviewProxyV8513() (string, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
 		raw := strings.TrimSpace(r.URL.Query().Get("u"))
 		u, err := url.Parse(raw)
 		if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || !isLoopbackPreviewHostV8513(u.Hostname()) {
+			megaPreviewDiagfV8514("PROXY END    method=%s elapsed=%s error=invalid-upstream", r.Method, time.Since(started).Round(time.Millisecond))
 			http.Error(w, "upstream preview invalid", http.StatusBadRequest)
 			return
 		}
@@ -66,8 +68,11 @@ func ensureMegaPreviewProxyV8513() (string, error) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		rangeHeader := r.Header.Get("Range")
+		megaPreviewDiagfV8514("PROXY START  method=%s range=%q upstreamHost=%s", r.Method, rangeHeader, u.Host)
 		upReq, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), nil)
 		if err != nil {
+			megaPreviewDiagfV8514("PROXY END    method=%s elapsed=%s error=%v", r.Method, time.Since(started).Round(time.Millisecond), err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
@@ -76,29 +81,34 @@ func ensureMegaPreviewProxyV8513() (string, error) {
 				upReq.Header.Set(h, v)
 			}
 		}
-		upReq.Header.Set("User-Agent", "DuplicateDownloadGuard/8.5.13-preview-proxy")
+		upReq.Header.Set("User-Agent", "DuplicateDownloadGuard/8.5.14-preview-proxy")
 		upReq.Header.Set("Connection", "close")
 		resp, err := client.Do(upReq)
 		if err != nil {
 			if r.Context().Err() != nil {
+				megaPreviewDiagfV8514("PROXY END    method=%s elapsed=%s cancelled=true", r.Method, time.Since(started).Round(time.Millisecond))
 				return
 			}
+			megaPreviewDiagfV8514("PROXY END    method=%s elapsed=%s error=%v", r.Method, time.Since(started).Round(time.Millisecond), err)
 			http.Error(w, "MEGA proxy: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
+		megaPreviewDiagfV8514("PROXY HDR    method=%s elapsed=%s status=%d contentLength=%d contentRange=%q acceptRanges=%q", r.Method, time.Since(started).Round(time.Millisecond), resp.StatusCode, resp.ContentLength, resp.Header.Get("Content-Range"), resp.Header.Get("Accept-Ranges"))
 		for _, h := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Content-Disposition", "Cache-Control"} {
 			if v := resp.Header.Get(h); v != "" {
 				w.Header().Set(h, v)
 			}
 		}
-		w.Header().Set("X-DDG-MEGA-Proxy", "v8513")
+		w.Header().Set("X-DDG-MEGA-Proxy", "v8514")
 		w.WriteHeader(resp.StatusCode)
 		if r.Method == http.MethodHead {
+			megaPreviewDiagfV8514("PROXY END    method=HEAD elapsed=%s result=OK", time.Since(started).Round(time.Millisecond))
 			return
 		}
 		buf := make([]byte, 256*1024)
-		_, _ = io.CopyBuffer(w, resp.Body, buf)
+		copied, copyErr := io.CopyBuffer(w, resp.Body, buf)
+		megaPreviewDiagfV8514("PROXY END    method=GET elapsed=%s bytes=%d copyErr=%v", time.Since(started).Round(time.Millisecond), copied, copyErr)
 	})
 	srv := &http.Server{
 		Handler:           mux,
