@@ -256,13 +256,43 @@ func readLocalImageSignatureV85(path string) (imageSignatureV85, error) {
 }
 
 type imageCandidateSearchV85 struct {
-	Candidates []FileEntry
-	BestPath   string
-	BestScore  int
-	Pending    int
-	Probed     int
-	Cached     int
-	Excluded   int
+	Candidates  []FileEntry
+	BestPath    string
+	BestScore   int
+	SecondScore int
+	Ambiguous   bool
+	Pending     int
+	Probed      int
+	Cached      int
+	Excluded    int
+}
+
+func updateImageBestV85(result *imageCandidateSearchV85, score int, path string) {
+	if result == nil || path == "" {
+		return
+	}
+	if score > result.BestScore {
+		result.SecondScore = result.BestScore
+		result.BestScore = score
+		result.BestPath = path
+		return
+	}
+	if pathKey(path) != pathKey(result.BestPath) && score > result.SecondScore {
+		result.SecondScore = score
+	}
+}
+
+func finalizeImageAmbiguityV85(result *imageCandidateSearchV85) {
+	if result == nil {
+		return
+	}
+	// Near-identical scores for two different local images are not enough to
+	// choose a unique duplicate automatically. Keep the best candidate for UI,
+	// but cap the confidence below the auto-block threshold.
+	if result.BestScore >= 98 && result.SecondScore >= 96 && result.BestScore-result.SecondScore <= 1 {
+		result.Ambiguous = true
+		result.BestScore = 93
+	}
 }
 
 type scoredImageCandidateV85 struct {
@@ -292,7 +322,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 	if limit <= 0 {
 		limit = 7
 	}
-	result := imageCandidateSearchV85{Candidates: append([]FileEntry(nil), existing...), BestScore: -1}
+	result := imageCandidateSearchV85{Candidates: append([]FileEntry(nil), existing...), BestScore: -1, SecondScore: -1}
 	cacheChanged := pruneLocalImageSignatureCacheV85(a, entries)
 	seen := map[string]bool{}
 	for _, e := range existing {
@@ -321,9 +351,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 			cacheChanged = true
 		}
 		score := imageSignatureSimilarityV85(remoteSig, sig)
-		if score > result.BestScore {
-			result.BestScore, result.BestPath = score, e.Path
-		}
+		updateImageBestV85(&result, score, e.Path)
 	}
 
 	scored := make([]scoredImageCandidateV85, 0, 32)
@@ -339,9 +367,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 		if sig, ok := cachedLocalImageSignatureV85(a, e); ok {
 			result.Cached++
 			score := imageSignatureSimilarityV85(remoteSig, sig)
-			if score > result.BestScore {
-				result.BestScore, result.BestPath = score, e.Path
-			}
+			updateImageBestV85(&result, score, e.Path)
 			if score >= 80 {
 				scored = append(scored, scoredImageCandidateV85{Entry: e, Score: score})
 			}
@@ -382,9 +408,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 		cacheLocalImageSignatureV85(a, row.Entry, sig)
 		cacheChanged = true
 		score := imageSignatureSimilarityV85(remoteSig, sig)
-		if score > result.BestScore {
-			result.BestScore, result.BestPath = score, row.Entry.Path
-		}
+		updateImageBestV85(&result, score, row.Entry.Path)
 		if score >= 80 {
 			scored = append(scored, scoredImageCandidateV85{Entry: row.Entry, Score: score})
 		}
@@ -413,5 +437,6 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 			result.Candidates = append(result.Candidates, row.Entry)
 		}
 	}
+	finalizeImageAmbiguityV85(&result)
 	return result
 }
