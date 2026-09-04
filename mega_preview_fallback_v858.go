@@ -5,14 +5,82 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
-// switchWarmRootToPerFileV858 is the true browser-error fallback. The previous
-// implementation called startMegaPreview(), which could immediately return the
-// same warm-root child URL that had just failed in the browser. This helper
-// explicitly stops the root WebDAV endpoint first, then starts the requested
-// node by handle/path, so the fallback cannot loop back to the same URL.
+type megaTempFallbackV8511 struct {
+	RemotePath string
+	StreamURL  string
+	Exe        string
+}
+
+var megaTempFallbackByAppV8511 sync.Map
+
+func currentMegaTempFallbackV8511(a *App) megaTempFallbackV8511 {
+	if a == nil {
+		return megaTempFallbackV8511{}
+	}
+	if raw, ok := megaTempFallbackByAppV8511.Load(a); ok {
+		if st, ok := raw.(megaTempFallbackV8511); ok {
+			return st
+		}
+	}
+	return megaTempFallbackV8511{}
+}
+
+func rememberMegaTempFallbackV8511(a *App, next megaTempFallbackV8511) {
+	if a == nil || next.RemotePath == "" || next.Exe == "" {
+		return
+	}
+	previous := currentMegaTempFallbackV8511(a)
+	megaTempFallbackByAppV8511.Store(a, next)
+	if previous.RemotePath == "" || previous.Exe == "" || previous.RemotePath == next.RemotePath || previous.Exe != next.Exe {
+		return
+	}
+
+	// Never make the user's current fallback wait for cleanup of the previous
+	// exceptional child. Cleanup is strictly low-priority and skipped if MEGA is
+	// busy with another user action.
+	go func(old megaTempFallbackV8511) {
+		time.Sleep(1500 * time.Millisecond)
+		gateCtx, gateCancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+		defer gateCancel()
+		if err := acquireMegaSession(gateCtx); err != nil {
+			return
+		}
+		defer releaseMegaSession()
+		current := currentMegaTempFallbackV8511(a)
+		if current.RemotePath == old.RemotePath && current.Exe == old.Exe {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		_, _ = runMegaTimed(ctx, 1500*time.Millisecond, old.Exe, "webdav", "-d", old.RemotePath)
+	}(previous)
+}
+
+// Caller must already own megaSessionGate. Used on clean shutdown so a
+// temporary per-file compatibility endpoint does not accumulate across runs.
+func cleanupMegaTempFallbackWhileSessionOwnedV8511(a *App, ctx context.Context) {
+	if a == nil {
+		return
+	}
+	raw, ok := megaTempFallbackByAppV8511.LoadAndDelete(a)
+	if !ok {
+		return
+	}
+	st, ok := raw.(megaTempFallbackV8511)
+	if !ok || st.RemotePath == "" || st.Exe == "" {
+		return
+	}
+	_, _ = runMegaTimed(ctx, 3*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
+}
+
+// switchWarmRootToPerFileV858 is the true browser-error fallback. A bad child
+// must never destroy the canonical whole-folder root: doing that was the reason
+// one browser failure made every later row slow. The requested per-file node is
+// added alongside the root and is treated as a temporary compatibility stream.
 func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run megaWebDAVRunnerV85) (megaWebDAVSwitchResultV85, error) {
 	if run == nil {
 		return megaWebDAVSwitchResultV85{}, errors.New("MEGA WebDAV runner lipsă")
@@ -20,11 +88,6 @@ func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run meg
 	remoteRef = strings.TrimSpace(remoteRef)
 	if remoteRef == "" {
 		return megaWebDAVSwitchResultV85{}, errors.New("referință MEGA remote lipsă")
-	}
-	if old.RemotePath == megaWarmRootRefV86 {
-		// Best effort: even if cleanup reports a transient error, continue with
-		// the per-file start. MEGAcmd can usually replace/add the specific node.
-		_, _ = run(5*time.Second, "webdav", "-d", megaWarmRootRefV86)
 	}
 	return switchSameSourceWebDAVV85(old, remoteRef, run)
 }
@@ -49,11 +112,18 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	defer a.previewMu.Unlock()
 
 	ctx := context.Background()
-	// Normal case: FAST ROOT is active for this folder. Do not relogin. Replace
-	// only the WebDAV exposure with the specific file node and keep the public
-	// folder session/cache warm.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
+
+		// The root remains canonical. Reuse the already-created compatibility
+		// endpoint when the same exceptional child is retried later.
+		if old.RemotePath == megaWarmRootRefV86 {
+			if tmp := currentMegaTempFallbackV8511(a); tmp.Exe == old.Exe && tmp.RemotePath == remoteRef && tmp.StreamURL != "" {
+				a.resetPreviewTTLLocked()
+				return tmp.StreamURL, nil
+			}
+		}
+
 		run := func(timeout time.Duration, args ...string) (string, error) {
 			return runMegaTimed(ctx, timeout, old.Exe, args...)
 		}
@@ -65,6 +135,18 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 			problem := classifyMegaProblem(result.StartOutput, err)
 			return "", newMegaProblemError(problem, result.StartOutput)
 		}
+
+		if old.RemotePath == megaWarmRootRefV86 {
+			rememberMegaTempFallbackV8511(a, megaTempFallbackV8511{RemotePath: remoteRef, StreamURL: result.StreamURL, Exe: old.Exe})
+			// Crucial: keep a.preview == old root. The next selected row therefore
+			// goes straight back to MEGA FAST ROOT instead of inheriting per-file
+			// latency from this one exceptional media item.
+			a.preview = old
+			a.resetPreviewTTLLocked()
+			a.logf("MEGA TRUE FALLBACK: per-file temporar pentru %s [%s]; root-ul rămâne activ", item.Path, remoteRef)
+			return result.StreamURL, nil
+		}
+
 		a.preview = MegaPreviewState{
 			Active:          true,
 			SourceURL:       item.URL,
@@ -74,13 +156,12 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 			Exe:             old.Exe,
 		}
 		a.resetPreviewTTLLocked()
-		a.logf("MEGA TRUE FALLBACK: warm root -> per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+		a.logf("MEGA TRUE FALLBACK: per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 		return result.StreamURL, nil
 	}
 
-	// Restart/no warm session: preserve any current account, resume the public
-	// folder cache, but expose the requested node directly instead of recreating
-	// another warm-root URL that could reproduce the browser failure.
+	// Restart/no warm state: preserve the current account, resume the public
+	// folder and expose the requested node only as the last compatibility path.
 	if a.preview.Active {
 		_ = a.stopMegaPreviewLocked("fallback per-fișier / schimbare sursă")
 	}
