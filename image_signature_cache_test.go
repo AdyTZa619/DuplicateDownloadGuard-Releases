@@ -66,3 +66,32 @@ func TestImageFailureCacheInvalidatesOnFileChange(t *testing.T) {
 		t.Fatal("negative image cache must invalidate when mtime changes")
 	}
 }
+
+func TestImageAmbiguityDowngradesAutoBlockConfidence(t *testing.T) {
+	result := imageCandidateSearchV85{BestScore: -1, SecondScore: -1}
+	updateImageBestV85(&result, 99, `D:\images\a.jpg`)
+	updateImageBestV85(&result, 98, `D:\images\b.jpg`)
+	finalizeImageAmbiguityV85(&result)
+	if !result.Ambiguous {
+		t.Fatal("near-tied strong image matches must be marked ambiguous")
+	}
+	if result.BestScore >= 98 {
+		t.Fatalf("ambiguous image match kept auto-block score: %d", result.BestScore)
+	}
+	if result.BestPath != `D:\images\a.jpg` {
+		t.Fatalf("best candidate path changed unexpectedly: %q", result.BestPath)
+	}
+}
+
+func TestImageClearWinnerKeepsStrongScore(t *testing.T) {
+	result := imageCandidateSearchV85{BestScore: -1, SecondScore: -1}
+	updateImageBestV85(&result, 99, `D:\images\a.jpg`)
+	updateImageBestV85(&result, 90, `D:\images\b.jpg`)
+	finalizeImageAmbiguityV85(&result)
+	if result.Ambiguous {
+		t.Fatal("clear image winner must not be marked ambiguous")
+	}
+	if result.BestScore != 99 {
+		t.Fatalf("clear winner score=%d, want 99", result.BestScore)
+	}
+}
