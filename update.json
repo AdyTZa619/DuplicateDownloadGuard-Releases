@@ -1,8 +1,8 @@
 {
-  "version": "8.5.2",
+  "version": "8.5.3",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "4935353356ce0867ce0cfb4bc79556ced028b07e7dd01fb9335532a6fb132171",
-  "notes": "Noutăți 8.5.2: Reparat cazul în care după update pornea versiunea nouă, dar fereastra Edge-app a versiunii vechi rămânea deschisă. • La o pornire confirmată ca handoff de updater, noua versiune închide nativ fereastra DDG rămasă înainte să-și deschidă propria interfață. • Cleanup-ul este activ numai cât timp există markerul real `apply_update.json`; pornirile normale ale aplicației nu închid ferestre. • Potrivirea ferestrei este strictă pe titlul dedicat `Duplicate Download Guard Pro`, pentru a evita închiderea unei ferestre Edge/Chrome obișnuite care ar putea conține alte taburi. • Updaterul păstrează în continuare backup, verificare SHA-256, health-check și rollback automat.",
-  "publishedAt": "2026-09-04T10:26:15.7350998Z",
+  "sha256": "9c95501e401ef9fceec62435966bc7a1aa1c2ba18d12d0805aab050a24d09b30",
+  "notes": "Noutăți 8.5.3: După scanarea unui folder MEGA public, aplicația încearcă să pornească o singură rădăcină WebDAV și o păstrează temporar „caldă” pentru verificarea rapidă a fișierelor. • Pentru fișierele din același folder, URL-ul de preview este derivat local din rădăcina WebDAV; nu mai este necesară pornirea unui nod WebDAV nou la fiecare rând atunci când fast-path-ul este disponibil. • Fast-path-ul face doar o verificare locală foarte scurtă a URL-ului rezultat; dacă structura WebDAV a instalării MEGAcmd nu corespunde, aplicația cade automat pe mecanismul per-fișier existent. • Schimbarea dintre două streamuri per-fișier nu mai așteaptă oprirea WebDAV-ului vechi: URL-ul nou este returnat imediat, iar cleanup-ul vechi rulează în fundal după un scurt handoff. • Pornirea și fallback-urile WebDAV au timeout-uri mai mici pentru a evita blocarea aparentă a Compare Studio. • Corectată construirea URL-urilor WebDAV pentru nume cu spații și caractere care necesită escaping; calea nu mai este dublu codificată.",
+  "publishedAt": "2026-09-04T10:54:01.7060534Z",
   "channel": "stable"
 }
