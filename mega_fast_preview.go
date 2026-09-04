@@ -30,8 +30,6 @@ func megaWebDAVChildURL(rootURL, remotePath string) (string, error) {
 		if part == ".." {
 			return "", errors.New("cale remote WebDAV invalidă")
 		}
-		// Keep the decoded component in Path. url.URL.String() performs the
-		// escaping exactly once; pre-escaping here would turn %20 into %2520.
 		clean = append(clean, part)
 	}
 	if len(clean) == 0 {
@@ -44,10 +42,6 @@ func megaWebDAVChildURL(rootURL, remotePath string) (string, error) {
 	return root.String(), nil
 }
 
-// extractExactWebDAVURLV8511 fixes a subtle root-selection bug in the older
-// parser. Searching a listing for "/" matched every path and every URL, so a
-// per-file endpoint listed before the root could accidentally be treated as the
-// root. Match the served MEGA path on the left side of the URL exactly instead.
 func extractExactWebDAVURLV8511(out, remotePath string) string {
 	remotePath = strings.TrimSpace(remotePath)
 	for _, line := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
@@ -76,7 +70,7 @@ func listMegaWarmRootV8511(ctx context.Context, exe string, timeout time.Duratio
 	if strings.TrimSpace(exe) == "" {
 		return "", errors.New("MEGAcmd lipsă")
 	}
-	out, err := runMegaTimed(ctx, timeout, exe, "webdav")
+	out, err := runMegaTimedPreviewV8514(ctx, timeout, exe, "webdav")
 	if err != nil {
 		return "", err
 	}
@@ -87,13 +81,13 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	if strings.TrimSpace(exe) == "" {
 		return "", errors.New("MEGAcmd lipsă")
 	}
-	out, err := runMegaTimed(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
+	out, err := runMegaTimedPreviewV8514(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
 	if err != nil {
 		return "", err
 	}
 	rootURL := extractExactWebDAVURLV8511(out, megaWarmRootRefV86)
 	if rootURL == "" {
-		listing, listErr := runMegaTimed(ctx, 4*time.Second, exe, "webdav")
+		listing, listErr := runMegaTimedPreviewV8514(ctx, 4*time.Second, exe, "webdav")
 		if listErr != nil {
 			return "", listErr
 		}
@@ -105,19 +99,12 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	return rootURL, nil
 }
 
-// The scan already paid the public-folder login/listing cost. At that point we
-// can afford one reliable root setup instead of making the first preview click
-// retry the same expensive MEGAcmd work. First rediscover an already-served root
-// (common when MEGAcmd finished the previous command just after our timeout),
-// then give the one root creation a larger scan-only budget.
 func ensureMegaWarmRootAfterScanV8512(ctx context.Context, exe string) (string, error) {
 	if rootURL, err := listMegaWarmRootV8511(ctx, exe, 1500*time.Millisecond); err == nil && rootURL != "" {
 		return rootURL, nil
 	}
-	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", megaWarmRootRefV86)
+	out, err := runMegaTimedPreviewV8514(ctx, 30*time.Second, exe, "webdav", megaWarmRootRefV86)
 	if err != nil {
-		// A timed-out client command can still have reached MEGAcmdServer. Check
-		// once more before declaring the root unavailable.
 		if rootURL, listErr := listMegaWarmRootV8511(ctx, exe, 2500*time.Millisecond); listErr == nil && rootURL != "" {
 			return rootURL, nil
 		}
@@ -136,9 +123,6 @@ func ensureMegaWarmRootAfterScanV8512(ctx context.Context, exe string) (string, 
 	return rootURL, nil
 }
 
-// Touch only the WebDAV root itself (Depth: 0) so the local HTTP server and its
-// connection path are awake before the user selects the first media row. This
-// does not download a media file and failure is non-fatal.
 func warmMegaWebDAVTransportV8512(rootURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
 	defer cancel()
@@ -154,9 +138,6 @@ func warmMegaWebDAVTransportV8512(rootURL string) {
 	_ = resp.Body.Close()
 }
 
-// prepareMegaWarmRootAfterScanV86 pays the WebDAV startup cost while the MEGA
-// public-folder session is already hot. The scan context may be almost expired
-// after a long listing, so root preparation gets its own bounded context.
 func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceURL, previousSession string) error {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
