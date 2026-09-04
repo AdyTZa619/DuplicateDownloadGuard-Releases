@@ -15,7 +15,8 @@ func TestLocalFolderSignatureIgnoresOrderAndDuplicatesV857(t *testing.T) {
 	}
 }
 
-func TestHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T) {
+func testHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T, liveRefresh bool) {
+	t.Helper()
 	first := t.TempDir()
 	second := t.TempDir()
 	download := t.TempDir()
@@ -49,7 +50,7 @@ func TestHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T) {
 		LocalPaths:         []string{first},
 		DownloadDir:        download,
 		Mode:               "balanced",
-		LiveRefreshCompare: true,
+		LiveRefreshCompare: liveRefresh,
 	}
 
 	// First heartbeat only establishes the baseline configuration.
@@ -81,6 +82,14 @@ func TestHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T) {
 	}
 	got := a.results[0]
 	if got.Status != "POSSIBLE" || got.LocalPath != local || got.Candidates != 1 {
-		t.Fatalf("new folder was not reflected in existing result: %#v", got)
+		t.Fatalf("new folder was not reflected in existing result (live=%v): %#v", liveRefresh, got)
 	}
+}
+
+func TestHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T) {
+	testHeartbeatFolderChangeRefreshesCurrentResultsV857(t, true)
+}
+
+func TestHeartbeatFolderChangeRefreshesWhenLiveCompareDisabledV857(t *testing.T) {
+	testHeartbeatFolderChangeRefreshesCurrentResultsV857(t, false)
 }
