@@ -1,8 +1,8 @@
 {
-  "version": "8.5.18-test.1",
+  "version": "8.5.19-recovery.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "7c94b08d5944a32235b36b87791e8f1debc72207399a07d989ceca955b38d966",
-  "notes": "TEST MEGA Preview 8.5.18-test.1: elimină media.load() și ruperea sincronă a src la schimbarea rândului. Playerul vechi este doar oprit și detașat, astfel încât Chromium să nu mai poată bloca UI înainte de următorul request. Păstrează fixurile 8.5.17 pentru previewMu, sesiunea caldă și jurnalul diagnostic.",
-  "publishedAt": "2026-09-04T21:09:35.5538626Z",
+  "sha256": "061a2f6a06d92eb245a7ca1d1257407944c7ce35d5632277ed7a11e3c990fabd",
+  "notes": "RECOVERY: executabil construit din baza exactă 8.5.9, fără modificările experimentale MEGA Preview din 8.5.10-8.5.18. Scop: restaurarea imediată a comportamentului cunoscut înainte de continuarea remedierii pe o ramură separată.",
+  "publishedAt": "2026-09-04T21:19:01.6926261Z",
   "channel": "test"
 }
