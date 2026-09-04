@@ -57,6 +57,14 @@
     return '';
   }
 
+  function errorUserStatus(code) {
+    const c = String(code || '').toUpperCase();
+    if (c === 'MEGA_QUOTA' || c === 'MEGA_RATE_LIMIT') return 'LIMITĂ / COTĂ';
+    if (['MEGA_BLOCKED', 'MEGA_AUTH', 'MEGA_KEY', 'MEGA_LINK', 'MEGA_NOT_FOUND'].includes(c)) return 'INDISPONIBIL';
+    if (c === 'CANCELLED') return 'ANULAT';
+    return 'EROARE';
+  }
+
   function qualityText(q) {
     return ({ remote: 'remote pare mai bun', local: 'versiunea locală pare mai bună' })[q] || '';
   }
@@ -76,6 +84,7 @@
       .guardPath{display:block;margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .guardLegendV85{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
       .guardLegendV85 span{font-size:11px;border:1px solid #314155;border-radius:999px;padding:4px 7px;background:#0e151e}
+      .errorStatusV85{display:inline-flex;margin:0 6px 4px 0;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:850;letter-spacing:.03em;background:#4a2228;color:#ffadb5}
     `;
     document.head.appendChild(style);
   }
@@ -100,7 +109,7 @@
             </div>
             <div class="noticeBlue" id="guardScanInfo">Se pregătește raportul…</div>
             <div class="guardLegendV85">
-              <span>AI DEJA</span><span>DESCĂRCAT DEJA</span><span>ACELAȘI CONȚINUT</span><span>ALTĂ VERSIUNE</span><span>PARE ACELAȘI</span><span>NU ÎL AI</span>
+              <span>AI DEJA</span><span>DESCĂRCAT DEJA</span><span>ACELAȘI CONȚINUT</span><span>ALTĂ VERSIUNE</span><span>PARE ACELAȘI</span><span>NU ÎL AI</span><span>LIMITĂ / COTĂ</span><span>INDISPONIBIL</span>
             </div>
             <div class="guardList" id="guardDecisionList" style="margin-top:12px"></div>
           </div>
@@ -188,7 +197,7 @@
         '<div class="helpStep"><div>„🛡 Verifică inteligent + descarcă” rescanează live locațiile și verifică mai întâi dacă fișierul a fost deja descărcat.</div></div>' +
         '<div class="helpStep"><div>Pentru duplicate exacte folosește hash/bytes. Pentru poze și video modificate caută aceeași sursă prin fingerprint perceptual; video folosește 7 cadre și controlul duratei.</div></div>' +
         '<div class="helpStep"><div>Doar „NU ÎL AI” intră automat în coadă. „ALTĂ VERSIUNE”, „PARE ACELAȘI” și „POSIBIL DUPLICAT” cer verificare.</div></div>' +
-        '<div class="helpStep"><div>În Descărcări ai Pauză TOT și STOP TOT, iar erorile MEGA afișează cauza și acțiunea recomandată.</div></div>';
+        '<div class="helpStep"><div>În Descărcări ai Pauză TOT și STOP TOT; cota MEGA apare explicit ca „LIMITĂ / COTĂ”, iar linkurile/cheile indisponibile ca „INDISPONIBIL”.</div></div>';
     }
   }
 
@@ -367,7 +376,7 @@
         if (megaBanner) {
           const problem = data.megaStatus;
           megaBanner.classList.toggle('hidden', !problem);
-          megaBanner.innerHTML = problem ? `<b>${esc(problem.title || 'MEGA')}</b> <span class="sourcePill">${esc(problem.code || '')}</span><br>${esc(problem.message || '')}<br><b>Ce faci:</b> ${esc(problem.action || '')}` : '';
+          megaBanner.innerHTML = problem ? `<span class="errorStatusV85">${esc(errorUserStatus(problem.code))}</span><b>${esc(problem.title || 'MEGA')}</b> <span class="sourcePill">${esc(problem.code || '')}</span><br>${esc(problem.message || '')}<br><b>Ce faci:</b> ${esc(problem.action || '')}` : '';
         }
         const body = document.getElementById('queueBody');
         body.innerHTML = data.jobs.map(job => {
@@ -376,7 +385,8 @@
           const guardStatus = job.guardVerdict ? inferUserStatus({ guardVerdict: job.guardVerdict, guardMethod: job.guardMethod }) : '';
           const guard = guardStatus ? `<div class="muted small">🛡 ${esc(guardStatus)}${job.guardMethod ? ` • ${esc(job.guardMethod)}` : ''}</div>` : '';
           const stage = job.stage ? `<div class="muted small">Etapă: ${esc(job.stage)}</div>` : '';
-          const destination = job.error ? `<span class="dangerText"><b>${esc(job.errorTitle || 'Eroare')}</b>${job.errorCode ? ` [${esc(job.errorCode)}]` : ''}<br>${esc(job.error)}${job.errorAction ? `<br><b>Ce faci:</b> ${esc(job.errorAction)}` : ''}</span>${stage}` : `${esc(job.outputPath || job.destination || '')}${stage}`;
+          const errorStatus = job.error ? `<span class="errorStatusV85">${esc(errorUserStatus(job.errorCode))}</span>` : '';
+          const destination = job.error ? `<span class="dangerText">${errorStatus}<b>${esc(job.errorTitle || 'Eroare')}</b>${job.errorCode ? ` [${esc(job.errorCode)}]` : ''}<br>${esc(job.error)}${job.errorAction ? `<br><b>Ce faci:</b> ${esc(job.errorAction)}` : ''}</span>${stage}` : `${esc(job.outputPath || job.destination || '')}${stage}`;
           return `<tr><td><input class="check qcheck" type="checkbox" data-qid="${esc(job.id)}" ${checked} onchange="queueToggle('${esc(job.id)}',this.checked)"/></td><td><b class="${qClass(job.status)}">${qStatusLabel(job.status)}</b><div class="muted small">P${job.priority || 0}</div></td><td><b>${esc(job.name)}</b><div class="muted small">${esc(job.source || '')}</div>${guard}</td><td>${esc(job.engine || 'auto')}${job.gid ? `<div class="muted small">GID ${esc(job.gid)}</div>` : ''}</td><td><div class="downloadBar"><i style="width:${percent}%"></i></div><div class="muted small">${fmt(job.bytesDone || 0)} / ${job.bytesTotal > 0 ? fmt(job.bytesTotal) : '?'}</div></td><td>${job.speedBps > 0 ? fmt(job.speedBps) + '/s' : '—'}</td><td>${qEta(job.etaSeconds)}</td><td>${job.attempts || 0}/${job.maxRetries || 0}</td><td class="path">${destination}</td></tr>`;
         }).join('') || '<tr><td colspan="9" class="muted" style="padding:25px;text-align:center">Coada este goală. Selectează rezultate și apasă „🛡 Verifică inteligent + descarcă”.</td></tr>';
       } catch (error) {
