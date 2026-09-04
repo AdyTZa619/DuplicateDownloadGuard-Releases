@@ -1,0 +1,48 @@
+name: Apply v8.5.4 MEGA preview latency patch
+
+on:
+  push:
+    branches: [fix/v8.5.4-mega-preview-latency]
+    paths:
+      - tools/apply_preview_v854.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply exact patch
+        run: python tools/apply_preview_v854.py
+      - name: Format Go
+        run: gofmt -w main.go mega_preview_ui_fast_v854.go mega_preview_ui_fast_v854_test.go
+      - name: Verify UI syntax
+        run: node --check web/exact_guard.js
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build Windows x64
+        run: |
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          go build -o DuplicateDownloadGuard_PRO_preview_v854.exe .
+      - name: Commit product patch only
+        shell: pwsh
+        run: |
+          git rm tools/apply_preview_v854.py .github/workflows/apply-preview-v854.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.go mega_preview_ui_fast_v854.go mega_preview_ui_fast_v854_test.go
+          git commit -m "Make MEGA preview cache hits zero-command"
+          git push origin HEAD:fix/v8.5.4-mega-preview-latency
