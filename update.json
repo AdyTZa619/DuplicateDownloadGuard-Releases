@@ -1,8 +1,8 @@
 {
-  "version": "8.5.11-test.3",
+  "version": "8.5.12-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "71ab2643836319e2ceb95797f7aa77fedc24965bfd9d510aa6fcfb38d93952be",
-  "notes": "TEST MEGA Preview 8.5.11-test.3: pornit din 8.5.9; reutilizează root-ul WebDAV existent, păstrează root-ul după fallback per-fișier și evită dublul fallback. Build pentru validare reală înainte de stable.",
-  "publishedAt": "2026-09-04T18:33:25.4538742Z",
+  "sha256": "f2859efbb14bf12ae653c19d66ab55469b14be7e7037f05d08d83cf9066e751d",
+  "notes": "TEST MEGA Preview 8.5.12-test.1: închide explicit streamul media vechi înainte de fiecare rând ca să nu se acumuleze conexiuni WebDAV; după scanare pregătește și încălzește root-ul; pe sesiune MEGA deja caldă nu mai repetă webdav / lung la primul click și folosește fallback per-fișier cu buget scurt.",
+  "publishedAt": "2026-09-04T19:04:42.4051544Z",
   "channel": "test"
 }
