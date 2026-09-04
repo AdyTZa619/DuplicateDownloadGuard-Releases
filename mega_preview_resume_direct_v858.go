@@ -8,6 +8,39 @@ import (
 	"time"
 )
 
+func (a *App) snapshotMegaPreviewV8516() MegaPreviewState {
+	if a == nil {
+		return MegaPreviewState{}
+	}
+	a.previewMu.Lock()
+	st := a.preview
+	a.previewMu.Unlock()
+	return st
+}
+
+func (a *App) commitMegaPreviewV8516(st MegaPreviewState) {
+	if a == nil {
+		return
+	}
+	a.previewMu.Lock()
+	a.preview = st
+	a.resetPreviewTTLLocked()
+	a.previewMu.Unlock()
+}
+
+func (a *App) touchMegaPreviewV8516(sourceURL, remotePath, streamURL string) bool {
+	if a == nil {
+		return false
+	}
+	a.previewMu.Lock()
+	defer a.previewMu.Unlock()
+	if !a.preview.Active || a.preview.SourceURL != sourceURL || a.preview.RemotePath != remotePath || a.preview.StreamURL != streamURL {
+		return false
+	}
+	a.resetPreviewTTLLocked()
+	return true
+}
+
 func (a *App) activateMegaRootV8511(item RemoteItem, exe, rootURL, previousSession string) (string, error) {
 	child, err := megaWebDAVChildURL(rootURL, item.Path)
 	if err != nil || child == "" {
@@ -16,15 +49,14 @@ func (a *App) activateMegaRootV8511(item RemoteItem, exe, rootURL, previousSessi
 		}
 		return "", fmt.Errorf("WebDAV root este activ, dar calea fișierului este invalidă: %w", err)
 	}
-	a.preview = MegaPreviewState{
+	a.commitMegaPreviewV8516(MegaPreviewState{
 		Active:          true,
 		SourceURL:       item.URL,
 		RemotePath:      megaWarmRootRefV86,
 		StreamURL:       rootURL,
 		PreviousSession: previousSession,
 		Exe:             exe,
-	}
-	a.resetPreviewTTLLocked()
+	})
 	return child, nil
 }
 
@@ -47,24 +79,25 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 	defer releaseMegaSession()
 
-	a.previewMu.Lock()
-	defer a.previewMu.Unlock()
+	// v8.5.16: previewMu protects only the in-memory state. Never keep it while
+	// MegaClient, filesystem diagnostics, network probes or cleanup are running.
+	// The MEGA session gate already serializes the actual MEGAcmd operations.
+	old := a.snapshotMegaPreviewV8516()
 
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == megaWarmRootRefV86 && a.preview.StreamURL != "" {
-		if child, err := megaWebDAVChildURL(a.preview.StreamURL, item.Path); err == nil && child != "" {
-			a.resetPreviewTTLLocked()
+	if old.Active && old.SourceURL == item.URL && old.RemotePath == megaWarmRootRefV86 && old.StreamURL != "" {
+		if child, err := megaWebDAVChildURL(old.StreamURL, item.Path); err == nil && child != "" {
+			a.touchMegaPreviewV8516(old.SourceURL, old.RemotePath, old.StreamURL)
 			return child, nil
 		}
 	}
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == remoteRef && a.preview.StreamURL != "" {
-		a.resetPreviewTTLLocked()
-		return a.preview.StreamURL, nil
+	if old.Active && old.SourceURL == item.URL && old.RemotePath == remoteRef && old.StreamURL != "" {
+		a.touchMegaPreviewV8516(old.SourceURL, old.RemotePath, old.StreamURL)
+		return old.StreamURL, nil
 	}
 
 	// The scan (or a previous preview) proves this exact public-folder session
 	// is already active. Never rebuild the long whole-folder root on this click.
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
-		old := a.preview
+	if old.Active && old.SourceURL == item.URL && old.Exe != "" {
 		ctx := context.Background()
 		lookupStarted := time.Now()
 		if rootURL, err := listMegaWarmRootV8511(ctx, old.Exe, 1500*time.Millisecond); err == nil && rootURL != "" {
@@ -90,23 +123,24 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			return "", newMegaProblemError(problem, result.StartOutput)
 		}
 		megaPreviewDiagfV8514("POST CMD     item=%q path=hot-per-file elapsed=%s", item.Path, time.Since(fallbackStarted).Round(time.Millisecond))
-		a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
-		a.preview = MegaPreviewState{
+		a.commitMegaPreviewV8516(MegaPreviewState{
 			Active:          true,
 			SourceURL:       item.URL,
 			RemotePath:      remoteRef,
 			StreamURL:       result.StreamURL,
 			PreviousSession: old.PreviousSession,
 			Exe:             old.Exe,
-		}
-		a.resetPreviewTTLLocked()
+		})
+		a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
 		megaPreviewDiagfV8514("RETURN PREP  item=%q path=hot-per-file elapsed=%s", item.Path, time.Since(fallbackStarted).Round(time.Millisecond))
 		a.previewLogfAsyncV8515("MEGA HOT PER-FILE: root absent; endpointul cerut a fost pregătit în %d ms", time.Since(fallbackStarted).Milliseconds())
 		return result.StreamURL, nil
 	}
 
-	if a.preview.Active {
-		_ = a.stopMegaPreviewLocked("restart direct preview / schimbare sursă")
+	if old.Active {
+		if err := a.stopMegaPreviewWhileSessionOwned("restart direct preview / schimbare sursă"); err != nil {
+			a.previewLogfAsyncV8515("MEGA preview: oprirea sesiunii vechi înainte de sursă nouă: %v", err)
+		}
 	}
 
 	exe := a.detectMegaClient()
@@ -134,14 +168,13 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
 		if err == nil && result.StreamURL != "" {
 			megaPreviewDiagfV8514("POST CMD     item=%q path=current-session elapsed=%s", item.Path, time.Since(restartStarted).Round(time.Millisecond))
-			a.preview = MegaPreviewState{
+			a.commitMegaPreviewV8516(MegaPreviewState{
 				Active:     true,
 				SourceURL:  item.URL,
 				RemotePath: remoteRef,
 				StreamURL:  result.StreamURL,
 				Exe:        exe,
-			}
-			a.resetPreviewTTLLocked()
+			})
 			megaPreviewDiagfV8514("RETURN PREP  item=%q path=current-session elapsed=%s", item.Path, time.Since(restartStarted).Round(time.Millisecond))
 			a.previewLogfAsyncV8515("MEGA CURRENT SESSION: compatibilitate per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 			return result.StreamURL, nil
@@ -190,20 +223,19 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		return "", newMegaProblemError(problem, result.StartOutput)
 	}
 
-	a.preview = MegaPreviewState{
+	a.commitMegaPreviewV8516(MegaPreviewState{
 		Active:          true,
 		SourceURL:       item.URL,
 		RemotePath:      remoteRef,
 		StreamURL:       result.StreamURL,
 		PreviousSession: oldSession,
 		Exe:             exe,
-	}
+	})
 	if oldSession == "" {
 		a.saveMegaPreviewRestartHintV859(item.URL)
 	} else {
 		a.clearMegaPreviewRestartHintV859()
 	}
-	a.resetPreviewTTLLocked()
 	a.previewLogfAsyncV8515("MEGA DIRECT RESUME fallback: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 	return result.StreamURL, nil
 }
