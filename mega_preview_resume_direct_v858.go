@@ -8,11 +8,10 @@ import (
 	"time"
 )
 
-// startMegaPreviewResumeDirectV858 is the restart path. Unlike v8.5.6 it does
-// not recreate WebDAV for the whole public folder before the first click. It
-// resumes the cached public-folder session and exposes only the requested node.
-// Warm-root remains useful immediately after a fresh scan, where its startup
-// cost has already been paid while the scan owns the MEGA session.
+// startMegaPreviewResumeDirectV858 is the restart path. v8.5.9 first tries the
+// exact public-folder session that DDG deliberately preserved at the previous
+// shutdown. Only if that short direct attempt fails does it pay for the older
+// session/logout/login --resume sequence.
 func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
@@ -84,6 +83,33 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		return "", errors.New("MEGAcmd nu a fost găsit")
 	}
 	ctx := context.Background()
+	run := func(timeout time.Duration, args ...string) (string, error) {
+		return runMegaTimed(ctx, timeout, exe, args...)
+	}
+
+	// v8.5.9 cold-start fast path. A graceful DDG shutdown can leave the public
+	// folder session active when there was no previous account session to
+	// restore. The non-secret hint tells us this exact source should still be
+	// current, so try only WebDAV first. A stale hint costs at most a few seconds
+	// and is immediately discarded.
+	if a.matchesMegaPreviewRestartHintV859(item.URL) {
+		result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
+		if err == nil && result.StreamURL != "" {
+			a.preview = MegaPreviewState{
+				Active:     true,
+				SourceURL:  item.URL,
+				RemotePath: remoteRef,
+				StreamURL:  result.StreamURL,
+				Exe:        exe,
+			}
+			a.resetPreviewTTLLocked()
+			a.logf("MEGA CURRENT SESSION: direct per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+			return result.StreamURL, nil
+		}
+		a.clearMegaPreviewRestartHintV859()
+		a.logf("MEGA CURRENT SESSION indisponibil; folosesc --resume: %v", err)
+	}
+
 	oldSession := ""
 	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
@@ -96,9 +122,6 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		return "", newMegaProblemError(problem, loginOut)
 	}
 
-	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
-	}
 	result, err := switchSameSourceWebDAVV85(MegaPreviewState{Exe: exe}, remoteRef, run)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
@@ -116,6 +139,11 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		StreamURL:       result.StreamURL,
 		PreviousSession: oldSession,
 		Exe:             exe,
+	}
+	if oldSession == "" {
+		a.saveMegaPreviewRestartHintV859(item.URL)
+	} else {
+		a.clearMegaPreviewRestartHintV859()
 	}
 	a.resetPreviewTTLLocked()
 	a.logf("MEGA DIRECT RESUME: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
