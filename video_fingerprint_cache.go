@@ -17,6 +17,7 @@ type localVideoFingerprintCacheEntry struct {
 
 var localVideoFingerprintCacheState = struct {
 	sync.Mutex
+	SaveMu     sync.Mutex
 	AppDir     string
 	Loaded     bool
 	Dirty      bool
@@ -113,6 +114,9 @@ func pruneLocalVideoFingerprintCacheV85(a *App, entries []FileEntry) bool {
 
 func flushLocalVideoFingerprintCacheV85(a *App) error {
 	ensureLocalVideoFingerprintCacheLoaded(a)
+	localVideoFingerprintCacheState.SaveMu.Lock()
+	defer localVideoFingerprintCacheState.SaveMu.Unlock()
+
 	localVideoFingerprintCacheState.Lock()
 	if !localVideoFingerprintCacheState.Dirty {
 		localVideoFingerprintCacheState.Unlock()
