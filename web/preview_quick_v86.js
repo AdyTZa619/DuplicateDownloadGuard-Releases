@@ -5,7 +5,7 @@
   const meta = { remote: {}, local: {} };
   let restartPrewarmStarted = false;
 
-  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmtDuration = sec => {
     sec = Number(sec);
     if (!Number.isFinite(sec) || sec <= 0) return '';
@@ -152,9 +152,6 @@
       const d = await api('/api/results?offset=0&limit=100');
       const candidate = (d?.rows || []).find(r => String(r?.remote?.source || '').toUpperCase() === 'MEGA' && r?.remote?.url && ['image','video','audio'].includes(previewKind(r.remote.name || r.remote.path || '')));
       if (!candidate) return;
-      // Intentionally fire the same endpoint the player uses. The backend first
-      // tries the zero-command root/cache path and, after a restart, resumes the
-      // MEGAcmd folder cache in the background before the user selects a row.
       await api('/api/remote-preview/start', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -163,8 +160,8 @@
       const src = document.getElementById('remoteSource');
       if (src && !currentRow) src.title = 'MEGA preview preîncălzit după restart';
     } catch (_) {
-      // Prewarm is opportunistic. Normal row selection keeps the compatibility
-      // fallback and will surface a concrete error if MEGA is genuinely broken.
+      // Opportunistic only: normal row selection keeps the compatibility path
+      // and will surface a concrete MEGA error when the user actually needs it.
     }
   }
 
