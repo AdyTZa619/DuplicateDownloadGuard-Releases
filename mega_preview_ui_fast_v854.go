@@ -53,11 +53,9 @@ func megaPublicLoginArgsV856(link string) []string {
 	return []string{"login", strings.TrimSpace(link), "--resume"}
 }
 
-// startMegaPreviewResumeV856 is the restart path for the embedded player.
-// MEGAcmd normally reloads an exported folder from scratch when login receives
-// only the folder URL. --resume tells it to reuse its local folder cache. DDG
-// preserves that cache on shutdown (logout --keep-session), so reopening the
-// application does not need another full public-folder bootstrap.
+// Kept for compatibility/tests. v8.5.8 no longer uses this whole-folder
+// restart path for a user click; restart preview resumes directly to the
+// requested file through startMegaPreviewResumeDirectV858().
 func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
@@ -84,8 +82,6 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 		}
 	}
 
-	// A scan may have left the public-folder session warm even if WebDAV root
-	// creation failed. In that case do not login again; just retry the root.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" && a.preview.StreamURL == "" {
 		rootURL, rootErr := startMegaWarmRootV86(context.Background(), a.preview.Exe)
 		if rootErr == nil {
@@ -114,9 +110,6 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	// Always preserve the current MEGAcmd cache before switching entity. This is
-	// cheap when there is no session and essential when the current entity is a
-	// folder link that DDG may want to resume later.
 	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
 
 	loginArgs := megaPublicLoginArgsV856(item.URL)
@@ -153,10 +146,9 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	return child, nil
 }
 
-// startMegaPreviewResumeCoalescedV856 prevents the background restart prewarm
-// and a user click from launching two competing MEGAcmd login/webdav sequences.
-// All callers share one initialization, then resolve their own child URL from
-// the warmed root.
+// startMegaPreviewResumeCoalescedV856 serializes only real user-triggered
+// restart initialization. v8.5.8 removed the background startup prewarm, so a
+// click no longer waits behind an unsolicited MEGAcmd login/root bootstrap.
 func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		if streamURL, _, ok := a.tryMegaPreviewUICacheV854(item); ok {
@@ -177,7 +169,7 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 		megaPreviewResumeFlightV856.done = done
 		megaPreviewResumeFlightV856.Unlock()
 
-		streamURL, err := a.startMegaPreviewResumeV856(item)
+		streamURL, err := a.startMegaPreviewResumeDirectV858(item)
 		megaPreviewResumeFlightV856.Lock()
 		if megaPreviewResumeFlightV856.done == done {
 			megaPreviewResumeFlightV856.done = nil
@@ -200,9 +192,9 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 		}
 		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
 		if err == nil {
-			return streamURL, "MEGA FAST RESUME", time.Since(started), nil
+			return streamURL, "MEGA DIRECT RESUME", time.Since(started), nil
 		}
-		a.logf("MEGA Fast Resume nereușit; încerc fallback per-fișier: %v", err)
+		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
 
 	// Browser fallback must never re-enter startMegaPreview(), because that
