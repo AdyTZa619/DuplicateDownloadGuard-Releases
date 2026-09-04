@@ -10,13 +10,11 @@ import (
 
 const wmClose = 0x0010
 
-var (
-	uiUser32                  = syscall.NewLazyDLL("user32.dll")
-	uiEnumWindows             = uiUser32.NewProc("EnumWindows")
-	uiGetWindowTextLengthW    = uiUser32.NewProc("GetWindowTextLengthW")
-	uiGetWindowTextW          = uiUser32.NewProc("GetWindowTextW")
-	uiPostMessageW            = uiUser32.NewProc("PostMessageW")
-)
+var uiUser32 = syscall.NewLazyDLL("user32.dll")
+var uiEnumWindows = uiUser32.NewProc("EnumWindows")
+var uiGetWindowTextLengthW = uiUser32.NewProc("GetWindowTextLengthW")
+var uiGetWindowTextW = uiUser32.NewProc("GetWindowTextW")
+var uiPostMessageW = uiUser32.NewProc("PostMessageW")
 
 func matchingDDGAppWindows() []uintptr {
 	windows := make([]uintptr, 0, 2)
