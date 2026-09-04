@@ -66,18 +66,17 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 		t.Fatal("browser root failure must request true backend fallback")
 	}
 
-	// Static regression guard for the backend strategy. The legacy whole-root
-	// helper may remain for compatibility, but coalesced user initialization
-	// must call the direct per-file resume path.
-	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
+	// Static regression guard for the backend strategy. The production handler
+	// must use the managed root controller, not the legacy per-file UI path.
+	src, err := osReadTextForTestV858("main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item, traceID)") {
-		t.Fatal("restart click is not routed through direct per-file resume")
+	if !strings.Contains(src, "a.startMegaPreviewControlledV8511(res.Remote") {
+		t.Fatal("preview handler is not routed through the managed root controller")
 	}
-	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
-		t.Fatal("direct resume mode is not exposed to UI diagnostics")
+	if strings.Contains(src, "a.startMegaPreviewForUIV854(res.Remote") {
+		t.Fatal("preview handler still uses the legacy per-file UI route")
 	}
 }
 

@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.11-test.2 MEGA Preview Controller"
+const appVersion = "8.5.11-test.3 MEGA Single-Root Controller"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -205,6 +205,9 @@ type MegaPreviewState struct {
 	SourceURL       string
 	RemotePath      string
 	StreamURL       string
+	RootURL         string
+	FallbackRemotePath string
+	FallbackStreamURL  string
 	PreviousSession string
 	Exe             string
 }
@@ -3088,8 +3091,18 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 	}
 	var firstErr error
 	ctx := context.Background()
-	if st.Exe != "" && st.RemotePath != "" {
-		if out, err := runMegaTimed(ctx, 12*time.Second, st.Exe, "webdav", "-d", st.RemotePath); err != nil {
+	if st.Exe != "" && st.FallbackRemotePath != "" {
+		if out, err := runMegaTimed(ctx, 12*time.Second, st.Exe, "webdav", "-d", st.FallbackRemotePath); err != nil {
+			a.logf("MEGA preview: oprire fallback (%s): %v • %s", reason, err, sanitizeMega(out))
+			firstErr = err
+		}
+	}
+	rootPath := st.RemotePath
+	if rootURLFromStateV8511(st) != "" {
+		rootPath = megaWarmRootRefV86
+	}
+	if st.Exe != "" && rootPath != "" && rootPath != st.FallbackRemotePath {
+		if out, err := runMegaTimed(ctx, 12*time.Second, st.Exe, "webdav", "-d", rootPath); err != nil {
 			a.logf("MEGA preview: oprire WebDAV (%s): %v • %s", reason, err, sanitizeMega(out))
 			firstErr = err
 		}
@@ -3124,95 +3137,9 @@ func (a *App) stopMegaPreview(reason string) error {
 }
 
 func (a *App) startMegaPreview(item RemoteItem) (string, error) {
-	gateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := acquireMegaSession(gateCtx); err != nil {
-		return "", fmt.Errorf("MEGA este ocupat cu scanare sau download; încearcă preview-ul din nou după terminarea operației: %w", err)
-	}
-	defer releaseMegaSession()
-	a.previewMu.Lock()
-	defer a.previewMu.Unlock()
-
-	remoteRef := megaRemoteRef(item)
-	if remoteRef == "" {
-		return "", errors.New("fișierul MEGA nu are nici handle, nici cale remote utilizabilă")
-	}
-
-	// Fast path: the scan already serves the whole public folder through one
-	// warm WebDAV root. Derive the selected child URL locally and avoid a new
-	// MEGAcmd webdav command for every row click.
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == megaWarmRootRefV86 && a.preview.StreamURL != "" {
-		if streamURL, ok := warmRootPreviewURLV86(a.preview, item); ok {
-			a.resetPreviewTTLLocked()
-			a.logf("MEGA Fast Preview hit: %s -> %s", item.Path, streamURL)
-			return streamURL, nil
-		}
-		a.logf("MEGA Fast Preview miss pentru %s; folosesc WebDAV per fișier", item.Path)
-	}
-
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == remoteRef && a.preview.StreamURL != "" {
-		a.resetPreviewTTLLocked()
-		return a.preview.StreamURL, nil
-	}
-
-	// Same public folder: start and validate the new WebDAV node before stopping
-	// the old one so a failed switch never interrupts the currently playing file.
-	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
-		old := a.preview
-		streamURL, err := a.switchMegaPreviewSameSourceV85(old, remoteRef)
-		if err != nil {
-			return "", err
-		}
-		a.preview = MegaPreviewState{Active: true, SourceURL: item.URL, RemotePath: remoteRef, StreamURL: streamURL, PreviousSession: old.PreviousSession, Exe: old.Exe}
-		a.resetPreviewTTLLocked()
-		a.logf("MEGA preview: %s [%s] -> %s", item.Path, remoteRef, streamURL)
-		return streamURL, nil
-	}
-
-	if a.preview.Active {
-		_ = a.stopMegaPreviewLocked("schimbare sursă")
-	}
-
-	exe := a.detectMegaClient()
-	if exe == "" {
-		return "", errors.New("MEGAcmd nu a fost găsit")
-	}
-	ctx := context.Background()
-	oldSession := ""
-	if out, err := runMegaTimed(ctx, 10*time.Second, exe, "session"); err == nil {
-		oldSession = extractSession(out)
-	}
-	if oldSession != "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session")
-	} else {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
-	}
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, "login", item.URL)
-	if err != nil {
-		a.restoreMegaSessionSilent(exe, oldSession)
-		problem := classifyMegaProblem(loginOut, err)
-		return "", newMegaProblemError(problem, loginOut)
-	}
-	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
-	if err != nil {
-		a.restoreMegaSessionSilent(exe, oldSession)
-		problem := classifyMegaProblem(out, err)
-		return "", newMegaProblemError(problem, out)
-	}
-	streamURL := extractWebDAVURL(out, remoteRef)
-	if streamURL == "" {
-		listing, _ := runMegaTimed(ctx, 10*time.Second, exe, "webdav")
-		streamURL = extractWebDAVURL(listing, remoteRef)
-	}
-	if streamURL == "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "webdav", "-d", remoteRef)
-		a.restoreMegaSessionSilent(exe, oldSession)
-		return "", errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
-	}
-	a.preview = MegaPreviewState{Active: true, SourceURL: item.URL, RemotePath: remoteRef, StreamURL: streamURL, PreviousSession: oldSession, Exe: exe}
-	a.resetPreviewTTLLocked()
-	a.logf("MEGA preview pornit: %s [%s] -> %s", item.Path, remoteRef, streamURL)
-	return streamURL, nil
+	traceID := nextMegaPreviewTraceV8511()
+	streamURL, _, err := a.ensureMegaPreviewRootV8511(item, traceID)
+	return streamURL, err
 }
 
 func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
@@ -3261,8 +3188,8 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, map[string]any{
 		"url":          previewResult.URL,
-		"kind":         kind,
-		"streaming":    true,
+		"kind":        kind,
+		"streaming":   true,
 		"source":       previewResult.Mode,
 		"previewMode":  previewResult.Mode,
 		"prepareMs":    previewResult.Prepare.Milliseconds(),

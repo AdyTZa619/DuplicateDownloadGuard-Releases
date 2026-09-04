@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,9 +21,44 @@ func TestMegaPreviewRepeatedRootChangesStayCommandFreeV8511(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		item := RemoteItem{Source: "MEGA", URL: a.preview.SourceURL, Path: "/set/clip-" + time.Unix(int64(i), 0).Format("150405") + ".mp4"}
 		url, mode, ok := a.tryMegaPreviewUICacheV854(item)
-		if !ok || mode != "MEGA FAST ROOT" || !strings.Contains(url, "/root/set/clip-") {
+		if !ok || mode != "MEGA ROOT SERVICE" || !strings.Contains(url, "/root/set/clip-") {
 			t.Fatalf("switch %d left root path: ok=%v mode=%q url=%q", i, ok, mode, url)
 		}
+	}
+}
+
+func TestMegaPreviewFallbackStaysBoundedAcrossManyFailuresV8511(t *testing.T) {
+	currentPath, currentURL := "", ""
+	activeLocations := map[string]bool{megaWarmRootRefV86: true}
+	for i := 0; i < 100; i++ {
+		requested := "H:" + time.Unix(int64(i), 0).Format("150405")
+		remove, reuse := planMegaFallbackV8511(currentPath, currentURL, requested)
+		if remove != "" {
+			delete(activeLocations, remove)
+			currentPath, currentURL = "", ""
+		}
+		if reuse == "" {
+			currentPath, currentURL = requested, "http://127.0.0.1:4443/"+requested
+			activeLocations[currentPath] = true
+		}
+		if len(activeLocations) > 2 {
+			t.Fatalf("switch %d accumulated WebDAV locations: %#v", i, activeLocations)
+		}
+	}
+}
+
+func TestMegaPreviewSlowFailureDoesNotAuthorizeReloginV8511(t *testing.T) {
+	for _, problem := range []MegaProblem{
+		classifyMegaProblem("", context.DeadlineExceeded),
+		classifyMegaProblem("network connection failed", errors.New("failed")),
+		classifyMegaProblem("HTTP 509 transfer quota exceeded", errors.New("HTTP 509")),
+	} {
+		if megaMayReplaceSessionV8511(problem) {
+			t.Fatalf("slow/transient failure %s would stack a logout/login chain", problem.Code)
+		}
+	}
+	if !megaMayReplaceSessionV8511(classifyMegaProblem("not logged in", errors.New("not logged in"))) {
+		t.Fatal("an explicitly missing session must allow one controlled login")
 	}
 }
 

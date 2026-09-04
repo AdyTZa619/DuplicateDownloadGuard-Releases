@@ -27,7 +27,7 @@ func TestMegaPreviewUICacheRootNeedsNoNetworkProbe(t *testing.T) {
 	if !ok {
 		t.Fatal("expected root cache hit even though the test URL is unreachable")
 	}
-	if mode != "MEGA FAST ROOT" {
+	if mode != "MEGA ROOT SERVICE" {
 		t.Fatalf("mode=%q", mode)
 	}
 	if !strings.Contains(got, "/root/pack/My%20Video%20%231.mp4") {

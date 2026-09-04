@@ -102,8 +102,18 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
-	if st.RemotePath != "" {
-		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
+	if st.FallbackRemotePath != "" {
+		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.FallbackRemotePath)
+		if err != nil && ctx.Err() == nil {
+			a.logf("MEGA shutdown: fallback-ul temporar nu s-a oprit curat: %v • %s", err, sanitizeMega(out))
+		}
+	}
+	rootPath := st.RemotePath
+	if rootURLFromStateV8511(st) != "" {
+		rootPath = megaWarmRootRefV86
+	}
+	if rootPath != "" && rootPath != st.FallbackRemotePath {
+		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", rootPath)
 		if err != nil && ctx.Err() == nil {
 			a.logf("MEGA shutdown: WebDAV nu s-a oprit curat: %v • %s", err, sanitizeMega(out))
 		}

@@ -68,14 +68,14 @@ jobs:
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.2_MEGA.exe .
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.3_MEGA.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.2_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
+          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.3_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
 
       - name: Upload candidate only
         uses: actions/upload-artifact@v4
         with:
-          name: DDG-8.5.11-test.2-MEGA-V859-BASE
+          name: DDG-8.5.11-test.3-MEGA-SINGLE-ROOT-V859-BASE
           path: artifacts/*
           retention-days: 14
           if-no-files-found: error

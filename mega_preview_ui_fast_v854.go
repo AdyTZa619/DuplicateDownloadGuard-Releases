@@ -28,15 +28,21 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 	defer a.previewMu.Unlock()
 	st := a.preview
 	if !st.Active || st.SourceURL != item.URL || strings.TrimSpace(st.StreamURL) == "" {
-		return "", "", false
+		if !st.Active || st.SourceURL != item.URL || strings.TrimSpace(st.RootURL) == "" {
+			return "", "", false
+		}
 	}
 
-	if st.RemotePath == megaWarmRootRefV86 {
-		child, err := megaWebDAVChildURL(st.StreamURL, item.Path)
+	rootURL := strings.TrimSpace(st.RootURL)
+	if rootURL == "" && st.RemotePath == megaWarmRootRefV86 {
+		rootURL = strings.TrimSpace(st.StreamURL)
+	}
+	if rootURL != "" {
+		child, err := megaWebDAVChildURL(rootURL, item.Path)
 		if err == nil && child != "" {
 			a.resetPreviewTTLLocked()
-			a.logf("MEGA UI Fast Preview root hit: %s -> %s", item.Path, child)
-			return child, "MEGA FAST ROOT", true
+			a.logf("MEGA Preview root service hit: %s -> %s", item.Path, child)
+			return child, "MEGA ROOT SERVICE", true
 		}
 	}
 
@@ -45,6 +51,10 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 		a.resetPreviewTTLLocked()
 		a.logf("MEGA UI Fast Preview cache hit: %s", item.Path)
 		return st.StreamURL, "MEGA FAST CACHE", true
+	}
+	if remoteRef != "" && st.FallbackRemotePath == remoteRef && st.FallbackStreamURL != "" {
+		a.resetPreviewTTLLocked()
+		return st.FallbackStreamURL, "MEGA BOUNDED FALLBACK", true
 	}
 	return "", "", false
 }

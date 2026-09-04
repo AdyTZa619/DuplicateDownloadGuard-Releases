@@ -73,7 +73,7 @@
       const id = Number(current?.id || 0);
       const sourceEl = document.getElementById('remoteSource');
       const sourceText = String(sourceEl?.textContent || '').toUpperCase();
-      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME');
+      const rootMode = sourceText.includes('MEGA');
       const now = Date.now();
       const recentlyRetried = id && trueFallbackIDV858 === id && now - trueFallbackAtV858 < 15000;
       if (!id || !rootMode || recentlyRetried) return original.apply(this, arguments);
