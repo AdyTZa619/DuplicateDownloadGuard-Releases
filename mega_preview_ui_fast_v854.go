@@ -14,6 +14,15 @@ var megaPreviewResumeFlightV856 struct {
 	done chan struct{}
 }
 
+func (a *App) trySnapshotMegaPreviewUIV8517() (MegaPreviewState, bool) {
+	if a == nil || !a.previewMu.TryLock() {
+		return MegaPreviewState{}, false
+	}
+	st := a.preview
+	a.previewMu.Unlock()
+	return st, true
+}
+
 // tryMegaPreviewUICacheV854 is intentionally network-free. The MEGA scan has
 // already logged into the public folder and, when possible, exposed its root
 // through WebDAV. The UI should not run another MEGAcmd command or synchronous
@@ -24,7 +33,12 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 		return "", "", false
 	}
 
-	a.previewMu.Lock()
+	// v8.5.17: cache lookup is opportunistic. A stale fallback/stop path must
+	// never make a fresh row click wait on previewMu just to inspect state.
+	if !a.previewMu.TryLock() {
+		megaPreviewDiagfV8514("CACHE STATE BUSY item=%q; skip cache without waiting", item.Path)
+		return "", "", false
+	}
 	defer a.previewMu.Unlock()
 	st := a.preview
 	if !st.Active || st.SourceURL != item.URL || strings.TrimSpace(st.StreamURL) == "" {
@@ -195,10 +209,15 @@ func (a *App) proxyMegaUIV8513(streamURL, mode string, started time.Time) (strin
 
 func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
 	started := time.Now()
-	a.previewMu.Lock()
-	st := a.preview
-	a.previewMu.Unlock()
-	megaPreviewDiagfV8514("CLICK START  item=%q forceFallback=%t state={active:%t sameSource:%t root:%t stream:%t exe:%t}", item.Path, forceFallback, st.Active, st.SourceURL == item.URL, st.RemotePath == megaWarmRootRefV86, strings.TrimSpace(st.StreamURL) != "", strings.TrimSpace(st.Exe) != "")
+	// This line is deliberately before touching previewMu. If a future build ever
+	// stalls again, the diagnostic will show the wait instead of hiding ~30 s
+	// before CLICK START as 8.5.16 did.
+	megaPreviewDiagfV8514("REQUEST START item=%q forceFallback=%t", item.Path, forceFallback)
+	st, stateAvailable := a.trySnapshotMegaPreviewUIV8517()
+	if !stateAvailable {
+		megaPreviewDiagfV8514("STATE BUSY    item=%q; continue without waiting", item.Path)
+	}
+	megaPreviewDiagfV8514("CLICK START  item=%q forceFallback=%t stateAvailable=%t state={active:%t sameSource:%t root:%t stream:%t exe:%t}", item.Path, forceFallback, stateAvailable, st.Active, st.SourceURL == item.URL, st.RemotePath == megaWarmRootRefV86, strings.TrimSpace(st.StreamURL) != "", strings.TrimSpace(st.Exe) != "")
 
 	if !forceFallback {
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
