@@ -41,7 +41,7 @@ func TestNormalizeInitialMediaResultSameSizeRenamedVideoIsNotMissing(t *testing.
 	r := Result{
 		Status:     "MISSING",
 		Candidates: 3,
-		Remote:    RemoteItem{Name: "remote-source.mp4", Size: 25_000_000, Source: "HTTP"},
+		Remote:     RemoteItem{Name: "remote-source.mp4", Size: 25_000_000, Source: "HTTP"},
 	}
 	normalizeInitialMediaResultV85(&r)
 	if r.Status != "POSSIBLE" {
@@ -53,7 +53,7 @@ func TestNormalizeInitialMediaResultNoSameSizeCandidateStaysMissing(t *testing.T
 	r := Result{
 		Status:     "MISSING",
 		Candidates: 0,
-		Remote:    RemoteItem{Name: "photo.jpg", Size: 2000, Source: "MEGA"},
+		Remote:     RemoteItem{Name: "photo.jpg", Size: 2000, Source: "MEGA"},
 	}
 	normalizeInitialMediaResultV85(&r)
 	if r.Status != "MISSING" {
@@ -78,7 +78,7 @@ func TestNormalizeInitialMediaResultDoesNotChangeDocuments(t *testing.T) {
 	r := Result{
 		Status:     "MISSING",
 		Candidates: 2,
-		Remote:    RemoteItem{Name: "file.zip", Size: 2000, Source: "HTTP"},
+		Remote:     RemoteItem{Name: "file.zip", Size: 2000, Source: "HTTP"},
 	}
 	normalizeInitialMediaResultV85(&r)
 	if r.Status != "MISSING" {
