@@ -278,6 +278,18 @@ func syncCompletedQueueToHistoryV85() {
 		if finished <= 0 {
 			finished = fileInfo.ModTime().Unix()
 		}
+
+		// A running job may cause download_queue.json to be saved frequently.
+		// Do not rehash already archived completed files when their path/size/mtime
+		// are unchanged; the preflight still verifies QuickHash before trusting it.
+		downloadHistoryStateV85.RLock()
+		old, exists := downloadHistoryStateV85.Entries[key]
+		current := exists && old.OutputPath == job.OutputPath && old.FileSize == fileInfo.Size() && old.FileMTime == fileInfo.ModTime().UnixNano() && old.QuickHash != ""
+		downloadHistoryStateV85.RUnlock()
+		if current {
+			continue
+		}
+
 		quickHash, _ := quickFileFingerprintV85(job.OutputPath, fileInfo.Size())
 		updates = append(updates, downloadHistoryEntryV85{
 			Key:        key,
@@ -310,7 +322,7 @@ func ensureDownloadHistoryWatcherV85() {
 	downloadHistoryWatcherOnceV85.Do(func() {
 		syncCompletedQueueToHistoryV85()
 		go func() {
-			ticker := time.NewTicker(500 * time.Millisecond)
+			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
 				syncCompletedQueueToHistoryV85()
@@ -351,7 +363,7 @@ func historyRemoteURLV85(res Result) string {
 
 func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bool) {
 	ensureDownloadHistoryWatcherV85()
-	// Close the sub-500ms race between a just-completed queue save and an
+	// Close the watcher interval race between a just-completed queue save and an
 	// immediate second preflight. The sync is cheap when queue mtime is unchanged.
 	syncCompletedQueueToHistoryV85()
 	loadDownloadHistoryV85()
