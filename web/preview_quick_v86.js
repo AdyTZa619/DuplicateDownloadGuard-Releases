@@ -5,6 +5,7 @@
   const meta = { remote: {}, local: {} };
   let trueFallbackIDV858 = 0;
   let trueFallbackAtV858 = 0;
+  let appClockTimerV8512 = 0;
 
   const fmtDuration = sec => {
     sec = Number(sec);
@@ -34,6 +35,17 @@
     return score > 0 ? `scor ${score}/100` : '';
   }
 
+  function tickAppClockV8512() {
+    const el = document.getElementById('appClockV8512');
+    if (!el) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    el.textContent = `${hh}:${mm}:${ss}`;
+    el.title = now.toLocaleString('ro-RO');
+  }
+
   function install() {
     if (!document.getElementById('previewQuickV86Styles')) {
       const style = document.createElement('style');
@@ -41,7 +53,8 @@
       style.textContent = `
         .previewHead .previewQuickV86{flex:1;min-width:0;text-align:center;color:#d7e7f8;font-size:11px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
         .previewHead .previewQuickV86.good{color:#8ee6bd}.previewHead .previewQuickV86.warn{color:#ffd979}.previewHead .previewQuickV86.bad{color:#ff9aa5}
-        @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}}
+        #appClockV8512{margin-left:14px;padding:6px 10px;border:1px solid #314155;border-radius:8px;background:#0d151e;color:#b9dcff;font-family:Consolas,monospace;font-size:13px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+        @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}#appClockV8512{margin-left:6px}}
       `;
       document.head.appendChild(style);
     }
@@ -49,6 +62,13 @@
     const localHead = document.getElementById('localPreview')?.closest('.previewCard')?.querySelector('.previewHead');
     if (remoteHead && !document.getElementById('remoteQuickV86')) remoteHead.querySelector('b')?.insertAdjacentHTML('afterend','<span class="previewQuickV86" id="remoteQuickV86">—</span>');
     if (localHead && !document.getElementById('localQuickV86')) localHead.querySelector('b')?.insertAdjacentHTML('afterend','<span class="previewQuickV86" id="localQuickV86">—</span>');
+    const top = document.querySelector('.top');
+    if (top && !document.getElementById('appClockV8512')) {
+      top.insertAdjacentHTML('beforeend','<div id="appClockV8512">--:--:--</div>');
+      tickAppClockV8512();
+      if (appClockTimerV8512) clearInterval(appClockTimerV8512);
+      appClockTimerV8512 = setInterval(tickAppClockV8512, 250);
+    }
   }
 
   function fixDownloadHelpV857() {
@@ -63,15 +83,16 @@
     }
   }
 
-  // Chromium/Edge can keep media range requests alive briefly even after the
-  // element is removed from the DOM. MEGAcmd WebDAV is HTTP/1.1 on one local
-  // host, so several abandoned video/audio requests can exhaust the browser's
-  // per-host connection pool and make every ~5th/6th new preview wait. Abort
-  // the old media resource explicitly before replacing it.
+  // Stop the previous browser Range request without manufacturing a codec/network
+  // error. The previous test cleared src and called load() while the element still
+  // had onerror=remotePreviewError(); Chromium can fire that handler for the
+  // intentional abort and DDG then starts a needless MEGA per-file fallback.
   function releaseRemoteMediaV8512() {
     const preview = document.getElementById('remotePreview');
     if (!preview) return;
     for (const media of preview.querySelectorAll('video,audio')) {
+      try { media.onerror = null; } catch (_) {}
+      try { media.removeAttribute('onerror'); } catch (_) {}
       try { media.pause(); } catch (_) {}
       try { media.removeAttribute('src'); } catch (_) {}
       try {
@@ -80,6 +101,8 @@
       try { media.load(); } catch (_) {}
     }
     for (const img of preview.querySelectorAll('img')) {
+      try { img.onerror = null; } catch (_) {}
+      try { img.removeAttribute('onerror'); } catch (_) {}
       try { img.removeAttribute('src'); } catch (_) {}
     }
   }
@@ -209,9 +232,8 @@
     const original = window.showDetail;
     if (typeof original !== 'function' || original.__previewQuickV86) return;
     const wrapped = async function(r) {
-      // Abort the previous remote Range request before the old element is
-      // replaced by showDetail/loadRemotePreview. This is deliberately local
-      // to the browser; the canonical MEGA WebDAV root remains running.
+      // Abort the previous remote request, but suppress its inline onerror first;
+      // an intentional row switch must never enter MEGA TRUE FALLBACK.
       releaseRemoteMediaV8512();
       reset(r);
       const out = await original.apply(this, arguments);
