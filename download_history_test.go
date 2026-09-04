@@ -70,3 +70,24 @@ func TestDownloadHistoryKeyV85IsStableAndSpecific(t *testing.T) {
 		t.Fatal("history keys should be SHA-256 hex")
 	}
 }
+
+func TestQuickFileFingerprintV85DetectsSameSizeReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "same-size.bin")
+	if err := os.WriteFile(path, []byte("abcdefgh"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := quickFileFingerprintV85(path, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("abcdEFGH"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := quickFileFingerprintV85(path, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("same-size content replacement must change the history fingerprint")
+	}
+}
