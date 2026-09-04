@@ -184,15 +184,24 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 	return "", errors.New("MEGA preview nu a putut reutiliza inițializarea comună")
 }
 
+func (a *App) proxyMegaUIV8513(streamURL, mode string, started time.Time) (string, string, time.Duration, error) {
+	proxyURL, err := wrapMegaPreviewProxyURLV8513(streamURL)
+	if err != nil {
+		return "", mode, time.Since(started), fmt.Errorf("proxy local MEGA indisponibil: %w", err)
+	}
+	a.logf("MEGA UI PROXY: %s -> %s", mode, proxyURL)
+	return proxyURL, mode, time.Since(started), nil
+}
+
 func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
 	started := time.Now()
 	if !forceFallback {
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
-			return streamURL, mode, time.Since(started), nil
+			return a.proxyMegaUIV8513(streamURL, mode, started)
 		}
 		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
 		if err == nil {
-			return streamURL, "MEGA DIRECT RESUME", time.Since(started), nil
+			return a.proxyMegaUIV8513(streamURL, "MEGA DIRECT RESUME", started)
 		}
 		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
@@ -200,10 +209,11 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 	// Browser fallback must never re-enter startMegaPreview(), because that
 	// function is allowed to return the same warm-root child URL. Use the true
 	// per-file path so a failed FAST ROOT is replaced with a different WebDAV
-	// endpoint addressed by the file handle/path.
+	// endpoint addressed by the file handle/path. Even this compatibility path
+	// is exposed to Chromium only through the DDG proxy, never as raw WebDAV.
 	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item)
 	if err != nil {
 		return "", "MEGA TRUE FALLBACK", time.Since(started), err
 	}
-	return streamURL, "MEGA TRUE FALLBACK", time.Since(started), nil
+	return a.proxyMegaUIV8513(streamURL, "MEGA TRUE FALLBACK", started)
 }
