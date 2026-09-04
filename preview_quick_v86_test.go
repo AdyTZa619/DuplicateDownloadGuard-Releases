@@ -18,6 +18,7 @@ func TestPreviewQuickV86IsEmbeddedAndLoaded(t *testing.T) {
 		"visualScore",
 		"matchScore",
 		"ACELAȘI CONȚINUT",
+		"Downloader intern (Auto); aria2 opțional",
 	} {
 		if !strings.Contains(s, required) {
 			t.Fatalf("quick preview summary missing marker %q", required)
