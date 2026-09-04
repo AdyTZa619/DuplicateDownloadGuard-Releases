@@ -47,3 +47,20 @@ func TestDownloadHistoryDecisionUsesOnlyExistingUnchangedFile(t *testing.T) {
 		t.Fatal("missing historical file must not block a new download")
 	}
 }
+
+func TestDownloadHistoryKeyV85IsStableAndSpecific(t *testing.T) {
+	a := downloadHistoryKeyV85("mega", "https://mega.nz/folder/abc#secret/file/node", "clip.mp4", 12345)
+	b := downloadHistoryKeyV85(" MEGA ", "https://mega.nz/folder/abc#secret/file/node", "RENAMED.mp4", 12345)
+	if a != b {
+		t.Fatalf("URL-backed identity should be independent of display filename: %q != %q", a, b)
+	}
+	if a == downloadHistoryKeyV85("MEGA", "https://mega.nz/folder/abc#secret/file/other", "clip.mp4", 12345) {
+		t.Fatal("different remote node must produce a different history key")
+	}
+	if a == downloadHistoryKeyV85("MEGA", "https://mega.nz/folder/abc#secret/file/node", "clip.mp4", 12346) {
+		t.Fatal("different remote size must produce a different history key")
+	}
+	if len(a) != 64 {
+		t.Fatalf("history key should be SHA-256 hex, got length %d", len(a))
+	}
+}
