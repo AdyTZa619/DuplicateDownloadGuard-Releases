@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,20 @@ func TestMegaWebDAVChildURL(t *testing.T) {
 	}
 	if _, err := megaWebDAVChildURL("http://127.0.0.1:4443/root", "../secret.mp4"); err == nil {
 		t.Fatal("parent traversal must be rejected")
+	}
+}
+
+func TestPostScanWarmContextIsIndependentV8520(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+	if parent.Err() == nil {
+		t.Fatal("test setup: parent must be cancelled")
+	}
+
+	ctx, cancel := newMegaPostScanWarmContextV8520()
+	defer cancel()
+	if ctx.Err() != nil {
+		t.Fatalf("post-scan warm context inherited cancellation: %v", ctx.Err())
 	}
 }
 
