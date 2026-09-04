@@ -201,15 +201,15 @@ type MediaInfo struct {
 }
 
 type MegaPreviewState struct {
-	Active          bool
-	SourceURL       string
-	RemotePath      string
-	StreamURL       string
-	RootURL         string
+	Active             bool
+	SourceURL          string
+	RemotePath         string
+	StreamURL          string
+	RootURL            string
 	FallbackRemotePath string
 	FallbackStreamURL  string
-	PreviousSession string
-	Exe             string
+	PreviousSession    string
+	Exe                string
 }
 
 type Progress struct {
@@ -3188,8 +3188,8 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOut(w, map[string]any{
 		"url":          previewResult.URL,
-		"kind":        kind,
-		"streaming":   true,
+		"kind":         kind,
+		"streaming":    true,
 		"source":       previewResult.Mode,
 		"previewMode":  previewResult.Mode,
 		"prepareMs":    previewResult.Prepare.Milliseconds(),
