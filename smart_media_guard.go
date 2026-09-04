@@ -546,7 +546,10 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	bestPath := ""
 	bestNote := ""
 	bestQuality := ""
+	secondScore := -1
 	pending := 0
+	var remoteVideoInfo MediaInfo
+	var localVideoInfo MediaInfo
 
 	if kind == "image" {
 		bestScore, bestPath, bestNote, pending, err = a.scoreImageCandidatesV85(ctx, target, res.Remote, entries, candidates)
@@ -570,12 +573,17 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if fpErr != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul video remote nu a putut fi calculat sigur: "+fpErr.Error(), localCount, res.LocalPath)
 		}
-		bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
+		remoteVideoInfo = remoteFP.Info
+		analysis := a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
+		bestScore, secondScore = analysis.BestScore, analysis.SecondScore
+		bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
 		if bestScore < 85 && ctx.Err() == nil {
 			search := a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
 			candidates = search.Candidates
 			pending = search.Pending
-			bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
+			analysis = a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
+			bestScore, secondScore = analysis.BestScore, analysis.SecondScore
+			bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
 			if bestScore < 85 && pending > 0 {
 				return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Mai există %d videoclipuri locale fără metadate media validate. Au fost analizate %d acum; cache-ul se completează progresiv. Nu declar fișierul nou până nu pot exclude un re-encode complet redenumit.", pending, search.Probed), localCount, bestPath)
 			}
@@ -589,16 +597,20 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	}
 
 	d := DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardReview, LocalPath: bestPath, Candidates: len(candidates), Similarity: bestScore, QualityHint: bestQuality}
+	if kind == "video" {
+		return a.finalizeVideoMediaDecisionV85(ctx, target, d, remoteVideoInfo, localVideoInfo, secondScore, bestNote), true
+	}
+
 	switch {
 	case bestScore >= 98:
 		d.Method = "media-same-content"
-		d.Reason = fmt.Sprintf("Aceeași imagine/video este indicată foarte puternic de fingerprint-ul media: %d%% (%s). Fișierul poate fi recodat, redimensionat sau recomprimat.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
+		d.Reason = fmt.Sprintf("Aceeași imagine este indicată foarte puternic de fingerprint-ul media: %d%% (%s). Fișierul poate fi redimensionat sau recomprimat.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 94:
 		d.Method = "media-version"
-		d.Reason = fmt.Sprintf("Pare o altă versiune a aceluiași material: %d%% similaritate (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
+		d.Reason = fmt.Sprintf("Pare o altă versiune a aceleiași imagini: %d%% similaritate (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 89:
 		d.Method = "media-looks-same"
-		d.Reason = fmt.Sprintf("Pare același material, dar nu există suficiente dovezi pentru blocare automată: %d%% (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
+		d.Reason = fmt.Sprintf("Pare aceeași imagine, dar nu există suficiente dovezi pentru blocare automată: %d%% (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	default:
 		d.Method = "media-possible"
 		d.Reason = fmt.Sprintf("Există o asemănare media relevantă de %d%% (%s); verifică manual.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
