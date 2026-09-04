@@ -1,0 +1,42 @@
+name: Apply v8.6 proxy route
+
+on:
+  push:
+    branches:
+      - feature/v8.6.0-media-orchestrator
+    paths:
+      - .github/workflows/apply-v860-proxy-route.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v8.6.0-media-orchestrator
+          fetch-depth: 0
+      - name: Apply exact route patch
+        run: python tools/apply_v860_proxy_route.py
+      - name: Validate Go formatting
+        run: |
+          gofmt -w main.go mega_preview_proxy_v860.go mega_preview_proxy_v860_test.go preview_proxy_route_v860_test.go
+          git diff --check
+      - name: Validate JavaScript
+        run: node --check web/preview_quick_v86.js
+      - name: Run tests
+        run: go test ./...
+      - name: Run vet
+        run: go vet ./...
+      - name: Remove temporary integration helpers
+        run: rm -f tools/apply_v860_proxy_route.py .github/workflows/apply-v860-proxy-route.yml
+      - name: Commit integrated product code
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Integrate local MEGA preview proxy route"
+          git push origin HEAD:feature/v8.6.0-media-orchestrator
