@@ -39,9 +39,6 @@ func rememberMegaTempFallbackV8511(a *App, next megaTempFallbackV8511) {
 		return
 	}
 
-	// Never make the user's current fallback wait for cleanup of the previous
-	// exceptional child. Cleanup is strictly low-priority and skipped if MEGA is
-	// busy with another user action.
 	go func(old megaTempFallbackV8511) {
 		time.Sleep(1500 * time.Millisecond)
 		gateCtx, gateCancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
@@ -56,12 +53,10 @@ func rememberMegaTempFallbackV8511(a *App, next megaTempFallbackV8511) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 		defer cancel()
-		_, _ = runMegaTimed(ctx, 1500*time.Millisecond, old.Exe, "webdav", "-d", old.RemotePath)
+		_, _ = runMegaTimedPreviewV8514(ctx, 1500*time.Millisecond, old.Exe, "webdav", "-d", old.RemotePath)
 	}(previous)
 }
 
-// Caller must already own megaSessionGate. Used on clean shutdown so a
-// temporary per-file compatibility endpoint does not accumulate across runs.
 func cleanupMegaTempFallbackWhileSessionOwnedV8511(a *App, ctx context.Context) {
 	if a == nil {
 		return
@@ -74,13 +69,9 @@ func cleanupMegaTempFallbackWhileSessionOwnedV8511(a *App, ctx context.Context) 
 	if !ok || st.RemotePath == "" || st.Exe == "" {
 		return
 	}
-	_, _ = runMegaTimed(ctx, 3*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
+	_, _ = runMegaTimedPreviewV8514(ctx, 3*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
 }
 
-// switchWarmRootToPerFileV858 is the true browser-error fallback. A bad child
-// must never destroy the canonical whole-folder root: doing that was the reason
-// one browser failure made every later row slow. The requested per-file node is
-// added alongside the root and is treated as a temporary compatibility stream.
 func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run megaWebDAVRunnerV85) (megaWebDAVSwitchResultV85, error) {
 	if run == nil {
 		return megaWebDAVSwitchResultV85{}, errors.New("MEGA WebDAV runner lipsă")
@@ -115,8 +106,6 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 
-		// The root remains canonical. Reuse the already-created compatibility
-		// endpoint when the same exceptional child is retried later.
 		if old.RemotePath == megaWarmRootRefV86 {
 			if tmp := currentMegaTempFallbackV8511(a); tmp.Exe == old.Exe && tmp.RemotePath == remoteRef && tmp.StreamURL != "" {
 				a.resetPreviewTTLLocked()
@@ -125,7 +114,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 		}
 
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return runMegaTimedPreviewV8514(ctx, timeout, old.Exe, args...)
 		}
 		result, err := switchWarmRootToPerFileV858(old, remoteRef, run)
 		if err != nil {
@@ -138,9 +127,6 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 
 		if old.RemotePath == megaWarmRootRefV86 {
 			rememberMegaTempFallbackV8511(a, megaTempFallbackV8511{RemotePath: remoteRef, StreamURL: result.StreamURL, Exe: old.Exe})
-			// Crucial: keep a.preview == old root. The next selected row therefore
-			// goes straight back to MEGA FAST ROOT instead of inheriting per-file
-			// latency from this one exceptional media item.
 			a.preview = old
 			a.resetPreviewTTLLocked()
 			a.logf("MEGA TRUE FALLBACK: per-file temporar pentru %s [%s]; root-ul rămâne activ", item.Path, remoteRef)
@@ -160,8 +146,6 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 		return result.StreamURL, nil
 	}
 
-	// Restart/no warm state: preserve the current account, resume the public
-	// folder and expose the requested node only as the last compatibility path.
 	if a.preview.Active {
 		_ = a.stopMegaPreviewLocked("fallback per-fișier / schimbare sursă")
 	}
@@ -170,11 +154,11 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 		return "", errors.New("MEGAcmd nu a fost găsit")
 	}
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	_, _ = runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	loginOut, err := runMegaTimedPreviewV8514(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
@@ -182,7 +166,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	}
 
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return runMegaTimedPreviewV8514(ctx, timeout, exe, args...)
 	}
 	result, err := switchSameSourceWebDAVV85(MegaPreviewState{Exe: exe}, remoteRef, run)
 	if err != nil {
