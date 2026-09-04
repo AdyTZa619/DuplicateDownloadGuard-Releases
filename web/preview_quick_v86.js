@@ -63,6 +63,28 @@
     }
   }
 
+  // Chromium/Edge can keep media range requests alive briefly even after the
+  // element is removed from the DOM. MEGAcmd WebDAV is HTTP/1.1 on one local
+  // host, so several abandoned video/audio requests can exhaust the browser's
+  // per-host connection pool and make every ~5th/6th new preview wait. Abort
+  // the old media resource explicitly before replacing it.
+  function releaseRemoteMediaV8512() {
+    const preview = document.getElementById('remotePreview');
+    if (!preview) return;
+    for (const media of preview.querySelectorAll('video,audio')) {
+      try { media.pause(); } catch (_) {}
+      try { media.removeAttribute('src'); } catch (_) {}
+      try {
+        for (const source of media.querySelectorAll('source')) source.removeAttribute('src');
+      } catch (_) {}
+      try { media.load(); } catch (_) {}
+    }
+    for (const img of preview.querySelectorAll('img')) {
+      try { img.removeAttribute('src'); } catch (_) {}
+    }
+  }
+  window.releaseRemoteMediaV8512 = releaseRemoteMediaV8512;
+
   // One browser-level retry is allowed for a root-derived stream. After this
   // patch a cold resume normally promotes to the whole-folder root too, even
   // though the older API label still says MEGA DIRECT RESUME.
@@ -81,6 +103,7 @@
 
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
+      releaseRemoteMediaV8512();
       const preview = document.getElementById('remotePreview');
       if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Root-ul rămâne activ pentru următorul fișier.</span></div>';
       try {
@@ -186,6 +209,10 @@
     const original = window.showDetail;
     if (typeof original !== 'function' || original.__previewQuickV86) return;
     const wrapped = async function(r) {
+      // Abort the previous remote Range request before the old element is
+      // replaced by showDetail/loadRemotePreview. This is deliberately local
+      // to the browser; the canonical MEGA WebDAV root remains running.
+      releaseRemoteMediaV8512();
       reset(r);
       const out = await original.apply(this, arguments);
       setTimeout(render, 0);
@@ -211,6 +238,7 @@
     wrapShowDetail();
     observe();
     render();
+    window.addEventListener('pagehide', releaseRemoteMediaV8512, {capture:true});
     // No MEGA startup prewarm. A user click must never wait behind unsolicited
     // background login/WebDAV work. Fresh scans may still leave their root warm.
   }
