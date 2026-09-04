@@ -503,7 +503,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		}
 		bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
 		if bestScore < 85 && ctx.Err() == nil {
-			candidates = a.videoDurationCandidates(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
+			candidates = a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
 			bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
 		}
 	}
