@@ -29,8 +29,11 @@
 
   function inferUserStatus(item) {
     if (!item) return 'NECUNOSCUT';
-    if (item.userStatus) return item.userStatus;
     const method = item.method || item.guardMethod || '';
+    // Same stable provider/source but a different size/format is history
+    // evidence, not proof that this exact quality was already downloaded.
+    if (method === 'download-history-source') return 'DESCĂRCAT ÎNAINTE';
+    if (item.userStatus) return item.userStatus;
     if (method === 'download-history') return 'DESCĂRCAT DEJA';
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
     if (method === 'media-version') return 'ALTĂ VERSIUNE';
@@ -55,7 +58,7 @@
   function statusTone(status) {
     if (['AI DEJA', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) return 'goodText';
     if (status === 'NU ÎL AI') return 'dangerText';
-    if (status === 'ALTĂ VERSIUNE' || status === 'PARE ACELAȘI' || status === 'POSIBIL DUPLICAT') return 'guardAmber';
+    if (status === 'DESCĂRCAT ÎNAINTE' || status === 'ALTĂ VERSIUNE' || status === 'PARE ACELAȘI' || status === 'POSIBIL DUPLICAT') return 'guardAmber';
     if (status === 'NU S-A PUTUT VERIFICA' || status === 'INDISPONIBIL' || status === 'LIMITĂ / COTĂ' || status === 'EROARE') return 'dangerText';
     return '';
   }
@@ -89,6 +92,7 @@
       .guardLegendV85 span{font-size:11px;border:1px solid #314155;border-radius:999px;padding:4px 7px;background:#0e151e}
       .errorStatusV85{display:inline-flex;margin:0 6px 4px 0;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:850;letter-spacing:.03em;background:#4a2228;color:#ffadb5}
       .provisionalMediaV85{outline:1px solid rgba(255,217,121,.34);outline-offset:-1px}
+      .guardRowActionV85{display:block;margin-top:4px;font-size:9px;font-weight:800;letter-spacing:.03em;color:#a9bbce;white-space:normal}
     `;
     document.head.appendChild(style);
   }
@@ -113,7 +117,7 @@
             </div>
             <div class="noticeBlue" id="guardScanInfo">Se pregătește raportul…</div>
             <div class="guardLegendV85">
-              <span>AI DEJA</span><span>DESCĂRCAT DEJA</span><span>ACELAȘI CONȚINUT</span><span>ALTĂ VERSIUNE</span><span>PARE ACELAȘI</span><span>NU ÎL AI</span><span>LIMITĂ / COTĂ</span><span>INDISPONIBIL</span>
+              <span>AI DEJA</span><span>DESCĂRCAT DEJA</span><span>DESCĂRCAT ÎNAINTE</span><span>ACELAȘI CONȚINUT</span><span>ALTĂ VERSIUNE</span><span>PARE ACELAȘI</span><span>NU ÎL AI</span><span>LIMITĂ / COTĂ</span><span>INDISPONIBIL</span>
             </div>
             <div class="guardList" id="guardDecisionList" style="margin-top:12px"></div>
           </div>
@@ -487,6 +491,34 @@
     }
   }
 
+  function decorateGuardRowsV85() {
+    if (!Array.isArray(visibleRows)) return;
+    for (const row of visibleRows) {
+      if (!row || !row.guardVerdict) continue;
+      const tr = document.querySelector(`#tbody tr[data-rid="${row.id}"]`);
+      const cell = tr && tr.querySelector('td:nth-child(2)');
+      const badge = cell && cell.querySelector('.badge');
+      if (!badge) continue;
+      const status = inferUserStatus(row);
+      const action = inferAction(row);
+      badge.classList.remove('VERIFIED', 'SAMPLED', 'HAVE', 'POSSIBLE', 'DIFFERENT', 'MISSING');
+      if (['AI DEJA', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) badge.classList.add('VERIFIED');
+      else if (status === 'NU ÎL AI') badge.classList.add('MISSING');
+      else badge.classList.add('POSSIBLE');
+      badge.textContent = status;
+      badge.title = `Smart Guard: ${action}${row.guardReason ? ' — ' + row.guardReason : ''}`;
+
+      let actionEl = cell.querySelector('.guardRowActionV85');
+      if (!actionEl) {
+        actionEl = document.createElement('span');
+        actionEl.className = 'guardRowActionV85';
+        cell.appendChild(actionEl);
+      }
+      actionEl.textContent = action;
+      actionEl.title = row.guardMethod ? `Metodă: ${row.guardMethod}` : 'Smart Guard';
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     installV85Styles();
     installModal();
@@ -498,8 +530,15 @@
       loadResults = async function () {
         const out = await previousLoadResults();
         softenInitialMediaRows();
+        decorateGuardRowsV85();
         return out;
       };
+      // If the base page completed its initial asynchronous load before this
+      // wrapper was installed, decorate that first render as well.
+      setTimeout(() => {
+        softenInitialMediaRows();
+        decorateGuardRowsV85();
+      }, 0);
     }
   });
 })();
