@@ -1,0 +1,44 @@
+name: Apply v8.6 preview integration patch
+
+on:
+  push:
+    branches:
+      - feature/v8.6.0-universal-web-media
+    paths:
+      - '.github/workflows/apply-v86-preview-patch.yml'
+      - '.tmp/apply_v86_preview_patch.ps1'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v8.6.0-universal-web-media
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Apply deterministic patch
+        shell: pwsh
+        run: ./.tmp/apply_v86_preview_patch.ps1
+      - name: Verify changed sources
+        shell: pwsh
+        run: |
+          $bad = @()
+          Get-ChildItem -Filter *.go | ForEach-Object { $out = gofmt -l $_.FullName; if ($out) { $bad += $out } }
+          if ($bad.Count -gt 0) { throw "gofmt required: $($bad -join ', ')" }
+          node --check web/preview_quick_v86.js
+          go test ./...
+      - name: Commit product changes and remove helper
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.go web/index.html web/preview_quick_v86.js mega_fast_preview.go mega_preview_switch.go mega_preview_switch_test.go mega_fast_preview_test.go
+          git rm -f .tmp/apply_v86_preview_patch.ps1 .github/workflows/apply-v86-preview-patch.yml
+          git commit -m "Integrate MEGA Fast Preview and quick compare metadata"
+          git push origin HEAD:feature/v8.6.0-universal-web-media
