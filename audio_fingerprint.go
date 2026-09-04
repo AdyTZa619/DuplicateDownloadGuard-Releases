@@ -132,6 +132,11 @@ func (a *App) audioVariantScoreV85(ctx context.Context, remoteTarget string, rem
 	if ff == "" || !ffmpegHasChromaprintV85(ff) || remoteInfo.Duration <= 0 || localInfo.Duration <= 0 {
 		return audioFingerprintResultV85{}
 	}
+	defer func() {
+		if err := flushLocalAudioSegmentCacheV85(a); err != nil {
+			a.logf("Smart Media Guard: nu am putut salva cache-ul audio: %v", err)
+		}
+	}()
 
 	const segment = 12.0
 	points := []float64{.22, .50, .78}
@@ -163,7 +168,7 @@ func (a *App) audioVariantScoreV85(ctx context.Context, remoteTarget string, rem
 			}
 			center := remoteInfo.Duration*p + offset
 			start := math.Max(0, math.Min(center-segment/2, localInfo.Duration-segment))
-			localFP, err := chromaprintSegmentV85(ctx, ff, localPath, start, segment)
+			localFP, err := a.cachedLocalChromaprintSegmentV85(ctx, ff, localPath, start, segment)
 			if err != nil {
 				continue
 			}
