@@ -67,8 +67,6 @@ func TestRestartPreviewUsesRootFirstResumePathV8511(t *testing.T) {
 		t.Fatal("new browser fallback must suppress the older duplicate retry")
 	}
 
-	// Coalesced user initialization remains the single entry point; the direct
-	// resume implementation discovers/reuses one root before compatibility work.
 	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +95,8 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 	js := string(b)
 	for _, required := range []string{
 		"function releaseRemoteMediaV8512()",
+		"media.onerror = null",
+		"media.removeAttribute('onerror')",
 		"media.pause()",
 		"media.removeAttribute('src')",
 		"media.load()",
@@ -105,6 +105,19 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 			t.Fatalf("browser stream release regression missing %q", required)
 		}
 	}
+
+	releaseStart := strings.Index(js, "function releaseRemoteMediaV8512()")
+	releaseEnd := strings.Index(js[releaseStart:], "window.releaseRemoteMediaV8512")
+	if releaseStart < 0 || releaseEnd < 0 {
+		t.Fatal("releaseRemoteMediaV8512 block missing")
+	}
+	releaseBlock := js[releaseStart : releaseStart+releaseEnd]
+	onerrorPos := strings.Index(releaseBlock, "media.onerror = null")
+	loadPos := strings.Index(releaseBlock, "media.load()")
+	if onerrorPos < 0 || loadPos < 0 || onerrorPos > loadPos {
+		t.Fatal("intentional media abort must disable onerror before load()")
+	}
+
 	showDetailStart := strings.Index(js, "const wrapped = async function(r) {")
 	showDetailEnd := strings.Index(js[showDetailStart:], "const out = await original.apply(this, arguments);")
 	if showDetailStart < 0 || showDetailEnd < 0 {
@@ -113,6 +126,24 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 	showDetailBlock := js[showDetailStart : showDetailStart+showDetailEnd]
 	if !strings.Contains(showDetailBlock, "releaseRemoteMediaV8512()") || !strings.Contains(showDetailBlock, "reset(r)") {
 		t.Fatal("showDetail must release the previous browser media before loading the next row")
+	}
+}
+
+func TestTopClockIsClockOnlyV8512(t *testing.T) {
+	b, err := webFS.ReadFile("web/preview_quick_v86.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	for _, required := range []string{"appClockV8512", "tickAppClockV8512", "getHours()", "getMinutes()", "getSeconds()"} {
+		if !strings.Contains(js, required) {
+			t.Fatalf("top clock regression missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"stopwatch", "cronometru", "previewClockStarted"} {
+		if strings.Contains(strings.ToLower(js), strings.ToLower(forbidden)) {
+			t.Fatalf("clock UI must not contain stopwatch behavior: %q", forbidden)
+		}
 	}
 }
 
