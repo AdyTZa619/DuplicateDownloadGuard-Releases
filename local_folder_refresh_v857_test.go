@@ -1,0 +1,86 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestLocalFolderSignatureIgnoresOrderAndDuplicatesV857(t *testing.T) {
+	a := localFolderSignatureV857([]string{`D:\Media`, `E:\Video`, `D:\Media`})
+	b := localFolderSignatureV857([]string{`E:\Video`, `D:\Media`})
+	if a != b {
+		t.Fatalf("equivalent folder sets produced different signatures: %q != %q", a, b)
+	}
+}
+
+func TestHeartbeatFolderChangeRefreshesCurrentResultsV857(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	download := t.TempDir()
+	data := []byte("same-size-content-added-in-new-folder")
+	local := filepath.Join(second, "original-D3558.jpg")
+	if err := os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	remote := RemoteItem{
+		ID:     1,
+		Name:   "original.jpg",
+		Path:   "/pack/original.jpg",
+		Size:   int64(len(data)),
+		Source: "MEGA",
+	}
+	a := &App{
+		appDir:    t.TempDir(),
+		index:     map[string]FileEntry{},
+		bySize:    map[int64][]string{},
+		byName:    map[string][]string{},
+		decisions: map[string]Decision{},
+		results: []Result{{
+			ID:         1,
+			Remote:     remote,
+			Status:     "MISSING",
+			AutoStatus: "MISSING",
+		}},
+	}
+	a.cfg = Config{
+		LocalPaths:         []string{first},
+		DownloadDir:        download,
+		Mode:               "balanced",
+		LiveRefreshCompare: true,
+	}
+
+	// First heartbeat only establishes the baseline configuration.
+	noteLocalFolderConfigHeartbeatV857(a)
+
+	// Simulate Dashboard -> Add folder -> saveCfg(). The next heartbeat must
+	// pick up the new location and recalculate the already visible result.
+	a.mu.Lock()
+	a.cfg.LocalPaths = []string{first, second}
+	a.mu.Unlock()
+	noteLocalFolderConfigHeartbeatV857(a)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		st := localFolderRefreshStateForV857(a)
+		st.mu.Lock()
+		done := st.initialized && !st.queued && st.appliedSig == st.observedSig
+		st.mu.Unlock()
+		if done && !a.opRunning.Load() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if len(a.results) != 1 {
+		t.Fatalf("got %d results", len(a.results))
+	}
+	got := a.results[0]
+	if got.Status != "POSSIBLE" || got.LocalPath != local || got.Candidates != 1 {
+		t.Fatalf("new folder was not reflected in existing result: %#v", got)
+	}
+}
