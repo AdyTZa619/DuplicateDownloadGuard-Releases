@@ -53,9 +53,6 @@ func megaPublicLoginArgsV856(link string) []string {
 	return []string{"login", strings.TrimSpace(link), "--resume"}
 }
 
-// Kept for compatibility/tests. v8.5.8 no longer uses this whole-folder
-// restart path for a user click; restart preview resumes directly to the
-// requested file through startMegaPreviewResumeDirectV858().
 func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
@@ -107,13 +104,13 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	}
 	ctx := context.Background()
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	_, _ = runMegaTimedPreviewV8514(ctx, 8*time.Second, exe, "logout", "--keep-session")
 
 	loginArgs := megaPublicLoginArgsV856(item.URL)
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, loginArgs...)
+	loginOut, err := runMegaTimedPreviewV8514(ctx, 45*time.Second, exe, loginArgs...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
@@ -146,9 +143,6 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	return child, nil
 }
 
-// startMegaPreviewResumeCoalescedV856 serializes only real user-triggered
-// restart initialization. v8.5.8 removed the background startup prewarm, so a
-// click no longer waits behind an unsolicited MEGAcmd login/root bootstrap.
 func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		if streamURL, _, ok := a.tryMegaPreviewUICacheV854(item); ok {
@@ -158,6 +152,7 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 		megaPreviewResumeFlightV856.Lock()
 		if inFlight := megaPreviewResumeFlightV856.done; inFlight != nil {
 			megaPreviewResumeFlightV856.Unlock()
+			megaPreviewDiagfV8514("CLICK WAIT   item=%q reason=resume-flight", item.Path)
 			select {
 			case <-inFlight:
 				continue
@@ -187,32 +182,39 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 func (a *App) proxyMegaUIV8513(streamURL, mode string, started time.Time) (string, string, time.Duration, error) {
 	proxyURL, err := wrapMegaPreviewProxyURLV8513(streamURL)
 	if err != nil {
+		megaPreviewDiagfV8514("CLICK END    mode=%s elapsed=%s proxy-error=%v", mode, time.Since(started).Round(time.Millisecond), err)
 		return "", mode, time.Since(started), fmt.Errorf("proxy local MEGA indisponibil: %w", err)
 	}
 	a.logf("MEGA UI PROXY: %s -> %s", mode, proxyURL)
+	megaPreviewDiagfV8514("CLICK END    mode=%s elapsed=%s result=OK", mode, time.Since(started).Round(time.Millisecond))
 	return proxyURL, mode, time.Since(started), nil
 }
 
 func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
 	started := time.Now()
+	a.previewMu.Lock()
+	st := a.preview
+	a.previewMu.Unlock()
+	megaPreviewDiagfV8514("CLICK START  item=%q forceFallback=%t state={active:%t sameSource:%t root:%t stream:%t exe:%t}", item.Path, forceFallback, st.Active, st.SourceURL == item.URL, st.RemotePath == megaWarmRootRefV86, strings.TrimSpace(st.StreamURL) != "", strings.TrimSpace(st.Exe) != "")
+
 	if !forceFallback {
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
+			megaPreviewDiagfV8514("CLICK PATH   item=%q path=cache mode=%s", item.Path, mode)
 			return a.proxyMegaUIV8513(streamURL, mode, started)
 		}
+		megaPreviewDiagfV8514("CLICK PATH   item=%q path=resume", item.Path)
 		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
 		if err == nil {
 			return a.proxyMegaUIV8513(streamURL, "MEGA DIRECT RESUME", started)
 		}
+		megaPreviewDiagfV8514("CLICK RESUME item=%q elapsed=%s error=%v", item.Path, time.Since(started).Round(time.Millisecond), err)
 		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
 
-	// Browser fallback must never re-enter startMegaPreview(), because that
-	// function is allowed to return the same warm-root child URL. Use the true
-	// per-file path so a failed FAST ROOT is replaced with a different WebDAV
-	// endpoint addressed by the file handle/path. Even this compatibility path
-	// is exposed to Chromium only through the DDG proxy, never as raw WebDAV.
+	megaPreviewDiagfV8514("CLICK PATH   item=%q path=true-fallback", item.Path)
 	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item)
 	if err != nil {
+		megaPreviewDiagfV8514("CLICK END    item=%q mode=MEGA TRUE FALLBACK elapsed=%s error=%v", item.Path, time.Since(started).Round(time.Millisecond), err)
 		return "", "MEGA TRUE FALLBACK", time.Since(started), err
 	}
 	return a.proxyMegaUIV8513(streamURL, "MEGA TRUE FALLBACK", started)
