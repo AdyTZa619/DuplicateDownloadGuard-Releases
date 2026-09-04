@@ -1,8 +1,8 @@
 {
-  "version": "8.5.13-test.1",
+  "version": "8.5.14-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "098a4b9e0ad1059738d783201e3dc52197468d54c669118cbb4fa73f1cd0f999",
-  "notes": "TEST MEGA Preview 8.5.13-test.1: browserul nu mai accesează direct WebDAV-ul MEGAcmd. DDG folosește un proxy local dedicat cu suport Range, conexiuni upstream fără keep-alive și anulare la schimbarea fișierului. Ceasul HH:MM:SS este centrat și mai mare în bara de sus.",
-  "publishedAt": "2026-09-04T19:38:26.0651988Z",
+  "sha256": "e73427e04458bd4b899980de4dc54ed80a0f9ed61f49eabc23146a642ffecaf7",
+  "notes": "TEST MEGA Preview 8.5.14-test.1: timeout hard real pentru comenzile MEGAcmd din preview pe Windows, jurnal dedicat data/MEGA_Preview_Diagnostic.log cu timpi pe click/comandă/proxy/Range, plus proxy local și ceas mare centrat.",
+  "publishedAt": "2026-09-04T19:55:05.8776761Z",
   "channel": "test"
 }
