@@ -79,18 +79,30 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 
 func downloadHistoryDecision(res Result) (DownloadGuardDecision, bool) {
 	path := strings.TrimSpace(res.DownloadPath)
-	if res.DownloadedAt <= 0 || path == "" || !fileExists(path) {
+	if res.DownloadedAt <= 0 || path == "" {
+		return DownloadGuardDecision{}, false
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return DownloadGuardDecision{}, false
+	}
+	// A path can be reused later for a different file. Do not trust history if
+	// the current bytes have a different known size or were modified after the
+	// application recorded the completed download.
+	if res.Remote.Size > 0 && !res.Remote.ApproxSize && st.Size() != res.Remote.Size {
+		return DownloadGuardDecision{}, false
+	}
+	if st.ModTime().Unix() > res.DownloadedAt+5 {
 		return DownloadGuardDecision{}, false
 	}
 	d := DownloadGuardDecision{
 		ResultID:   res.ID,
 		Name:       res.Remote.Name,
 		Verdict:    guardDuplicate,
-		Reason:     "Acest rezultat a fost descărcat anterior de aplicație, iar fișierul rezultat există încă pe disc.",
+		Reason:     "Acest rezultat a fost descărcat anterior de aplicație, iar fișierul rezultat există încă neschimbat la calea înregistrată.",
 		LocalPath:  path,
 		Method:     "download-history",
 		Candidates: 1,
-		Exact:      true,
 	}
 	return decorateGuardDecision(d), true
 }
@@ -168,104 +180,6 @@ func hasEntryPath(rows []FileEntry, path string) bool {
 		}
 	}
 	return false
-}
-
-type durationGuardCandidate struct {
-	Entry         FileEntry
-	DurationRatio float64
-	NameScore     int
-	SizeRatio     float64
-}
-
-func (a *App) videoDurationCandidates(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) []FileEntry {
-	if limit <= 0 {
-		limit = 7
-	}
-	fp := a.detectFFprobe()
-	if fp == "" || !remoteInfo.OK || remoteInfo.Duration <= 0 {
-		return existing
-	}
-
-	type rough struct {
-		Entry     FileEntry
-		NameScore int
-		SizeRatio float64
-		Rank      int
-	}
-	roughRows := make([]rough, 0, 128)
-	for _, e := range entries {
-		if remoteMediaKind(e.Name) != "video" || hasEntryPath(existing, e.Path) {
-			continue
-		}
-		nameScore := nameSimilarity(remote.Name, e.Name)
-		sizeRatio := 1.0
-		if remote.Size > 0 {
-			sizeRatio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
-		}
-		closeness := int(math.Round(1000 / (1 + sizeRatio*8)))
-		rank := closeness + nameScore*8
-		if strings.EqualFold(filepathExt(remote.Name), filepathExt(e.Name)) {
-			rank += 80
-		}
-		roughRows = append(roughRows, rough{Entry: e, NameScore: nameScore, SizeRatio: sizeRatio, Rank: rank})
-	}
-	sort.SliceStable(roughRows, func(i, j int) bool {
-		if roughRows[i].Rank != roughRows[j].Rank {
-			return roughRows[i].Rank > roughRows[j].Rank
-		}
-		return strings.ToLower(roughRows[i].Entry.Path) < strings.ToLower(roughRows[j].Entry.Path)
-	})
-	if len(roughRows) > 28 {
-		roughRows = roughRows[:28]
-	}
-
-	matched := make([]durationGuardCandidate, 0, 8)
-	for _, row := range roughRows {
-		if ctx.Err() != nil {
-			break
-		}
-		li := probeMedia(ctx, fp, row.Entry.Path, "LOCAL")
-		if !li.OK || li.Duration <= 0 {
-			continue
-		}
-		maxD := math.Max(remoteInfo.Duration, li.Duration)
-		durationRatio := math.Abs(remoteInfo.Duration-li.Duration) / maxD
-		if durationRatio > .015 && math.Abs(remoteInfo.Duration-li.Duration) > 1.5 {
-			continue
-		}
-		if remoteInfo.Width > 0 && remoteInfo.Height > 0 && li.Width > 0 && li.Height > 0 {
-			ra := float64(remoteInfo.Width) / float64(remoteInfo.Height)
-			la := float64(li.Width) / float64(li.Height)
-			aspectDelta := math.Abs(ra-la) / math.Max(ra, la)
-			if aspectDelta > .08 {
-				continue
-			}
-		}
-		matched = append(matched, durationGuardCandidate{Entry: row.Entry, DurationRatio: durationRatio, NameScore: row.NameScore, SizeRatio: row.SizeRatio})
-	}
-	sort.SliceStable(matched, func(i, j int) bool {
-		if matched[i].DurationRatio != matched[j].DurationRatio {
-			return matched[i].DurationRatio < matched[j].DurationRatio
-		}
-		if matched[i].NameScore != matched[j].NameScore {
-			return matched[i].NameScore > matched[j].NameScore
-		}
-		if matched[i].SizeRatio != matched[j].SizeRatio {
-			return matched[i].SizeRatio < matched[j].SizeRatio
-		}
-		return strings.ToLower(matched[i].Entry.Path) < strings.ToLower(matched[j].Entry.Path)
-	})
-
-	out := append([]FileEntry(nil), existing...)
-	for _, row := range matched {
-		if len(out) >= limit {
-			break
-		}
-		if !hasEntryPath(out, row.Entry.Path) {
-			out = append(out, row.Entry)
-		}
-	}
-	return out
 }
 
 type videoFingerprintV85 struct {
