@@ -13,16 +13,18 @@ import (
 // instance. It deliberately lives outside Config so no persistent format change
 // is required for this reliability fix.
 type localFolderRefreshStateV857 struct {
-	mu          sync.Mutex
-	initialized bool
-	observedSig string
-	appliedSig  string
-	queued      bool
+	mu            sync.Mutex
+	initialized   bool
+	observedSig   string
+	appliedSig    string
+	observedRoots []string
+	appliedRoots  []string
+	queued        bool
 }
 
 var localFolderRefreshStatesV857 sync.Map // map[*App]*localFolderRefreshStateV857
 
-func localFolderSignatureV857(paths []string) string {
+func normalizedLocalFoldersV857(paths []string) []string {
 	clean := make([]string, 0, len(paths))
 	seen := map[string]bool{}
 	for _, raw := range paths {
@@ -41,17 +43,22 @@ func localFolderSignatureV857(paths []string) string {
 		clean = append(clean, p)
 	}
 	sort.Strings(clean)
-	return strings.Join(clean, "\x00")
+	return clean
 }
 
-func (a *App) currentLocalFolderSignatureV857() string {
+func localFolderSignatureV857(paths []string) string {
+	return strings.Join(normalizedLocalFoldersV857(paths), "\x00")
+}
+
+func (a *App) currentLocalFolderStateV857() (string, []string) {
 	if a == nil {
-		return ""
+		return "", nil
 	}
 	a.mu.RLock()
 	paths := append([]string(nil), a.cfg.LocalPaths...)
 	a.mu.RUnlock()
-	return localFolderSignatureV857(paths)
+	roots := normalizedLocalFoldersV857(paths)
+	return strings.Join(roots, "\x00"), roots
 }
 
 func localFolderRefreshStateForV857(a *App) *localFolderRefreshStateV857 {
@@ -63,6 +70,45 @@ func localFolderRefreshStateForV857(a *App) *localFolderRefreshStateV857 {
 	return actual.(*localFolderRefreshStateV857)
 }
 
+func removedLocalRootsV857(previous, current []string) []string {
+	active := make(map[string]bool, len(current))
+	for _, root := range current {
+		active[root] = true
+	}
+	removed := make([]string, 0)
+	for _, root := range previous {
+		if !active[root] {
+			removed = append(removed, root)
+		}
+	}
+	return removed
+}
+
+// pruneRemovedLocalRootsV857 removes stale index rows that belonged only to a
+// local folder the user explicitly removed. Entries still covered by another
+// active local root or by the configured download folder remain valid.
+func pruneRemovedLocalRootsV857(a *App, previous, current []string) bool {
+	removed := removedLocalRootsV857(previous, current)
+	if len(removed) == 0 {
+		return false
+	}
+	activeRoots := a.guardRoots("")
+	changed := false
+	a.mu.Lock()
+	for path := range a.index {
+		if !pathUnderAny(path, removed) || pathUnderAny(path, activeRoots) {
+			continue
+		}
+		delete(a.index, path)
+		changed = true
+	}
+	if changed {
+		a.rebuildMaps()
+	}
+	a.mu.Unlock()
+	return changed
+}
+
 // noteLocalFolderConfigHeartbeatV857 is intentionally cheap: it is called from
 // the existing UI heartbeat and only compares a short normalized signature.
 // The first heartbeat establishes a baseline. A later add/remove/reorder of
@@ -72,18 +118,21 @@ func noteLocalFolderConfigHeartbeatV857(a *App) {
 		return
 	}
 	st := localFolderRefreshStateForV857(a)
-	sig := a.currentLocalFolderSignatureV857()
+	sig, roots := a.currentLocalFolderStateV857()
 
 	st.mu.Lock()
 	if !st.initialized {
 		st.initialized = true
 		st.observedSig = sig
 		st.appliedSig = sig
+		st.observedRoots = append([]string(nil), roots...)
+		st.appliedRoots = append([]string(nil), roots...)
 		st.mu.Unlock()
 		return
 	}
 	if st.observedSig != sig {
 		st.observedSig = sig
+		st.observedRoots = append([]string(nil), roots...)
 	}
 	if st.observedSig == st.appliedSig || st.queued {
 		st.mu.Unlock()
@@ -99,6 +148,8 @@ func runLocalFolderRefreshWorkerV857(a *App, st *localFolderRefreshStateV857) {
 	for {
 		st.mu.Lock()
 		targetSig := st.observedSig
+		targetRoots := append([]string(nil), st.observedRoots...)
+		previousRoots := append([]string(nil), st.appliedRoots...)
 		st.mu.Unlock()
 
 		// Do not race a MEGA scan, explicit index build or another foreground
@@ -120,7 +171,7 @@ func runLocalFolderRefreshWorkerV857(a *App, st *localFolderRefreshStateV857) {
 			Phase:     "local-refresh",
 			State:     "running",
 			Message:   "Actualizez automat folderele locale…",
-			Detail:    "Reindexez locațiile configurate și recalculez rezultatele curente ca să nu rămână fișiere noi pe dinafară.",
+			Detail:    "Reindexez locațiile configurate și recalculez rezultatele curente ca să nu rămână fișiere noi sau locații eliminate în verdict.",
 			StartedAt: time.Now().Unix(),
 			CanCancel: false,
 		}
@@ -131,13 +182,17 @@ func runLocalFolderRefreshWorkerV857(a *App, st *localFolderRefreshStateV857) {
 
 		ctx := context.Background()
 		var err error
-		if len(rows) > 0 && liveRefresh {
+		pruned := pruneRemovedLocalRootsV857(a, previousRoots, targetRoots)
+		if pruned {
+			err = a.saveIndex()
+		}
+		if err == nil && len(rows) > 0 && liveRefresh {
 			items := make([]RemoteItem, 0, len(rows))
 			for _, row := range rows {
 				items = append(items, row.Remote)
 			}
 			a.compareRemote(ctx, items, mode)
-		} else {
+		} else if err == nil {
 			_, _, err = a.refreshLiveIndexForGuard(ctx, "")
 			if err == nil {
 				err = a.saveIndex()
@@ -161,8 +216,11 @@ func runLocalFolderRefreshWorkerV857(a *App, st *localFolderRefreshStateV857) {
 		a.guardMu.Unlock()
 
 		st.mu.Lock()
-		st.appliedSig = targetSig
-		if st.observedSig == st.appliedSig {
+		if err == nil {
+			st.appliedSig = targetSig
+			st.appliedRoots = append([]string(nil), targetRoots...)
+		}
+		if err != nil || st.observedSig == st.appliedSig {
 			st.queued = false
 			st.mu.Unlock()
 			return
