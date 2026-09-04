@@ -29,7 +29,8 @@ func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run meg
 	return switchSameSourceWebDAVV85(old, remoteRef, run)
 }
 
-func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, error) {
+func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem, traceIDs ...string) (string, error) {
+	traceID := firstMegaPreviewTraceV8511(traceIDs)
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
 	}
@@ -55,7 +56,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return a.runMegaPreviewCommandV8511(ctx, traceID, "browser-fallback", timeout, old.Exe, args...)
 		}
 		result, err := switchWarmRootToPerFileV858(old, remoteRef, run)
 		if err != nil {
@@ -89,11 +90,11 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 		return "", errors.New("MEGAcmd nu a fost găsit")
 	}
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := a.runMegaPreviewCommandV8511(ctx, traceID, "fallback-session-snapshot", 18*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	_, _ = a.runMegaPreviewCommandV8511(ctx, traceID, "fallback-session-detach", 12*time.Second, exe, "logout", "--keep-session")
+	loginOut, err := a.runMegaPreviewCommandV8511(ctx, traceID, "fallback-public-folder-resume", 50*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
@@ -101,7 +102,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	}
 
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return a.runMegaPreviewCommandV8511(ctx, traceID, "fallback-per-file", timeout, exe, args...)
 	}
 	result, err := switchSameSourceWebDAVV85(MegaPreviewState{Exe: exe}, remoteRef, run)
 	if err != nil {

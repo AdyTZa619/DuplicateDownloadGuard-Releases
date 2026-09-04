@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.9 Pro Smart Media Guard"
+const appVersion = "8.5.11-test.2 MEGA Preview Controller"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -1010,8 +1010,6 @@ func extractSession(s string) string {
 }
 
 func (a *App) handleMegaScan(w http.ResponseWriter, r *http.Request) {
-	// Remote preview uses MEGAcmd's shared session. Restore it before starting a new scan.
-	_ = a.stopMegaPreview("scan nou")
 	var req struct {
 		URL  string `json:"url"`
 		Mode string `json:"mode"`
@@ -1066,11 +1064,19 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		return
 	}
 	defer releaseMegaSession()
-	if err := a.stopMegaPreviewWhileSessionOwned("pornire scanare MEGA"); err != nil {
+	reusePreviewRoot := a.megaPreviewSameSourceRootV8511(link)
+	if reusePreviewRoot {
+		a.logf("MEGA PREVIEW SCAN REUSE: aceeași sursă păstrează sesiunea și root-ul; fără logout/login")
+	} else if err := a.stopMegaPreviewWhileSessionOwned("pornire scanare MEGA pe altă sursă"); err != nil {
 		a.logf("MEGA: cleanup preview înainte de scanare: %v", err)
 	}
 	a.logf("MEGA: scanare folder public")
 	oldSession := ""
+	if reusePreviewRoot {
+		a.previewMu.Lock()
+		oldSession = a.preview.PreviousSession
+		a.previewMu.Unlock()
+	}
 
 	a.updateProgress(func(p *Progress) {
 		p.Step = 1
@@ -1079,10 +1085,12 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 1/6 — verific sesiunea MEGAcmd"
 		p.Detail = "Timeout maxim: 10 secunde. Nu se descarcă fișiere."
 	})
-	if s, e := runMegaTimed(ctx, 10*time.Second, exe, "session"); e == nil {
-		oldSession = extractSession(s)
-	} else {
-		a.logf("MEGA: verificarea sesiunii nu a răspuns normal (%v); continui", e)
+	if !reusePreviewRoot {
+		if s, e := runMegaTimed(ctx, 10*time.Second, exe, "session"); e == nil {
+			oldSession = extractSession(s)
+		} else {
+			a.logf("MEGA: verificarea sesiunii nu a răspuns normal (%v); continui", e)
+		}
 	}
 	if ctx.Err() != nil {
 		a.failOp("MEGA: operație anulată", "Scanarea a fost oprită de utilizator.")
@@ -1094,14 +1102,16 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 2/6 — pregătesc conexiunea"
 		p.Detail = "Închid temporar sesiunea MEGAcmd curentă. Timeout maxim: 10 secunde."
 	})
-	if oldSession != "" {
-		a.logf("MEGA: sesiune existentă detectată; va fi restaurată")
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
-			a.logf("MEGA: logout keep-session: %v", e)
-		}
-	} else {
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
-			a.logf("MEGA: logout inițial: %v", e)
+	if !reusePreviewRoot {
+		if oldSession != "" {
+			a.logf("MEGA: sesiune existentă detectată; va fi restaurată")
+			if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
+				a.logf("MEGA: logout keep-session: %v", e)
+			}
+		} else {
+			if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
+				a.logf("MEGA: logout inițial: %v", e)
+			}
 		}
 	}
 	if ctx.Err() != nil {
@@ -1114,13 +1124,17 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 3/6 — deschid folderul public"
 		p.Detail = "Autentific folderul public din link. Timeout maxim: 45 secunde."
 	})
-	out, e := runMegaTimed(ctx, 45*time.Second, exe, "login", link)
-	if e != nil {
-		a.logf("MEGA login eșuat: %s", sanitizeMega(out))
-		a.restoreMega(exe, oldSession)
-		problem := classifyMegaProblem(out, e)
-		a.failOp(problem.Title, problem.Message+" "+problem.Action)
-		return
+	var out string
+	var e error
+	if !reusePreviewRoot {
+		out, e = runMegaTimed(ctx, 45*time.Second, exe, "login", link)
+		if e != nil {
+			a.logf("MEGA login eșuat: %s", sanitizeMega(out))
+			a.restoreMega(exe, oldSession)
+			problem := classifyMegaProblem(out, e)
+			a.failOp(problem.Title, problem.Message+" "+problem.Action)
+			return
+		}
 	}
 
 	a.updateProgress(func(p *Progress) {
@@ -1174,7 +1188,12 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 6/6 — finalizez"
 		p.Detail = "Păstrez temporar sesiunea folderului pentru pornirea rapidă a preview-ului."
 	})
-	if err := a.prepareMegaWarmRootAfterScanV86(ctx, exe, link, oldSession); err != nil {
+	if reusePreviewRoot {
+		a.previewMu.Lock()
+		a.resetPreviewTTLLocked()
+		a.previewMu.Unlock()
+		a.logf("MEGA PREVIEW SCAN REUSE: scanarea s-a terminat cu același root activ")
+	} else if err := a.prepareMegaWarmRootAfterScanV86(ctx, exe, link, oldSession); err != nil {
 		a.logf("MEGA Fast Preview: WebDAV root nu a putut fi pregătit (%v); păstrez fallback-ul existent", err)
 		a.keepMegaSessionWarm(exe, link, oldSession)
 	}
@@ -3228,19 +3247,29 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formatul nu are preview media integrat", 415)
 		return
 	}
-	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote, req.ForceFallback)
+	traceID := nextMegaPreviewTraceV8511()
+	previewResult, err := a.startMegaPreviewControlledV8511(res.Remote, req.ForceFallback, traceID)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		problem := megaProblemFromError(err)
+		status := http.StatusInternalServerError
+		if problem.Code == "MEGA_QUOTA" || problem.Code == "MEGA_RATE_LIMIT" {
+			status = http.StatusTooManyRequests
+		}
+		w.Header().Set("X-DDG-Mega-Error", problem.Code)
+		http.Error(w, megaProblemText(problem)+" Diagnostic: "+traceID, status)
 		return
 	}
 	jsonOut(w, map[string]any{
-		"url":         streamURL,
+		"url":          previewResult.URL,
 		"kind":        kind,
 		"streaming":   true,
-		"source":      previewMode,
-		"previewMode": previewMode,
-		"prepareMs":   prepareDuration.Milliseconds(),
-		"note":        "Fast-path-ul UI reutilizează WebDAV-ul pregătit la scanare fără comandă MEGAcmd suplimentară. Fallback-ul per-fișier rămâne disponibil dacă nu există cache.",
+		"source":       previewResult.Mode,
+		"previewMode":  previewResult.Mode,
+		"prepareMs":    previewResult.Prepare.Milliseconds(),
+		"traceId":      previewResult.TraceID,
+		"transportOK":  previewResult.TransportOK,
+		"fallbackUsed": previewResult.FallbackUsed,
+		"note":         previewResult.Note,
 	})
 }
 

@@ -1,0 +1,81 @@
+name: MEGA Preview 8.5.9-base test
+
+on:
+  push:
+    branches: [test/mega-preview-from-v859]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mega-preview-v859-test
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/mega-preview-from-v859
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Format source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gofmt -w (Get-ChildItem -Filter *.go | ForEach-Object FullName)
+          if (-not (git diff --quiet)) {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -- '*.go'
+            git commit -m 'gofmt MEGA preview 8.5.9-base candidate [skip ci]'
+            git push origin HEAD:test/mega-preview-from-v859
+          }
+
+      - name: JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem web -Filter *.js -File | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax failed: $($_.Name)" }
+          }
+
+      - name: All Go tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+
+      - name: Go vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
+
+      - name: Windows x64 test build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.2_MEGA.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.11-test.2_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
+
+      - name: Upload candidate only
+        uses: actions/upload-artifact@v4
+        with:
+          name: DDG-8.5.11-test.2-MEGA-V859-BASE
+          path: artifacts/*
+          retention-days: 14
+          if-no-files-found: error

@@ -149,7 +149,8 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 // startMegaPreviewResumeCoalescedV856 serializes only real user-triggered
 // restart initialization. v8.5.8 removed the background startup prewarm, so a
 // click no longer waits behind an unsolicited MEGAcmd login/root bootstrap.
-func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, error) {
+func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem, traceIDs ...string) (string, error) {
+	traceID := firstMegaPreviewTraceV8511(traceIDs)
 	for attempt := 0; attempt < 2; attempt++ {
 		if streamURL, _, ok := a.tryMegaPreviewUICacheV854(item); ok {
 			return streamURL, nil
@@ -169,7 +170,7 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 		megaPreviewResumeFlightV856.done = done
 		megaPreviewResumeFlightV856.Unlock()
 
-		streamURL, err := a.startMegaPreviewResumeDirectV858(item)
+		streamURL, err := a.startMegaPreviewResumeDirectV858(item, traceID)
 		megaPreviewResumeFlightV856.Lock()
 		if megaPreviewResumeFlightV856.done == done {
 			megaPreviewResumeFlightV856.done = nil
@@ -184,13 +185,14 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 	return "", errors.New("MEGA preview nu a putut reutiliza inițializarea comună")
 }
 
-func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
+func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool, traceIDs ...string) (string, string, time.Duration, error) {
 	started := time.Now()
+	traceID := firstMegaPreviewTraceV8511(traceIDs)
 	if !forceFallback {
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
 			return streamURL, mode, time.Since(started), nil
 		}
-		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
+		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item, traceID)
 		if err == nil {
 			return streamURL, "MEGA DIRECT RESUME", time.Since(started), nil
 		}
@@ -201,7 +203,7 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 	// function is allowed to return the same warm-root child URL. Use the true
 	// per-file path so a failed FAST ROOT is replaced with a different WebDAV
 	// endpoint addressed by the file handle/path.
-	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item)
+	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item, traceID)
 	if err != nil {
 		return "", "MEGA TRUE FALLBACK", time.Since(started), err
 	}

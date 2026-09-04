@@ -78,18 +78,22 @@ func tryMegaCurrentSessionWebDAVV859(remoteRef string, run megaWebDAVRunnerV85) 
 	if run == nil {
 		return result, errors.New("MEGA WebDAV runner lipsă")
 	}
-	out, err := run(4*time.Second, "webdav", remoteRef)
+	// MegaClient itself can wait up to MEGAcmd's RESUME_SESSION_TIMEOUT while
+	// the background server restores its cache. The old four-second deadline
+	// aborted that legitimate cold resume and immediately stacked a complete
+	// session/logout/login sequence behind it, producing the observed ~30 s.
+	out, err := run(18*time.Second, "webdav", remoteRef)
 	result.StartOutput = out
 	if err != nil {
 		return result, err
 	}
 	result.StreamURL = extractWebDAVURL(out, remoteRef)
 	if result.StreamURL == "" {
-		listing, _ := run(1200*time.Millisecond, "webdav")
+		listing, _ := run(4*time.Second, "webdav")
 		result.StreamURL = extractWebDAVURL(listing, remoteRef)
 	}
 	if result.StreamURL == "" {
-		_, _ = run(1500*time.Millisecond, "webdav", "-d", remoteRef)
+		_, _ = run(4*time.Second, "webdav", "-d", remoteRef)
 		return result, errors.New(megaWebDAVURLMissingV85)
 	}
 	return result, nil

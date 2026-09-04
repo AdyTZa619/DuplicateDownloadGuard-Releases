@@ -12,7 +12,8 @@ import (
 // exact public-folder session that DDG deliberately preserved at the previous
 // shutdown. Only if that short direct attempt fails does it pay for the older
 // session/logout/login --resume sequence.
-func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) {
+func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem, traceIDs ...string) (string, error) {
+	traceID := firstMegaPreviewTraceV8511(traceIDs)
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
 	}
@@ -51,7 +52,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		old := a.preview
 		ctx := context.Background()
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return a.runMegaPreviewCommandV8511(ctx, traceID, "same-session-switch", timeout, old.Exe, args...)
 		}
 		result, err := switchSameSourceWebDAVV85(old, remoteRef, run)
 		if err != nil {
@@ -84,7 +85,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 	ctx := context.Background()
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return a.runMegaPreviewCommandV8511(ctx, traceID, "current-session", timeout, exe, args...)
 	}
 
 	// v8.5.9 cold-start fast path. A graceful DDG shutdown can leave the public
@@ -111,11 +112,11 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := a.runMegaPreviewCommandV8511(ctx, traceID, "session-snapshot", 18*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	_, _ = a.runMegaPreviewCommandV8511(ctx, traceID, "session-detach", 12*time.Second, exe, "logout", "--keep-session")
+	loginOut, err := a.runMegaPreviewCommandV8511(ctx, traceID, "public-folder-resume", 50*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)

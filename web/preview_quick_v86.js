@@ -63,9 +63,8 @@
     }
   }
 
-  // v8.5.8: a FAST ROOT browser error must use a genuinely different WebDAV
-  // endpoint. The backend forceFallback path now switches to the file handle/
-  // path directly. Retry exactly once per selected result to avoid loops.
+  // One browser-error owner. The backend first verifies WebDAV with HEAD/Range;
+  // a codec error must never create another MEGAcmd served location.
   function wrapMegaRootFailureV858() {
     const original = window.remotePreviewError;
     if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
@@ -82,7 +81,7 @@
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
       const preview = document.getElementById('remotePreview');
-      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Nu repet același URL fast.</span></div>';
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Verific transportul MEGA…</b><span class="small">Separ o problemă WebDAV de un codec neacceptat de browser.</span></div>';
       try {
         const d = await api('/api/remote-preview/start', {
           method: 'POST',
@@ -90,18 +89,28 @@
           body: JSON.stringify({id, forceFallback:true})
         });
         if (!currentRow || Number(currentRow.id) !== id) return;
+        if (d.transportOK && !d.fallbackUsed && String(d.source || '').includes('TRANSPORT OK')) {
+          if (sourceEl) {
+            sourceEl.textContent = `${d.source} • ${d.traceId || ''}`;
+            sourceEl.classList.add('remoteLive');
+          }
+          if (preview) preview.innerHTML = `<div class="previewEmpty"><b>MEGA transmite fișierul corect.</b><br>Browserul nu poate reda acest codec/container. Nu am creat alt endpoint WebDAV.<br><br><button class="btn primary" onclick="playRemote()">▶ Deschide în VLC/player</button> <button class="btn" onclick="openRemote()">↗ MEGA</button><br><span class="small">Diagnostic: ${esc(d.traceId || '—')}</span></div>`;
+          return;
+        }
         const kind = d.kind || previewKind(current.remote?.name || current.remote?.path || '');
         remotePreviewActive = true;
         const stop = document.getElementById('stopRemote');
         if (stop) stop.disabled = false;
         if (sourceEl) {
-          sourceEl.textContent = `${d.source || 'MEGA TRUE FALLBACK'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''} • LIVE`;
+          sourceEl.textContent = `${d.source || 'MEGA TRUE FALLBACK'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''}${d.traceId ? ` • ${d.traceId}` : ''} • LIVE`;
           sourceEl.classList.add('remoteLive');
         }
         if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, current.remote?.name || current.remote?.path || 'remote');
         return;
-      } catch (_) {
-        return original.apply(this, arguments);
+      } catch (error) {
+        if (sourceEl) sourceEl.textContent = 'MEGA PREVIEW • EROARE';
+        if (preview) preview.innerHTML = `<div class="previewEmpty"><b>MEGA Preview indisponibil.</b><br>${esc(error.message)}<br><br><button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ MEGA</button></div>`;
+        return;
       }
     };
     wrapped.__megaTrueFallbackV858 = true;

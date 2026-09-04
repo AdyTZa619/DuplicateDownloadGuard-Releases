@@ -51,12 +51,12 @@ func TestTryMegaCurrentSessionWebDAVV859UsesOnlyWebDAV(t *testing.T) {
 	}
 }
 
-func TestTryMegaCurrentSessionWebDAVV859FailsFastToCaller(t *testing.T) {
+func TestTryMegaCurrentSessionWebDAVV859AllowsServerColdResume(t *testing.T) {
 	calls := 0
 	run := func(timeout time.Duration, args ...string) (string, error) {
 		calls++
-		if timeout > 4*time.Second {
-			t.Fatalf("restart fast path timeout is too large: %v", timeout)
+		if timeout != 18*time.Second {
+			t.Fatalf("restart path must cover MEGAcmd server resume: %v", timeout)
 		}
 		return "not logged in", errors.New("not logged in")
 	}
