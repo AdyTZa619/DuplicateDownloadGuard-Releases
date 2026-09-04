@@ -98,8 +98,7 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 		"media.onerror = null",
 		"media.removeAttribute('onerror')",
 		"media.pause()",
-		"media.removeAttribute('src')",
-		"media.load()",
+		"media.remove()",
 	} {
 		if !strings.Contains(js, required) {
 			t.Fatalf("browser stream release regression missing %q", required)
@@ -112,10 +111,11 @@ func TestPreviewUIReleasesBrowserMediaBeforeEveryRowSwitchV8512(t *testing.T) {
 		t.Fatal("releaseRemoteMediaV8512 block missing")
 	}
 	releaseBlock := js[releaseStart : releaseStart+releaseEnd]
-	onerrorPos := strings.Index(releaseBlock, "media.onerror = null")
-	loadPos := strings.Index(releaseBlock, "media.load()")
-	if onerrorPos < 0 || loadPos < 0 || onerrorPos > loadPos {
-		t.Fatal("intentional media abort must disable onerror before load()")
+	if strings.Contains(releaseBlock, "media.load()") {
+		t.Fatal("intentional row switch must not call media.load(); Chromium can block synchronously")
+	}
+	if strings.Contains(releaseBlock, "media.removeAttribute('src')") {
+		t.Fatal("intentional row switch must detach the old player instead of tearing src down synchronously")
 	}
 
 	showDetailStart := strings.Index(js, "const wrapped = async function(r) {")
