@@ -27,16 +27,17 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 	st := a.preview
-	if !st.Active || st.SourceURL != item.URL || strings.TrimSpace(st.StreamURL) == "" {
+	rootURL := rootURLFromStateV8511(st)
+	if !st.Active || st.SourceURL != item.URL || (rootURL == "" && strings.TrimSpace(st.StreamURL) == "") {
 		return "", "", false
 	}
 
-	if st.RemotePath == megaWarmRootRefV86 {
-		child, err := megaWebDAVChildURL(st.StreamURL, item.Path)
+	if rootURL != "" {
+		child, err := megaWebDAVChildURL(rootURL, item.Path)
 		if err == nil && child != "" {
 			a.resetPreviewTTLLocked()
-			a.logf("MEGA UI Fast Preview root hit: %s -> %s", item.Path, child)
-			return child, "MEGA FAST ROOT", true
+			a.logf("MEGA Preview Service root hit: %s", item.Path)
+			return child, "MEGA ROOT SERVICE", true
 		}
 	}
 
@@ -185,25 +186,9 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 }
 
 func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
-	started := time.Now()
-	if !forceFallback {
-		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
-			return streamURL, mode, time.Since(started), nil
-		}
-		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
-		if err == nil {
-			return streamURL, "MEGA DIRECT RESUME", time.Since(started), nil
-		}
-		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
-	}
-
-	// Browser fallback must never re-enter startMegaPreview(), because that
-	// function is allowed to return the same warm-root child URL. Use the true
-	// per-file path so a failed FAST ROOT is replaced with a different WebDAV
-	// endpoint addressed by the file handle/path.
-	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item)
+	result, err := a.prepareMegaPreviewUIV8511(item, forceFallback)
 	if err != nil {
-		return "", "MEGA TRUE FALLBACK", time.Since(started), err
+		return "", "MEGA PREVIEW SERVICE", result.Prepare, err
 	}
-	return streamURL, "MEGA TRUE FALLBACK", time.Since(started), nil
+	return result.URL, result.Mode, result.Prepare, nil
 }

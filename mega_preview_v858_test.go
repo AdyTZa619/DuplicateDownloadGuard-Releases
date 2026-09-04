@@ -70,24 +70,27 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 	if !strings.Contains(js, "forceFallback:true") {
 		t.Fatal("browser root failure must request one backend fallback")
 	}
-	if !strings.Contains(js, "Root-ul rămâne activ pentru următoarele fișiere") {
-		t.Fatal("UI must state and preserve the root after a per-file fallback")
+	if !strings.Contains(js, "Verific transportul MEGA") {
+		t.Fatal("browser error must diagnose transport before fallback")
 	}
-	if !strings.Contains(js, "MEGA TRUE FALLBACK • EROARE") {
-		t.Fatal("new fallback must suppress the older nested fallback on failure")
+	if !strings.Contains(js, "Nu s-a creat niciun fallback suplimentar") {
+		t.Fatal("codec failures must not create another WebDAV location")
 	}
 
-	// Coalesced user initialization still enters the dedicated restart helper;
-	// v8.5.10 changes that helper internally to prefer persistent/root WebDAV.
+	// All embedded and external-player preview starts now enter the same service.
 	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item)") {
-		t.Fatal("restart click is not routed through the dedicated resume helper")
+	if !strings.Contains(src, "a.prepareMegaPreviewUIV8511(item, forceFallback)") {
+		t.Fatal("UI preview is not routed through the unified service")
 	}
-	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
-		t.Fatal("resume mode is not exposed to UI diagnostics")
+	mainSrc, err := osReadTextForTestV858("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mainSrc, "a.ensureMegaPreviewRootV8511(item, traceID)") {
+		t.Fatal("external preview/player is not routed through the unified service")
 	}
 }
 

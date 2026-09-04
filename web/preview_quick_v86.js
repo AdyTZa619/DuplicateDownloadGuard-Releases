@@ -63,10 +63,9 @@
     }
   }
 
-  // v8.5.10 owns the single browser-error fallback. One failed FAST ROOT item
-  // may use a genuinely different per-file endpoint, but that fallback must not
-  // trigger the older v8.5.4 wrapper a second time and must not destroy the
-  // backend root used by following rows.
+  // v8.5.11-test.1 owns the only browser-error path. The backend first probes
+  // the bytes itself. A working WebDAV response means codec/container trouble,
+  // not a reason to add another MEGAcmd location.
   function wrapMegaRootFailureV858() {
     const original = window.remotePreviewError;
     if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
@@ -75,7 +74,7 @@
       const id = Number(current?.id || 0);
       const sourceEl = document.getElementById('remoteSource');
       const sourceText = String(sourceEl?.textContent || '').toUpperCase();
-      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME') || sourceText.includes('MEGA PERSISTENT ROOT');
+      const rootMode = sourceText.includes('MEGA ROOT');
       const now = Date.now();
       const recentlyRetried = id && trueFallbackIDV858 === id && now - trueFallbackAtV858 < 15000;
       if (!id || !rootMode || recentlyRetried) return original.apply(this, arguments);
@@ -83,7 +82,7 @@
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
       const preview = document.getElementById('remotePreview');
-      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; încerc o singură dată fallback MEGA per-fișier…</b><span class="small">Root-ul rămâne activ pentru următoarele fișiere.</span></div>';
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Verific transportul MEGA…</b><span class="small">Separ problema WebDAV de un codec pe care browserul nu îl poate reda.</span></div>';
       try {
         const d = await api('/api/remote-preview/start', {
           method: 'POST',
@@ -91,22 +90,28 @@
           body: JSON.stringify({id, forceFallback:true})
         });
         if (!currentRow || Number(currentRow.id) !== id) return;
+        if (d.transportOK && !d.fallbackUsed && String(d.source || '').includes('TRANSPORT OK')) {
+          if (sourceEl) {
+            sourceEl.textContent = `${d.source} • ${d.traceId || ''}`;
+            sourceEl.classList.add('remoteLive');
+          }
+          if (preview) preview.innerHTML = `<div class="previewEmpty"><b>Streamul MEGA răspunde corect.</b><br>Browserul nu poate reda acest codec/container direct. Nu s-a creat niciun fallback suplimentar.<br><br><button class="btn primary" onclick="playRemote()">▶ Deschide în VLC/player</button> <button class="btn" onclick="openRemote()">↗ MEGA</button><br><span class="small">Diagnostic: ${esc(d.traceId || '—')}</span></div>`;
+          return;
+        }
         const kind = d.kind || previewKind(current.remote?.name || current.remote?.path || '');
         remotePreviewActive = true;
         const stop = document.getElementById('stopRemote');
         if (stop) stop.disabled = false;
         if (sourceEl) {
-          sourceEl.textContent = `${d.source || 'MEGA TRUE FALLBACK'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''} • LIVE`;
+          sourceEl.textContent = `${d.source || 'MEGA PREVIEW SERVICE'}${Number.isFinite(Number(d.prepareMs)) ? ` • ${Number(d.prepareMs)} ms` : ''}${d.traceId ? ` • ${d.traceId}` : ''} • LIVE`;
           sourceEl.classList.add('remoteLive');
         }
         if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, current.remote?.name || current.remote?.path || 'remote');
         return;
-      } catch (_) {
-        // The original handler currently includes the older v8.5.4 fallback
-        // wrapper. Change the source marker before delegating so it renders the
-        // final error instead of issuing a second forceFallback request.
-        if (sourceEl) sourceEl.textContent = 'MEGA TRUE FALLBACK • EROARE';
-        return original.apply(this, arguments);
+      } catch (error) {
+        if (sourceEl) sourceEl.textContent = 'MEGA PREVIEW SERVICE • EROARE';
+        if (preview) preview.innerHTML = `<div class="previewEmpty"><b>MEGA Preview indisponibil.</b><br>${esc(error.message)}<br><br><button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ MEGA</button></div>`;
+        return;
       }
     };
     wrapped.__megaTrueFallbackV858 = true;

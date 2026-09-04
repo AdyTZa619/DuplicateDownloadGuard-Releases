@@ -86,6 +86,7 @@ func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceUR
 		SourceURL:       sourceURL,
 		RemotePath:      megaWarmRootRefV86,
 		StreamURL:       rootURL,
+		RootURL:         rootURL,
 		PreviousSession: previousSession,
 		Exe:             exe,
 	}

@@ -100,14 +100,21 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
+	if st.FallbackRemotePath != "" {
+		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.FallbackRemotePath)
+		if err != nil && ctx.Err() == nil {
+			a.logf("MEGA shutdown: fallback-ul temporar nu s-a oprit curat: %v • %s", err, sanitizeMega(out))
+		}
+	}
 
 	// v8.5.10 persistent-root fast path. MEGAcmd's WebDAV service is independent
 	// of the DDG process, so do not tear down a working root just to recreate it
 	// on the next launch. Save only its loopback URL and public source URL; no
 	// session token or account credential is persisted by DDG.
-	if st.PreviousSession == "" && st.SourceURL != "" && st.RemotePath == megaWarmRootRefV86 && st.StreamURL != "" {
-		a.saveMegaPreviewRestartRootV8510(st.SourceURL, st.StreamURL)
-		a.logf("MEGA shutdown: WebDAV root păstrat activ pentru restart instant -> %s", st.StreamURL)
+	rootURL := rootURLFromStateV8511(st)
+	if st.PreviousSession == "" && st.SourceURL != "" && rootURL != "" {
+		a.saveMegaPreviewRestartRootV8510(st.SourceURL, rootURL)
+		a.logf("MEGA shutdown: root-ul unic rămâne în MEGAcmd și va fi reverificat la restart -> %s", rootURL)
 		return
 	}
 
