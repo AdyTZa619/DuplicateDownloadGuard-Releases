@@ -69,6 +69,52 @@ func startUIWatchdog(stop chan<- struct{}) {
 	}()
 }
 
+// settleMegaOnShutdown waits for any cancelled MEGA worker to finish its own
+// deferred session restoration. Once the global MEGA gate becomes available,
+// it also tears down a warm/WebDAV preview and restores the session that was
+// active before DDG opened the public folder. The whole cleanup is bounded so
+// a broken MEGAcmd/network cannot keep the DDG executable locked forever.
+func settleMegaOnShutdown(a *App) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := acquireMegaSession(ctx); err != nil {
+		a.logf("MEGA shutdown: sesiunea nu s-a eliberat la timp: %v", err)
+		return
+	}
+	defer releaseMegaSession()
+
+	a.previewMu.Lock()
+	st := a.preview
+	if a.previewTTL != nil {
+		a.previewTTL.Stop()
+		a.previewTTL = nil
+	}
+	a.preview = MegaPreviewState{}
+	a.previewMu.Unlock()
+
+	if !st.Active || st.Exe == "" {
+		return
+	}
+	if st.RemotePath != "" {
+		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
+		if err != nil && ctx.Err() == nil {
+			a.logf("MEGA shutdown: WebDAV nu s-a oprit curat: %v • %s", err, sanitizeMega(out))
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	_, _ = runMegaTimed(ctx, 4*time.Second, st.Exe, "logout")
+	if st.PreviousSession != "" && ctx.Err() == nil {
+		out, err := runMegaTimed(ctx, 10*time.Second, st.Exe, "login", st.PreviousSession)
+		if err != nil {
+			a.logf("MEGA shutdown: sesiunea anterioară nu a putut fi restaurată: %v • %s", err, sanitizeMega(out))
+		} else {
+			a.logf("MEGA shutdown: sesiunea anterioară restaurată")
+		}
+	}
+}
+
 func shutdownApp(a *App) {
 	if a == nil {
 		return
@@ -110,11 +156,16 @@ func shutdownApp(a *App) {
 		q.save(a)
 	}
 
+	// Ensure MEGAcmd does not keep a public-folder/WebDAV session behind after
+	// the UI is gone. This also waits briefly for cancelled MEGA workers to run
+	// their deferred session cleanup.
+	settleMegaOnShutdown(a)
+
 	// aria2 is a long-lived helper. Stop it explicitly instead of leaving an
 	// orphan until Windows notices the parent process disappeared.
 	shutdownAriaRPC(a)
 
-	// Stop the preview timeout from firing while the process is shutting down.
+	// Defensive final timer cleanup for the no-preview path.
 	a.previewMu.Lock()
 	if a.previewTTL != nil {
 		a.previewTTL.Stop()
