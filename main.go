@@ -201,10 +201,10 @@ type MediaInfo struct {
 }
 
 type MegaPreviewState struct {
-	Active          bool
-	SourceURL       string
-	RemotePath      string
-	StreamURL       string
+	Active     bool
+	SourceURL  string
+	RemotePath string
+	StreamURL  string
 	// RootURL is the one canonical whole-folder WebDAV endpoint owned by DDG.
 	// A compatibility per-file endpoint is tracked separately and is always
 	// removed before another one is created, so MEGAcmd never accumulates one
@@ -212,8 +212,8 @@ type MegaPreviewState struct {
 	RootURL            string
 	FallbackRemotePath string
 	FallbackStreamURL  string
-	PreviousSession string
-	Exe             string
+	PreviousSession    string
+	Exe                string
 }
 
 type Progress struct {
@@ -3192,16 +3192,16 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, map[string]any{
-		"url":         previewResult.URL,
-		"kind":        kind,
-		"streaming":   true,
-		"source":      previewResult.Mode,
-		"previewMode": previewResult.Mode,
-		"prepareMs":   previewResult.Prepare.Milliseconds(),
-		"traceId":     previewResult.TraceID,
-		"transportOK": previewResult.TransportOK,
+		"url":          previewResult.URL,
+		"kind":         kind,
+		"streaming":    true,
+		"source":       previewResult.Mode,
+		"previewMode":  previewResult.Mode,
+		"prepareMs":    previewResult.Prepare.Milliseconds(),
+		"traceId":      previewResult.TraceID,
+		"transportOK":  previewResult.TransportOK,
 		"fallbackUsed": previewResult.FallbackUsed,
-		"note":        previewResult.Note,
+		"note":         previewResult.Note,
 	})
 }
 
