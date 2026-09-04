@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"math"
 	"math/bits"
 	"os"
@@ -31,9 +33,8 @@ const (
 	actionRetry        = "REÎNCEARCĂ"
 )
 
-// decorateGuardDecision translates internal safety verdicts into short labels
-// that describe what the user actually needs to know. Internal verdicts stay
-// unchanged so queue/update compatibility is preserved.
+var v85FramePoints = []float64{.08, .20, .35, .50, .65, .80, .92}
+
 func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 	if d.UserStatus != "" {
 		return d
@@ -117,9 +118,6 @@ func mediaGuardCandidates(remote RemoteItem, entries []FileEntry, limit int) []F
 		if remote.Size > 0 {
 			ratio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
 		}
-		// Re-encoding can change bytes and size substantially, but an unrelated
-		// name plus a very different size is too weak for the first-pass probe.
-		// A second video-only duration pass handles fully renamed files later.
 		if name < 45 && ratio > .35 {
 			continue
 		}
@@ -179,20 +177,12 @@ type durationGuardCandidate struct {
 	SizeRatio     float64
 }
 
-// videoDurationCandidates is the second-stage search for fully renamed videos.
-// It probes a bounded pool of plausible files with ffprobe and keeps only
-// candidates whose duration is nearly identical. This avoids probing the whole
-// collection visually while no longer requiring the filename to be similar.
-func (a *App) videoDurationCandidates(ctx context.Context, target string, remote RemoteItem, entries, existing []FileEntry, limit int) []FileEntry {
+func (a *App) videoDurationCandidates(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) []FileEntry {
 	if limit <= 0 {
 		limit = 7
 	}
 	fp := a.detectFFprobe()
-	if fp == "" {
-		return existing
-	}
-	ri := probeMedia(ctx, fp, target, "REMOTE")
-	if !ri.OK || ri.Duration <= 0 {
+	if fp == "" || !remoteInfo.OK || remoteInfo.Duration <= 0 {
 		return existing
 	}
 
@@ -212,7 +202,6 @@ func (a *App) videoDurationCandidates(ctx context.Context, target string, remote
 		if remote.Size > 0 {
 			sizeRatio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
 		}
-		// Size is only a probe-order hint here, not a duplicate criterion.
 		closeness := int(math.Round(1000 / (1 + sizeRatio*8)))
 		rank := closeness + nameScore*8
 		if strings.EqualFold(filepathExt(remote.Name), filepathExt(e.Name)) {
@@ -239,15 +228,13 @@ func (a *App) videoDurationCandidates(ctx context.Context, target string, remote
 		if !li.OK || li.Duration <= 0 {
 			continue
 		}
-		maxD := math.Max(ri.Duration, li.Duration)
-		durationRatio := math.Abs(ri.Duration-li.Duration) / maxD
-		// 1.5% accepts minor intro/outro and container timing differences while
-		// still being selective enough for a renamed-file fallback.
-		if durationRatio > .015 && math.Abs(ri.Duration-li.Duration) > 1.5 {
+		maxD := math.Max(remoteInfo.Duration, li.Duration)
+		durationRatio := math.Abs(remoteInfo.Duration-li.Duration) / maxD
+		if durationRatio > .015 && math.Abs(remoteInfo.Duration-li.Duration) > 1.5 {
 			continue
 		}
-		if ri.Width > 0 && ri.Height > 0 && li.Width > 0 && li.Height > 0 {
-			ra := float64(ri.Width) / float64(ri.Height)
+		if remoteInfo.Width > 0 && remoteInfo.Height > 0 && li.Width > 0 && li.Height > 0 {
+			ra := float64(remoteInfo.Width) / float64(remoteInfo.Height)
 			la := float64(li.Width) / float64(li.Height)
 			aspectDelta := math.Abs(ra-la) / math.Max(ra, la)
 			if aspectDelta > .08 {
@@ -281,45 +268,69 @@ func (a *App) videoDurationCandidates(ctx context.Context, target string, remote
 	return out
 }
 
-// visualVideoScoreV85 samples seven distributed frames instead of three. A
-// high average is not sufficient by itself: several independent frames must
-// agree and very different durations are deliberately capped/rejected. This
-// keeps re-encodes detectable without turning generic intros into duplicates.
-func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (int, string, MediaInfo, MediaInfo, error) {
+type videoFingerprintV85 struct {
+	Info   MediaInfo
+	Hashes []uint64
+	Valid  []bool
+}
+
+func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string) (videoFingerprintV85, error) {
 	ff := a.detectFFmpeg()
 	fp := a.detectFFprobe()
 	if ff == "" || fp == "" {
-		return 0, "", MediaInfo{}, MediaInfo{}, fmt.Errorf("ffmpeg + ffprobe lipsesc")
+		return videoFingerprintV85{}, fmt.Errorf("ffmpeg + ffprobe lipsesc")
 	}
 	ri := probeMedia(ctx, fp, target, "REMOTE")
-	li := probeMedia(ctx, fp, local, "LOCAL")
-	if !ri.OK || !li.OK || ri.Duration <= 0 || li.Duration <= 0 {
-		return 0, "", ri, li, fmt.Errorf("nu pot citi durata ambelor videoclipuri")
+	if !ri.OK || ri.Duration <= 0 {
+		return videoFingerprintV85{}, fmt.Errorf("nu pot citi durata videoclipului remote")
 	}
+	out := videoFingerprintV85{Info: ri, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints))}
+	valid := 0
+	for i, p := range v85FramePoints {
+		h, err := frameHash(ctx, ff, target, ri.Duration*p)
+		if err != nil {
+			continue
+		}
+		out.Hashes[i], out.Valid[i] = h, true
+		valid++
+	}
+	if valid < 4 {
+		return videoFingerprintV85{}, fmt.Errorf("prea puține cadre remote disponibile: %d/7", valid)
+	}
+	return out, nil
+}
+
+func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoFingerprintV85, local string) (int, string, MediaInfo, error) {
+	ff := a.detectFFmpeg()
+	fp := a.detectFFprobe()
+	if ff == "" || fp == "" {
+		return 0, "", MediaInfo{}, fmt.Errorf("ffmpeg + ffprobe lipsesc")
+	}
+	li := probeMedia(ctx, fp, local, "LOCAL")
+	if !li.OK || li.Duration <= 0 {
+		return 0, "", li, fmt.Errorf("nu pot citi durata videoclipului local")
+	}
+	ri := remoteFP.Info
 	maxD := math.Max(ri.Duration, li.Duration)
-	minD := math.Min(ri.Duration, li.Duration)
 	delta := math.Abs(ri.Duration - li.Duration)
 	durationRatio := delta / maxD
 	if durationRatio > .35 {
-		return 0, "", ri, li, fmt.Errorf("duratele diferă prea mult: %.1f%%", durationRatio*100)
+		return 0, "", li, fmt.Errorf("duratele diferă prea mult: %.1f%%", durationRatio*100)
 	}
 
-	points := []float64{.08, .20, .35, .50, .65, .80, .92}
 	sum := 0
 	matched := 0
 	highMatches := 0
 	veryHighMatches := 0
-	for _, p := range points {
-		sec := minD * p
-		rh, err := frameHash(ctx, ff, target, sec)
+	for i, p := range v85FramePoints {
+		if i >= len(remoteFP.Valid) || !remoteFP.Valid[i] {
+			continue
+		}
+		lh, err := frameHash(ctx, ff, local, li.Duration*p)
 		if err != nil {
 			continue
 		}
-		lh, err := frameHash(ctx, ff, local, sec)
-		if err != nil {
-			continue
-		}
-		d := bits.OnesCount64(rh ^ lh)
+		d := bits.OnesCount64(remoteFP.Hashes[i] ^ lh)
 		frameScore := int(math.Round(float64(64-d) * 100 / 64))
 		sum += frameScore
 		matched++
@@ -331,7 +342,7 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 		}
 	}
 	if matched < 4 {
-		return 0, "", ri, li, fmt.Errorf("prea puține cadre comparabile: %d/7", matched)
+		return 0, "", li, fmt.Errorf("prea puține cadre comparabile: %d/7", matched)
 	}
 
 	score := int(math.Round(float64(sum) / float64(matched)))
@@ -348,7 +359,46 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 	}
 
 	note := fmt.Sprintf("%d/7 cadre • %d foarte apropiate • durată Δ %.2fs", matched, highMatches, delta)
-	return score, note, ri, li, nil
+	return score, note, li, nil
+}
+
+func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (int, string, MediaInfo, MediaInfo, error) {
+	remoteFP, err := a.buildRemoteVideoFingerprintV85(ctx, target)
+	if err != nil {
+		return 0, "", MediaInfo{}, MediaInfo{}, err
+	}
+	score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, local)
+	return score, note, remoteFP.Info, li, err
+}
+
+func remoteImageDHashV85(ctx context.Context, target string, max int64) (uint64, error) {
+	rb, err := fetchAllLimit(ctx, target, max)
+	if err != nil {
+		return 0, err
+	}
+	img, _, err := image.Decode(bytes.NewReader(rb))
+	if err != nil {
+		return 0, fmt.Errorf("imagine remote: %w", err)
+	}
+	return dhashImage(img), nil
+}
+
+func localImageDHashV85(path string) (uint64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return 0, fmt.Errorf("imagine locală: %w", err)
+	}
+	return dhashImage(img), nil
+}
+
+func imageHashSimilarityV85(remoteHash, localHash uint64) int {
+	d := bits.OnesCount64(remoteHash ^ localHash)
+	return int(math.Round(float64(64-d) * 100 / 64))
 }
 
 func mediaQualityHint(remote, local MediaInfo) string {
@@ -376,8 +426,36 @@ func mediaQualityHint(remote, local MediaInfo) string {
 	return ""
 }
 
-func (a *App) scoreMediaCandidates(ctx context.Context, target string, res Result, candidates []FileEntry) (int, string, string, string) {
-	kind := remoteMediaKind(res.Remote.Name)
+func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, candidates []FileEntry) (int, string, string) {
+	a.mu.RLock()
+	mb := a.cfg.VisualImageMaxMB
+	a.mu.RUnlock()
+	if mb <= 0 {
+		mb = 25
+	}
+	remoteHash, err := remoteImageDHashV85(ctx, target, int64(mb)<<20)
+	if err != nil {
+		return -1, "", ""
+	}
+	bestScore := -1
+	bestPath := ""
+	for _, candidate := range candidates {
+		if ctx.Err() != nil {
+			break
+		}
+		localHash, err := localImageDHashV85(candidate.Path)
+		if err != nil {
+			continue
+		}
+		score := imageHashSimilarityV85(remoteHash, localHash)
+		if score > bestScore {
+			bestScore, bestPath = score, candidate.Path
+		}
+	}
+	return bestScore, bestPath, "fingerprint perceptual imagine"
+}
+
+func (a *App) scoreVideoCandidatesV85(ctx context.Context, remoteFP videoFingerprintV85, candidates []FileEntry) (int, string, string, string) {
 	bestScore := -1
 	bestPath := ""
 	bestNote := ""
@@ -386,27 +464,11 @@ func (a *App) scoreMediaCandidates(ctx context.Context, target string, res Resul
 		if ctx.Err() != nil {
 			break
 		}
-		score := 0
-		note := ""
-		quality := ""
-		var err error
-		if kind == "image" {
-			a.mu.RLock()
-			mb := a.cfg.VisualImageMaxMB
-			a.mu.RUnlock()
-			if mb <= 0 {
-				mb = 25
-			}
-			score, err = imageVisualScore(ctx, target, candidate.Path, int64(mb)<<20)
-			note = "fingerprint perceptual imagine"
-		} else {
-			var ri, li MediaInfo
-			score, note, ri, li, err = a.visualVideoScoreV85(ctx, target, candidate.Path)
-			quality = mediaQualityHint(ri, li)
-		}
+		score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate.Path)
 		if err != nil {
 			continue
 		}
+		quality := mediaQualityHint(remoteFP.Info, li)
 		if score > bestScore {
 			bestScore, bestPath, bestNote, bestQuality = score, candidate.Path, note, quality
 		}
@@ -428,12 +490,22 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	}
 
 	candidates := mediaGuardCandidates(res.Remote, entries, 5)
-	bestScore, bestPath, bestNote, bestQuality := a.scoreMediaCandidates(ctx, target, res, candidates)
-	// If the normal name/size shortlist failed, search videos again using exact
-	// duration/aspect metadata. This is the renamed/re-encoded fallback.
-	if kind == "video" && bestScore < 85 && ctx.Err() == nil {
-		candidates = a.videoDurationCandidates(ctx, target, res.Remote, entries, candidates, 7)
-		bestScore, bestPath, bestNote, bestQuality = a.scoreMediaCandidates(ctx, target, res, candidates)
+	bestScore := -1
+	bestPath := ""
+	bestNote := ""
+	bestQuality := ""
+	if kind == "image" {
+		bestScore, bestPath, bestNote = a.scoreImageCandidatesV85(ctx, target, candidates)
+	} else {
+		remoteFP, err := a.buildRemoteVideoFingerprintV85(ctx, target)
+		if err != nil {
+			return DownloadGuardDecision{}, false
+		}
+		bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
+		if bestScore < 85 && ctx.Err() == nil {
+			candidates = a.videoDurationCandidates(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
+			bestScore, bestPath, bestNote, bestQuality = a.scoreVideoCandidatesV85(ctx, remoteFP, candidates)
+		}
 	}
 	if bestScore < 85 || bestPath == "" {
 		return DownloadGuardDecision{}, false
