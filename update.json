@@ -1,8 +1,8 @@
 {
-  "version": "8.5.10",
+  "version": "8.5.11-test.3",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "525e741b3f70dbc14579b5006823c94f41309cf7560762554359f6da5d572bd0",
-  "notes": "Noutăți 8.5.10: Un fallback pentru un singur fișier nu mai execută `webdav -d /`; WebDAV root rămâne activ pentru fișierele următoare, în loc ca primul child problematic să împingă toată sesiunea pe ruta per-fișier lentă. • Fallback-ul per-fișier este temporar când root-ul este sănătos: URL-ul alternativ este folosit numai pentru fișierul care a eșuat, iar starea canonică a preview-ului rămâne root-ul. • După un login/cold resume, DDG încearcă să pornească un singur WebDAV root și derivă local URL-urile tuturor fișierelor; `webdav <fișier>` rămâne doar fallback de compatibilitate dacă root-ul nu poate fi expus. • La închiderea normală, dacă DDG este proprietarul sesiunii publice și nu există o sesiune MEGA anterioară de restaurat, root-ul WebDAV nu mai este oprit. URL-ul local al root-ului este păstrat pentru restart. • La pornirea următoare, DDG verifică doar listenerul local și construiește child URL-ul fără `session`, `logout`, `login` sau `webdav`; dacă listenerul nu mai există, cache-ul este invalidat și se revine la mecanismul sigur de resume. • Cache-ul persistent acceptă exclusiv endpointuri loopback (`127.0.0.1`, `localhost`, `::1`) și nu salvează niciodată tokenul/session ID-ul MEGA sau credențiale de cont.",
-  "publishedAt": "2026-09-04T16:21:03.0900617Z",
-  "channel": "stable"
+  "sha256": "71ab2643836319e2ceb95797f7aa77fedc24965bfd9d510aa6fcfb38d93952be",
+  "notes": "TEST MEGA Preview 8.5.11-test.3: pornit din 8.5.9; reutilizează root-ul WebDAV existent, păstrează root-ul după fallback per-fișier și evită dublul fallback. Build pentru validare reală înainte de stable.",
+  "publishedAt": "2026-09-04T18:33:25.4538742Z",
+  "channel": "test"
 }
