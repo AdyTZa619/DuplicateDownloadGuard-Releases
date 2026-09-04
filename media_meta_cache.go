@@ -91,6 +91,29 @@ func pruneLocalMediaMetaCache(a *App, entries []FileEntry) bool {
 	return changed
 }
 
+// replaceCacheFileV85 keeps cache writes reliable on Windows, where renaming a
+// temporary file directly over an existing destination is not consistently
+// supported. If replacement fails, the previous cache is restored.
+func replaceCacheFileV85(tmp, path string) error {
+	if err := os.Rename(tmp, path); err == nil {
+		return nil
+	}
+	backup := path + ".old"
+	_ = os.Remove(backup)
+	if _, err := os.Stat(path); err == nil {
+		if err := os.Rename(path, backup); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			_ = os.Rename(backup, path)
+			return err
+		}
+		_ = os.Remove(backup)
+		return nil
+	}
+	return os.Rename(tmp, path)
+}
+
 func saveLocalMediaMetaCache(a *App) error {
 	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
@@ -108,7 +131,7 @@ func saveLocalMediaMetaCache(a *App) error {
 	if err := os.WriteFile(tmp, b, 0644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return replaceCacheFileV85(tmp, path)
 }
 
 func durationCompatibleV85(remoteInfo, localInfo MediaInfo) (float64, bool) {
@@ -151,17 +174,32 @@ func appendDurationCandidateV85(rows []cachedDurationCandidateV85, remote Remote
 	})
 }
 
-// videoDurationCandidatesCached makes the renamed-video fallback scalable.
-// Cached metadata is checked across the whole local collection regardless of
-// filename or byte size. Only a bounded number of uncached files are ffprobed
-// per verification, and those results persist for later scans.
-func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) []FileEntry {
+type videoDurationSearchV85 struct {
+	Candidates []FileEntry
+	Pending    int
+	Probed     int
+	Cached     int
+}
+
+// videoDurationCandidatesCached makes renamed-video discovery scalable without
+// ever treating a partial cache as proof that a video is missing. Cached
+// metadata is searched across the whole collection. A bounded number of
+// uncached files is probed per call, and Pending reports everything that still
+// cannot be ruled out so Download Guard can fail closed instead of returning a
+// false MISSING verdict.
+func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) videoDurationSearchV85 {
 	if limit <= 0 {
 		limit = 7
 	}
+	result := videoDurationSearchV85{Candidates: append([]FileEntry(nil), existing...)}
 	fp := a.detectFFprobe()
 	if fp == "" || !remoteInfo.OK || remoteInfo.Duration <= 0 {
-		return existing
+		for _, e := range entries {
+			if remoteMediaKind(e.Name) == "video" && !hasEntryPath(existing, e.Path) {
+				result.Pending++
+			}
+		}
+		return result
 	}
 	ensureLocalMediaMetaCacheLoaded(a)
 	cacheChanged := pruneLocalMediaMetaCache(a, entries)
@@ -178,6 +216,7 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 			continue
 		}
 		if info, ok := cachedLocalMediaInfo(a, e); ok {
+			result.Cached++
 			if ratio, compatible := durationCompatibleV85(remoteInfo, info); compatible {
 				matched = appendDurationCandidateV85(matched, remote, e, ratio)
 			}
@@ -202,23 +241,28 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		}
 		return strings.ToLower(uncached[i].Entry.Path) < strings.ToLower(uncached[j].Entry.Path)
 	})
-	if len(uncached) > 48 {
-		uncached = uncached[:48]
-	}
 
-	for _, row := range uncached {
-		if ctx.Err() != nil {
+	const probeLimit = 48
+	successful := 0
+	for i, row := range uncached {
+		if i >= probeLimit || ctx.Err() != nil {
 			break
 		}
+		result.Probed++
 		info := probeMedia(ctx, fp, row.Entry.Path, "LOCAL")
 		if !info.OK {
 			continue
 		}
+		successful++
 		cacheLocalMediaInfo(a, row.Entry, info)
 		cacheChanged = true
 		if ratio, compatible := durationCompatibleV85(remoteInfo, info); compatible {
 			matched = appendDurationCandidateV85(matched, remote, row.Entry, ratio)
 		}
+	}
+	result.Pending = len(uncached) - successful
+	if result.Pending < 0 {
+		result.Pending = 0
 	}
 	if cacheChanged {
 		if err := saveLocalMediaMetaCache(a); err != nil {
@@ -239,14 +283,13 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		return strings.ToLower(matched[i].Entry.Path) < strings.ToLower(matched[j].Entry.Path)
 	})
 
-	out := append([]FileEntry(nil), existing...)
 	for _, row := range matched {
-		if len(out) >= limit {
+		if len(result.Candidates) >= limit {
 			break
 		}
-		if !hasEntryPath(out, row.Entry.Path) {
-			out = append(out, row.Entry)
+		if !hasEntryPath(result.Candidates, row.Entry.Path) {
+			result.Candidates = append(result.Candidates, row.Entry)
 		}
 	}
-	return out
+	return result
 }
