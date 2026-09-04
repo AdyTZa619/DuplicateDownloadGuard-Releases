@@ -2,6 +2,22 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.6] — 2026-09-04
+
+### MEGA Preview — restart și cache real
+- Reparată cauza principală a preview-ului care putea sta aproximativ 40–50 secunde după restart: pentru folder links, MEGAcmd era apelat cu `login <link>` și putea reconstrui folderul public de la zero.
+- Preview-ul folosește acum `login <folder-link> --resume`, astfel încât MEGAcmd poate reutiliza cache-ul local al folderului public.
+- La închiderea controlată a aplicației, sesiunea publică este închisă cu `logout --keep-session` înainte de restaurarea sesiunii MEGA anterioare; cache-ul necesar pentru următorul `--resume` nu mai este șters intenționat.
+- După reluarea folderului, aplicația pornește o singură rădăcină WebDAV și derivă local URL-urile fișierelor; revenirea la alte fișiere din același folder nu necesită relogin.
+- Dacă scanarea a lăsat deja sesiunea folderului caldă, DDG încearcă să repare doar WebDAV root fără relogin.
+- Prewarm oportunist la aproximativ 2,5 secunde după pornirea UI-ului: dacă nu rulează scanare/download și există rezultate MEGA salvate, primul preview este pregătit în fundal înainte de selectarea unui rând.
+- Cererile concurente de prewarm/click sunt reunite într-o singură inițializare MEGAcmd; nu mai pot porni două secvențe login/WebDAV care să se blocheze reciproc.
+- Mod nou de diagnostic `MEGA FAST RESUME`, separat de `MEGA FAST ROOT`, `MEGA FAST CACHE` și `MEGA FALLBACK`.
+
+### Validare
+- Test de regresie pentru argumentele de login MEGA confirmă prezența obligatorie a `--resume`.
+- Hotfixul păstrează fallback-ul per-fișier existent dacă reluarea cache-ului sau WebDAV root eșuează.
+
 ## [8.5.5] — 2026-09-04
 
 ### Download Studio — nucleu refăcut
