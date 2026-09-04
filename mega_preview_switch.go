@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const megaWebDAVURLMissingV85 = "MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming"
+
 type megaWebDAVRunnerV85 func(timeout time.Duration, args ...string) (string, error)
 
 type megaWebDAVSwitchResultV85 struct {
@@ -42,7 +44,7 @@ func switchSameSourceWebDAVV85(old MegaPreviewState, remoteRef string, run megaW
 		if old.RemotePath != remoteRef {
 			_, _ = run(10*time.Second, "webdav", "-d", remoteRef)
 		}
-		return result, errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
+		return result, errors.New(megaWebDAVURLMissingV85)
 	}
 	result.StreamURL = streamURL
 
@@ -61,12 +63,12 @@ func (a *App) switchMegaPreviewSameSourceV85(old MegaPreviewState, remoteRef str
 	}
 	result, err := switchSameSourceWebDAVV85(old, remoteRef, run)
 	if err != nil {
-		problem := classifyMegaProblem(result.StartOutput, err)
 		// Missing stream URL is a local WebDAV response problem, not a quota or
-		// login problem; preserve the precise diagnostic in that case.
-		if result.StartOutput == "" && err.Error() == "MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming" {
+		// login problem. Preserve it even when MEGAcmd printed non-empty output.
+		if err.Error() == megaWebDAVURLMissingV85 {
 			return "", err
 		}
+		problem := classifyMegaProblem(result.StartOutput, err)
 		return "", newMegaProblemError(problem, result.StartOutput)
 	}
 	if result.CleanupWarning != nil {
