@@ -17,10 +17,11 @@ type localVideoFingerprintCacheEntry struct {
 
 var localVideoFingerprintCacheState = struct {
 	sync.Mutex
-	AppDir  string
-	Loaded  bool
-	Dirty   bool
-	Entries map[string]localVideoFingerprintCacheEntry
+	AppDir     string
+	Loaded     bool
+	Dirty      bool
+	Generation uint64
+	Entries    map[string]localVideoFingerprintCacheEntry
 }{}
 
 func localVideoFingerprintCacheFile(a *App) string {
@@ -37,6 +38,7 @@ func ensureLocalVideoFingerprintCacheLoaded(a *App) {
 	localVideoFingerprintCacheState.AppDir = appDir
 	localVideoFingerprintCacheState.Loaded = true
 	localVideoFingerprintCacheState.Dirty = false
+	localVideoFingerprintCacheState.Generation = 0
 	localVideoFingerprintCacheState.Entries = map[string]localVideoFingerprintCacheEntry{}
 	b, err := os.ReadFile(localVideoFingerprintCacheFile(a))
 	if err != nil {
@@ -80,6 +82,7 @@ func cacheLocalVideoFingerprintV85(a *App, e FileEntry, fp videoFingerprintV85) 
 	localVideoFingerprintCacheState.Lock()
 	localVideoFingerprintCacheState.Entries[pathKey(e.Path)] = localVideoFingerprintCacheEntry{Size: e.Size, MTime: e.MTime, FP: fp}
 	localVideoFingerprintCacheState.Dirty = true
+	localVideoFingerprintCacheState.Generation++
 	localVideoFingerprintCacheState.Unlock()
 }
 
@@ -102,6 +105,7 @@ func pruneLocalVideoFingerprintCacheV85(a *App, entries []FileEntry) bool {
 	}
 	if changed {
 		localVideoFingerprintCacheState.Dirty = true
+		localVideoFingerprintCacheState.Generation++
 	}
 	localVideoFingerprintCacheState.Unlock()
 	return changed
@@ -114,6 +118,7 @@ func flushLocalVideoFingerprintCacheV85(a *App) error {
 		localVideoFingerprintCacheState.Unlock()
 		return nil
 	}
+	generation := localVideoFingerprintCacheState.Generation
 	rows := make(map[string]localVideoFingerprintCacheEntry, len(localVideoFingerprintCacheState.Entries))
 	for k, v := range localVideoFingerprintCacheState.Entries {
 		rows[k] = v
@@ -133,7 +138,11 @@ func flushLocalVideoFingerprintCacheV85(a *App) error {
 		return err
 	}
 	localVideoFingerprintCacheState.Lock()
-	localVideoFingerprintCacheState.Dirty = false
+	// A fingerprint may have been added while this snapshot was being written.
+	// Only mark the cache clean if no newer generation exists.
+	if localVideoFingerprintCacheState.Generation == generation {
+		localVideoFingerprintCacheState.Dirty = false
+	}
 	localVideoFingerprintCacheState.Unlock()
 	return nil
 }
