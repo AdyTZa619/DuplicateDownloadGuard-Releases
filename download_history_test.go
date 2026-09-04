@@ -52,15 +52,21 @@ func TestDownloadHistoryKeyV85IsStableAndSpecific(t *testing.T) {
 	a := downloadHistoryKeyV85("mega", "https://mega.nz/folder/abc#secret/file/node", "clip.mp4", 12345)
 	b := downloadHistoryKeyV85(" MEGA ", "https://mega.nz/folder/abc#secret/file/node", "RENAMED.mp4", 12345)
 	if a != b {
-		t.Fatalf("URL-backed identity should be independent of display filename: %q != %q", a, b)
+		t.Fatalf("MEGA handle identity should survive a display-name change: %q != %q", a, b)
 	}
 	if a == downloadHistoryKeyV85("MEGA", "https://mega.nz/folder/abc#secret/file/other", "clip.mp4", 12345) {
-		t.Fatal("different remote node must produce a different history key")
+		t.Fatal("different MEGA node must produce a different history key")
 	}
 	if a == downloadHistoryKeyV85("MEGA", "https://mega.nz/folder/abc#secret/file/node", "clip.mp4", 12346) {
 		t.Fatal("different remote size must produce a different history key")
 	}
-	if len(a) != 64 {
-		t.Fatalf("history key should be SHA-256 hex, got length %d", len(a))
+
+	pageA := downloadHistoryKeyV85("HTTP", "https://example.test/gallery/42", "first.jpg", 5000)
+	pageB := downloadHistoryKeyV85("HTTP", "https://example.test/gallery/42", "second.jpg", 5000)
+	if pageA == pageB {
+		t.Fatal("same-page same-size files with different names must not collide")
+	}
+	if len(a) != 64 || len(pageA) != 64 {
+		t.Fatal("history keys should be SHA-256 hex")
 	}
 }
