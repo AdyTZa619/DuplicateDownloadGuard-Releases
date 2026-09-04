@@ -362,17 +362,11 @@ func internalDownloadV855(ctx context.Context, res Result, dest string, progress
 }
 
 func (a *App) markDownloadedResultV855(res Result, path string) {
-	if live, ok := a.resultByID(res.ID); ok {
-		fake := &DownloadJob{Remote: res.Remote}
-		if sameQueueRemoteV855(fake, live) {
-			a.markDownloaded(res.ID, path)
-			return
-		}
-	}
-	// The results table may have been replaced while this job was running. Do
-	// not mark an unrelated row that reused the same ResultID; update only the
-	// durable local index. Queue history is persisted from the completed job.
-	a.addDownloadedToIndex(path)
+	// v8.6 no longer trusts/reconciles only the transient ResultID. The final
+	// verified artifact is inserted into the local index, all rows with the
+	// same stable source or exact remote hash are updated, and the durable
+	// remote→local relationship is recorded in Content Graph.
+	a.postDownloadReconcileV860(res, path)
 }
 
 func classifyDownloadErrorV855(engine string, err error) (code, title, action string) {

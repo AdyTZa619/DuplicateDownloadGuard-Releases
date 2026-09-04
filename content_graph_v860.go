@@ -39,10 +39,10 @@ type ContentGraphEdgeV860 struct {
 }
 
 type ContentGraphV860 struct {
-	Schema    int                            `json:"schema"`
+	Schema    int                             `json:"schema"`
 	Nodes     map[string]ContentGraphNodeV860 `json:"nodes"`
 	Edges     map[string]ContentGraphEdgeV860 `json:"edges"`
-	UpdatedAt int64                          `json:"updatedAt"`
+	UpdatedAt int64                           `json:"updatedAt"`
 }
 
 var contentGraphMuV860 sync.Mutex

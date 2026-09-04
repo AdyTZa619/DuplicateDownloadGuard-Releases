@@ -36,10 +36,10 @@ func TestPostDownloadReconcileV860DoesNotTouchUnrelated(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &App{
-		appDir: dir,
-		index: map[string]FileEntry{},
-		bySize: map[int64][]string{},
-		byName: map[string][]string{},
+		appDir:    dir,
+		index:     map[string]FileEntry{},
+		bySize:    map[int64][]string{},
+		byName:    map[string][]string{},
 		decisions: map[string]Decision{},
 		results: []Result{
 			{ID: 1, Status: "MISSING", Remote: RemoteItem{Source: "MEGA", Handle: "same", Name: "one.mp4"}},
