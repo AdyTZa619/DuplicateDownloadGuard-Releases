@@ -1174,7 +1174,10 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 6/6 — finalizez"
 		p.Detail = "Păstrez temporar sesiunea folderului pentru pornirea rapidă a preview-ului."
 	})
-	a.keepMegaSessionWarm(exe, link, oldSession)
+	if err := a.prepareMegaWarmRootAfterScanV86(ctx, exe, link, oldSession); err != nil {
+		a.logf("MEGA Fast Preview: WebDAV root nu a putut fi pregătit (%v); păstrez fallback-ul existent", err)
+		a.keepMegaSessionWarm(exe, link, oldSession)
+	}
 	a.logf("MEGA: %d fișiere comparate", len(items))
 	a.endOp(fmt.Sprintf("MEGA gata ✓ • %d fișiere comparate", len(items)))
 }
@@ -3114,6 +3117,18 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	remoteRef := megaRemoteRef(item)
 	if remoteRef == "" {
 		return "", errors.New("fișierul MEGA nu are nici handle, nici cale remote utilizabilă")
+	}
+
+	// Fast path: the scan already serves the whole public folder through one
+	// warm WebDAV root. Derive the selected child URL locally and avoid a new
+	// MEGAcmd webdav command for every row click.
+	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == megaWarmRootRefV86 && a.preview.StreamURL != "" {
+		if streamURL, ok := warmRootPreviewURLV86(a.preview, item); ok {
+			a.resetPreviewTTLLocked()
+			a.logf("MEGA Fast Preview hit: %s -> %s", item.Path, streamURL)
+			return streamURL, nil
+		}
+		a.logf("MEGA Fast Preview miss pentru %s; folosesc WebDAV per fișier", item.Path)
 	}
 
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == remoteRef && a.preview.StreamURL != "" {
