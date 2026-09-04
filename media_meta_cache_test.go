@@ -49,6 +49,28 @@ func TestLocalMediaMetaCacheInvalidatesOnFileChange(t *testing.T) {
 	}
 }
 
+func TestLocalMediaFailureCacheInvalidatesOnFileChange(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	e := FileEntry{Path: `D:\video\broken.mp4`, Name: "broken.mp4", Size: 777, MTime: 50}
+	cacheLocalMediaFailureV85(a, e, "invalid media")
+	if !cachedLocalMediaFailureV85(a, e) {
+		t.Fatal("unreadable media failure was not cached")
+	}
+	if _, ok := cachedLocalMediaInfo(a, e); ok {
+		t.Fatal("unreadable media must never be exposed as valid cached metadata")
+	}
+	changed := e
+	changed.Size++
+	if cachedLocalMediaFailureV85(a, changed) {
+		t.Fatal("negative cache must invalidate when size changes")
+	}
+	changed = e
+	changed.MTime++
+	if cachedLocalMediaFailureV85(a, changed) {
+		t.Fatal("negative cache must invalidate when mtime changes")
+	}
+}
+
 func TestPruneLocalMediaMetaCacheRemovesStaleEntries(t *testing.T) {
 	a := &App{appDir: t.TempDir()}
 	keep := FileEntry{Path: `D:\video\keep.mp4`, Name: "keep.mp4", Size: 1000, MTime: 10}
