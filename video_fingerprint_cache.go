@@ -109,6 +109,10 @@ func pruneLocalVideoFingerprintCacheV85(a *App, entries []FileEntry) bool {
 		localVideoFingerprintCacheState.Generation++
 	}
 	localVideoFingerprintCacheState.Unlock()
+	// This point is reached by every Smart Media Guard video pass and already
+	// has a fresh live-index snapshot. Warm only cheap evidence later, after the
+	// foreground guard releases its lock.
+	scheduleMediaCacheWarmV85(a, entries)
 	return changed
 }
 
