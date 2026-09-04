@@ -1,8 +1,8 @@
 {
-  "version": "8.5.23-test.1",
+  "version": "8.5.24-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "674ae71137c7dd8fe61adac140852d2003c343b4a0b126cbcd3a18b744edf84c",
-  "notes": "TEST 8.5.23-test.1: baza exacta 8.5.9. Model consacrat de media server: un singur server HTTP local persistent pentru browser, Range passthrough, URL/generatie noua la fiecare selectie si anulare explicita a requesturilor vechi. MEGAcmd ramane upstream; daca stratul media local esueaza, revine automat la WebDAV direct 8.5.9.",
-  "publishedAt": "2026-09-04T23:31:02.4430825Z",
+  "sha256": "2a62e053ea6fa6e23358f9c36cb10d486c615bb3cea4e23b4298959cf1fb2922",
+  "notes": "TEST 8.5.24-test.1: baza exacta 8.5.9. /api/remote-preview/start raspunde imediat cu URL local; MEGAcmd ruleaza intr-un worker serializat, anulabil, cu timeout total 25s. Selectia noua anuleaza jobul si streamul anterior. Proxy-ul local transmite HTTP Range/206, Content-Range si metadatele necesare Direct Play.",
+  "publishedAt": "2026-09-04T23:53:27.0794599Z",
   "channel": "test"
 }
