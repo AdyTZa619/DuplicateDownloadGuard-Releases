@@ -155,9 +155,14 @@ func syncCompletedQueueToHistoryV85() {
 			finished = fileInfo.ModTime().Unix()
 		}
 		row := downloadHistoryEntryV85{
-			Key: key, Source: job.Source, Name: job.Name, Bytes: size,
-			OutputPath: job.OutputPath, FinishedAt: finished,
-			FileSize: fileInfo.Size(), FileMTime: fileInfo.ModTime().UnixNano(),
+			Key:        key,
+			Source:     job.Source,
+			Name:       job.Name,
+			Bytes:      size,
+			OutputPath: job.OutputPath,
+			FinishedAt: finished,
+			FileSize:   fileInfo.Size(),
+			FileMTime:  fileInfo.ModTime().UnixNano(),
 		}
 		if old, ok := downloadHistoryStateV85.Entries[key]; !ok || old.OutputPath != row.OutputPath || old.FileMTime != row.FileMTime || old.FileSize != row.FileSize || old.FinishedAt != row.FinishedAt {
 			downloadHistoryStateV85.Entries[key] = row
@@ -221,9 +226,13 @@ func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bo
 		return DownloadGuardDecision{}, false
 	}
 	d := DownloadGuardDecision{
-		ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDuplicate,
-		Reason: "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar fișierul rezultat există încă neschimbat.",
-		LocalPath: row.OutputPath, Method: "download-history", Candidates: 1,
+		ResultID:   res.ID,
+		Name:       res.Remote.Name,
+		Verdict:    guardDuplicate,
+		Reason:     "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar fișierul rezultat există încă neschimbat.",
+		LocalPath:  row.OutputPath,
+		Method:     "download-history",
+		Candidates: 1,
 	}
 	return decorateGuardDecision(d), true
 }
