@@ -1,0 +1,67 @@
+name: DDG validation
+
+on:
+  push:
+    branches:
+      - 'fix/**'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ddg-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Verify formatting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = @()
+          Get-ChildItem -Filter *.go | ForEach-Object {
+            $out = gofmt -l $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+            if ($out) { $bad += $out }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host 'Go files requiring gofmt:'
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Go formatting check failed'
+          }
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+
+      - name: Vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
+
+      - name: Windows x64 build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_VALIDATION.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }

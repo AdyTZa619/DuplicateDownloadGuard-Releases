@@ -1234,6 +1234,12 @@ func internalDownload(ctx context.Context, u, dest, name string, progress func(i
 	if e = f.Sync(); e != nil {
 		return "", e
 	}
+	if total >= 0 && done != total {
+		return "", fmt.Errorf("download incomplet: %d / %d bytes", done, total)
+	}
+	if e = f.Close(); e != nil {
+		return "", e
+	}
 	if e = os.Rename(part, final); e != nil {
 		return "", e
 	}
@@ -1312,11 +1318,13 @@ func (a *App) runAria2(ctx context.Context, exe, u, dest, name, hashType, hash s
 	return nil
 }
 func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string, error) {
-	archive := filepath.Join(a.appDir, "yt-dlp.archive.txt")
+	// ExactGuard already protects explicit downloads. A historical yt-dlp
+	// archive must not silently suppress a requested re-download after a file
+	// was moved or removed from disk.
 	a.mu.RLock()
 	cookies, limit := strings.TrimSpace(a.cfg.YtCookiesBrowser), a.cfg.SpeedLimitKB
 	a.mu.RUnlock()
-	args := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "--download-archive", archive, "-P", dest, "--print", "after_move:filepath"}
+	args := []string{"--no-playlist", "--continue", "--no-overwrites", "--windows-filenames", "-P", dest, "--print", "after_move:filepath"}
 	if cookies != "" {
 		args = append(args, "--cookies-from-browser", cookies)
 	}
@@ -1344,6 +1352,15 @@ func (a *App) runYtDlpDownload(ctx context.Context, exe, u, dest string) (string
 func (a *App) downloadMegaResults(ctx context.Context, rows []Result, dest string) error {
 	if len(rows) == 0 {
 		return nil
+	}
+	if err := acquireMegaSession(ctx); err != nil {
+		return err
+	}
+	defer releaseMegaSession()
+	// A running WebDAV preview owns the public-folder session. Stop/restore it
+	// before MEGAcmd login/get so a preview can never invalidate a download.
+	if err := a.stopMegaPreviewWhileSessionOwned("pornire download MEGA"); err != nil {
+		a.logf("MEGA: cleanup preview înainte de download: %v", err)
 	}
 	exe := a.detectMegaClient()
 	if exe == "" {
@@ -1383,6 +1400,11 @@ func (a *App) downloadMegaResults(ctx context.Context, rows []Result, dest strin
 				a.logf("%s [%s] get a reușit, dar rezultatul nu există în %s • %s", problem.Title, problem.Code, dest, sanitizeMega(out))
 				return newMegaProblemError(problem, out)
 			}
+			if verifyErr := verifyDownloadedAgainstRemote(candidate, x.Remote); verifyErr != nil {
+				problem := classifyMegaProblem("", verifyErr)
+				a.logf("%s [%s] %v", problem.Title, problem.Code, verifyErr)
+				return newMegaProblemError(problem, verifyErr.Error())
+			}
 			a.markDownloaded(x.ID, candidate)
 			a.updateProgress(func(p *Progress) { p.Current++ })
 		}
@@ -1393,7 +1415,7 @@ func (a *App) downloadMegaResults(ctx context.Context, rows []Result, dest strin
 
 func findDownloadedMegaFile(dest string, res Result, started time.Time) string {
 	expected := filepath.Join(dest, sanitizeFilename(res.Remote.Name))
-	if info, err := os.Stat(expected); err == nil && !info.IsDir() && (res.Remote.Size <= 0 || info.Size() == res.Remote.Size) {
+	if info, err := os.Stat(expected); err == nil && !info.IsDir() && (res.Remote.Size <= 0 || info.Size() == res.Remote.Size) && !info.ModTime().Before(started.Add(-3*time.Second)) {
 		return expected
 	}
 	entries, err := os.ReadDir(dest)
@@ -1416,7 +1438,7 @@ func findDownloadedMegaFile(dest string, res Result, started time.Time) string {
 		nameMatches := name == wantedName || name == wantedSafe
 		recent := !info.ModTime().Before(started.Add(-3 * time.Second))
 		path := filepath.Join(dest, entry.Name())
-		if nameMatches {
+		if nameMatches && recent {
 			named = path
 			continue
 		}
@@ -1511,6 +1533,16 @@ func (a *App) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, map[string]any{"started": true, "count": len(rows), "method": method, "destination": dest, "guard": report})
 }
 func verifyDownloadedAgainstRemote(path string, remote RemoteItem) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return errors.New("rezultatul downloadului este un folder, nu un fișier")
+	}
+	if remote.Size > 0 && !remote.ApproxSize && st.Size() != remote.Size {
+		return fmt.Errorf("dimensiune diferită după download: local %d bytes, remote %d bytes", st.Size(), remote.Size)
+	}
 	if remote.Hash == "" || remote.HashType == "" {
 		return nil
 	}
@@ -1625,22 +1657,25 @@ func (a *App) runDownloadRows(ctx context.Context, rows []Result, dest, method s
 		default:
 			e = fmt.Errorf("metodă download necunoscută: %s", chosen)
 		}
+		if e == nil && path == "" {
+			e = errors.New("motorul de download nu a returnat nici fișier, nici eroare")
+		}
 		if e != nil {
 			a.logf("Download eșuat %s: %v", x.Remote.Name, e)
 			a.failOp("Download eșuat: "+x.Remote.Name, e.Error())
 			return
 		}
-		if path != "" {
-			if _, statErr := os.Stat(path); statErr == nil {
-				if verifyErr := verifyDownloadedAgainstRemote(path, x.Remote); verifyErr != nil {
-					bad := path + ".checksum_failed"
-					_ = os.Rename(path, bad)
-					a.failOp("Download invalid: "+x.Remote.Name, verifyErr.Error())
-					return
-				}
-				a.markDownloaded(x.ID, path)
-			}
+		if _, statErr := os.Stat(path); statErr != nil {
+			a.failOp("Download invalid: "+x.Remote.Name, "Motorul a raportat succes, dar fișierul rezultat nu există: "+statErr.Error())
+			return
 		}
+		if verifyErr := verifyDownloadedAgainstRemote(path, x.Remote); verifyErr != nil {
+			bad := path + ".verification_failed"
+			_ = os.Rename(path, bad)
+			a.failOp("Download invalid: "+x.Remote.Name, verifyErr.Error())
+			return
+		}
+		a.markDownloaded(x.ID, path)
 		a.updateProgress(func(p *Progress) { p.Current++; p.Step = int(p.Current) + 1 })
 	}
 	a.endOp(fmt.Sprintf("Download gata ✓ • %d fișiere", len(rows)))

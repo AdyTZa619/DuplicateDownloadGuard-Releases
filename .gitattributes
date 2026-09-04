@@ -1,0 +1,8 @@
+# Keep source/config files deterministic across Windows and GitHub Actions.
+*.go text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf

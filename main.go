@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.4.0 Pro ExactGuard AI"
+const appVersion = "8.4.1 Pro ExactGuard AI Reliability"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -280,6 +280,8 @@ func main() {
 	mux.HandleFunc("/api/queue/add", a.handleQueueAdd)
 	mux.HandleFunc("/api/queue/list", a.handleQueueList)
 	mux.HandleFunc("/api/queue/action", a.handleQueueAction)
+	mux.HandleFunc("/api/app/heartbeat", a.handleUIHeartbeat)
+	mux.HandleFunc("/api/app/exit-hint", a.handleUIExitHint)
 	mux.HandleFunc("/api/update/status", a.handleUpdateStatus)
 	mux.HandleFunc("/api/update/check", a.handleUpdateCheck)
 	mux.HandleFunc("/api/update/install-online", a.handleUpdateInstallOnline)
@@ -322,12 +324,26 @@ func main() {
 	addr := "http://" + ln.Addr().String()
 	a.logf("Pornit %s pe %s", appVersion, addr)
 	go markUpdateHealthyLater(a.appDir)
+	shutdownCh := make(chan struct{}, 1)
+	startUIWatchdog(shutdownCh)
+	srv := &http.Server{Handler: mux}
 	go func() {
 		time.Sleep(350 * time.Millisecond)
 		openAppWindow(addr)
 	}()
-	if err := http.Serve(ln, mux); err != nil {
-		log.Fatal(err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(ln) }()
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case <-shutdownCh:
+		a.logf("Interfața aplicației s-a închis; opresc DDG controlat")
+		shutdownApp(a)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
 	}
 }
 
@@ -1040,6 +1056,19 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		a.progress.CanCancel = false
 		a.mu.Unlock()
 	}()
+	a.updateProgress(func(p *Progress) {
+		p.State = "running"
+		p.Message = "MEGA • aștept sesiunea exclusivă"
+		p.Detail = "Scanarea, preview-ul și downloadul MEGA folosesc pe rând aceeași sesiune pentru a evita logout/login concurent."
+	})
+	if err := acquireMegaSession(ctx); err != nil {
+		a.failOp("MEGA: operație anulată", "Nu am putut obține sesiunea MEGA: "+err.Error())
+		return
+	}
+	defer releaseMegaSession()
+	if err := a.stopMegaPreviewWhileSessionOwned("pornire scanare MEGA"); err != nil {
+		a.logf("MEGA: cleanup preview înainte de scanare: %v", err)
+	}
 	a.logf("MEGA: scanare folder public")
 	oldSession := ""
 
@@ -3051,12 +3080,33 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 }
 
 func (a *App) stopMegaPreview(reason string) error {
+	// Fast path: most Stop calls arrive after another MEGA operation has already
+	// cleaned the preview. Do not wait for a long download when there is nothing
+	// left to stop.
+	a.previewMu.Lock()
+	active := a.preview.Active
+	a.previewMu.Unlock()
+	if !active {
+		return nil
+	}
+	gateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := acquireMegaSession(gateCtx); err != nil {
+		return fmt.Errorf("MEGA este ocupat cu altă operație; preview-ul nu a putut fi oprit încă: %w", err)
+	}
+	defer releaseMegaSession()
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 	return a.stopMegaPreviewLocked(reason)
 }
 
 func (a *App) startMegaPreview(item RemoteItem) (string, error) {
+	gateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := acquireMegaSession(gateCtx); err != nil {
+		return "", fmt.Errorf("MEGA este ocupat cu scanare sau download; încearcă preview-ul din nou după terminarea operației: %w", err)
+	}
+	defer releaseMegaSession()
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 

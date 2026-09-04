@@ -1134,21 +1134,19 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 		}
 		switch engine {
 		case "mega":
-			q.update(a, id, func(x *DownloadJob) { x.Stage = "MEGAcmd descarcă fișierul" })
+			q.update(a, id, func(x *DownloadJob) { x.Stage = "MEGAcmd așteaptă sesiunea / descarcă fișierul" })
+			// Do not burn retry attempts merely because a scan is active. The
+			// cancellable MEGA session gate waits safely until scan/preview releases
+			// the single MEGAcmd session.
 			megaQueueMu.Lock()
-			if a.opRunning.Load() {
-				megaQueueMu.Unlock()
-				err = errors.New("MEGA este ocupat cu scanare/preview; retry automat")
-			} else {
-				err = a.downloadMegaResults(ctx, []Result{res}, dest)
-				if err == nil {
-					path = findDownloadedMegaFile(dest, res, start)
-					if path == "" {
-						err = errors.New("MEGAcmd a terminat fără eroare, dar fișierul rezultat nu a fost găsit în folderul de download")
-					}
+			err = a.downloadMegaResults(ctx, []Result{res}, dest)
+			if err == nil {
+				path = findDownloadedMegaFile(dest, res, start)
+				if path == "" {
+					err = errors.New("MEGAcmd a terminat fără eroare, dar fișierul rezultat nu a fost găsit în folderul de download")
 				}
-				megaQueueMu.Unlock()
 			}
+			megaQueueMu.Unlock()
 		case "yt-dlp":
 			exe := a.detectYtDlp()
 			if exe == "" {
@@ -1189,7 +1187,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				}
 				q.update(a, id, func(x *DownloadJob) {
 					x.Status = "completed"
-					x.Stage = "finalizat și verificat"
+					x.Stage = "finalizat; validarea disponibilă a trecut"
 					x.OutputPath = path
 					x.BytesDone = done
 					if x.BytesTotal <= 0 {
@@ -1226,6 +1224,9 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				})
 				return
 			}
+		}
+		if err == nil {
+			err = errors.New("motorul de download nu a returnat nici fișier, nici eroare")
 		}
 		if attempts > cfgRetries {
 			q.update(a, id, func(x *DownloadJob) {
@@ -1403,12 +1404,16 @@ func removeAriaQueueJobsAsync(a *App, gids []string) {
 	if len(gids) == 0 {
 		return
 	}
+	// Cleanup must never start a fresh aria2 daemon merely to remove stale GIDs.
+	// If the current RPC manager is already gone, the old daemon is gone too
+	// (it is started with --stop-with-process), so there is nothing left to do.
+	raw, ok := ariaRPCRegistry.Load(a)
+	if !ok {
+		return
+	}
+	m := raw.(*AriaRPCManager)
 	go func(gids []string) {
 		time.Sleep(150 * time.Millisecond)
-		m, err := ariaRPCFor(a)
-		if err != nil {
-			return
-		}
 		for _, gid := range gids {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = m.remove(ctx, gid)
@@ -1440,6 +1445,8 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 		for _, j := range q.Jobs {
 			if (all || set[j.ID]) && (j.Status == "running" || j.Status == "queued") {
 				j.Status = "paused"
+				j.Stage = "pus pe pauză"
+				j.SpeedBps, j.ETA = 0, 0
 				j.UpdatedAt = now
 				j.GuardVersion = 0
 				if c := q.Cancels[j.ID]; c != nil {
@@ -1451,7 +1458,9 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 		for _, j := range q.Jobs {
 			if set[j.ID] && (j.Status == "paused" || j.Status == "failed" || j.Status == "cancelled") {
 				j.Status = "queued"
-				j.Error = ""
+				j.Error, j.ErrorCode, j.ErrorTitle, j.ErrorAction = "", "", "", ""
+				j.Stage = "în așteptare"
+				j.SpeedBps, j.ETA = 0, 0
 				j.FinishedAt = 0
 				j.UpdatedAt = now
 				j.GuardVersion = 0
@@ -1462,6 +1471,8 @@ func (a *App) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 		for _, j := range q.Jobs {
 			if (all || set[j.ID]) && (j.Status == "running" || j.Status == "queued" || j.Status == "paused") {
 				j.Status = "cancelled"
+				j.Stage = "oprit de utilizator"
+				j.SpeedBps, j.ETA = 0, 0
 				j.UpdatedAt = now
 				j.FinishedAt = now
 				if strings.EqualFold(j.Engine, "aria2") && j.GID != "" {
