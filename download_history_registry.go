@@ -17,6 +17,7 @@ import (
 type downloadHistoryEntryV85 struct {
 	Key        string `json:"key"`
 	Source     string `json:"source"`
+	Identity   string `json:"identity,omitempty"`
 	Name       string `json:"name"`
 	Bytes      int64  `json:"bytes"`
 	OutputPath string `json:"outputPath"`
@@ -281,10 +282,10 @@ func syncCompletedQueueToHistoryV85() {
 
 		// A running job may cause download_queue.json to be saved frequently.
 		// Do not rehash already archived completed files when their path/size/mtime
-		// are unchanged; the preflight still verifies QuickHash before trusting it.
+		// and stable identity are unchanged; preflight still verifies QuickHash.
 		downloadHistoryStateV85.RLock()
 		old, exists := downloadHistoryStateV85.Entries[key]
-		current := exists && old.OutputPath == job.OutputPath && old.FileSize == fileInfo.Size() && old.FileMTime == fileInfo.ModTime().UnixNano() && old.QuickHash != ""
+		current := exists && old.OutputPath == job.OutputPath && old.FileSize == fileInfo.Size() && old.FileMTime == fileInfo.ModTime().UnixNano() && old.QuickHash != "" && old.Identity == identityURL
 		downloadHistoryStateV85.RUnlock()
 		if current {
 			continue
@@ -294,6 +295,7 @@ func syncCompletedQueueToHistoryV85() {
 		updates = append(updates, downloadHistoryEntryV85{
 			Key:        key,
 			Source:     source,
+			Identity:   identityURL,
 			Name:       name,
 			Bytes:      size,
 			OutputPath: job.OutputPath,
@@ -306,7 +308,7 @@ func syncCompletedQueueToHistoryV85() {
 	changed := false
 	downloadHistoryStateV85.Lock()
 	for _, row := range updates {
-		if old, ok := downloadHistoryStateV85.Entries[row.Key]; !ok || old.OutputPath != row.OutputPath || old.FileMTime != row.FileMTime || old.FileSize != row.FileSize || old.FinishedAt != row.FinishedAt || old.QuickHash != row.QuickHash {
+		if old, ok := downloadHistoryStateV85.Entries[row.Key]; !ok || old.OutputPath != row.OutputPath || old.Identity != row.Identity || old.FileMTime != row.FileMTime || old.FileSize != row.FileSize || old.FinishedAt != row.FinishedAt || old.QuickHash != row.QuickHash {
 			downloadHistoryStateV85.Entries[row.Key] = row
 			changed = true
 		}
@@ -361,6 +363,56 @@ func historyRemoteURLV85(res Result) string {
 	return strings.TrimSpace(resultDownloadURL(res))
 }
 
+func stableHistoryIdentityV85(res Result) string {
+	if !strings.EqualFold(strings.TrimSpace(res.Remote.Source), "YT-DLP") || strings.TrimSpace(res.Remote.ProviderID) == "" {
+		return ""
+	}
+	return historyRemoteURLV85(res)
+}
+
+func historyRowFileStillValidV85(row downloadHistoryEntryV85, expectedExactSize int64) bool {
+	st, err := os.Stat(row.OutputPath)
+	if err != nil || st.IsDir() {
+		return false
+	}
+	if row.FileSize > 0 && st.Size() != row.FileSize {
+		return false
+	}
+	if expectedExactSize > 0 && st.Size() != expectedExactSize {
+		return false
+	}
+	if row.QuickHash != "" {
+		currentHash, hashErr := quickFileFingerprintV85(row.OutputPath, st.Size())
+		return hashErr == nil && currentHash == row.QuickHash
+	}
+	return row.FileMTime == 0 || st.ModTime().UnixNano() == row.FileMTime
+}
+
+func stableSourceHistoryDecisionV85(res Result, row downloadHistoryEntryV85) (DownloadGuardDecision, bool) {
+	identity := stableHistoryIdentityV85(res)
+	if identity == "" || row.Identity == "" || !strings.EqualFold(strings.TrimSpace(row.Source), strings.TrimSpace(res.Remote.Source)) || row.Identity != identity {
+		return DownloadGuardDecision{}, false
+	}
+	// Stable-source fallback intentionally ignores the currently reported remote
+	// size. A changed or approximate yt-dlp size may mean another format/quality,
+	// so it is evidence for REVIEW, never an automatic duplicate block.
+	if !historyRowFileStillValidV85(row, 0) {
+		return DownloadGuardDecision{}, false
+	}
+	d := DownloadGuardDecision{
+		ResultID:   res.ID,
+		Name:       res.Remote.Name,
+		Verdict:    guardReview,
+		Reason:     "Aceeași sursă yt-dlp/ProviderID a fost descărcată anterior, iar fișierul local înregistrat este încă neschimbat. Mărimea sau formatul raportat acum nu coincide sigur cu intrarea exactă din istoric, deci poate fi altă calitate/versiune; verifică înainte de un nou download.",
+		LocalPath:  row.OutputPath,
+		Method:     "download-history-source",
+		Candidates: 1,
+		UserStatus: userDownloaded,
+		Action:     actionReview,
+	}
+	return d, true
+}
+
 func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bool) {
 	ensureDownloadHistoryWatcherV85()
 	// Close the watcher interval race between a just-completed queue save and an
@@ -368,40 +420,52 @@ func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bo
 	syncCompletedQueueToHistoryV85()
 	loadDownloadHistoryV85()
 	size := res.Remote.Size
-	key := downloadHistoryKeyV85(res.Remote.Source, historyRemoteURLV85(res), res.Remote.Name, size)
+	identity := historyRemoteURLV85(res)
+	key := downloadHistoryKeyV85(res.Remote.Source, identity, res.Remote.Name, size)
 	downloadHistoryStateV85.RLock()
 	row, ok := downloadHistoryStateV85.Entries[key]
 	downloadHistoryStateV85.RUnlock()
-	if !ok {
-		return DownloadGuardDecision{}, false
-	}
-	st, err := os.Stat(row.OutputPath)
-	if err != nil || st.IsDir() {
-		return DownloadGuardDecision{}, false
-	}
-	if row.FileSize > 0 && st.Size() != row.FileSize {
-		return DownloadGuardDecision{}, false
-	}
-	if size > 0 && !res.Remote.ApproxSize && st.Size() != size {
-		return DownloadGuardDecision{}, false
-	}
-	if row.QuickHash != "" {
-		currentHash, hashErr := quickFileFingerprintV85(row.OutputPath, st.Size())
-		if hashErr != nil || currentHash != row.QuickHash {
-			return DownloadGuardDecision{}, false
+	if ok {
+		expected := int64(0)
+		if size > 0 && !res.Remote.ApproxSize {
+			expected = size
 		}
-	} else if row.FileMTime != 0 && st.ModTime().UnixNano() != row.FileMTime {
-		// Compatibility with history rows created before content fingerprints.
-		return DownloadGuardDecision{}, false
+		if historyRowFileStillValidV85(row, expected) {
+			d := DownloadGuardDecision{
+				ResultID:   res.ID,
+				Name:       res.Remote.Name,
+				Verdict:    guardDuplicate,
+				Reason:     "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar amprenta conținutului local confirmă că fișierul rezultat există încă neschimbat.",
+				LocalPath:  row.OutputPath,
+				Method:     "download-history",
+				Candidates: 1,
+			}
+			return decorateGuardDecision(d), true
+		}
 	}
-	d := DownloadGuardDecision{
-		ResultID:   res.ID,
-		Name:       res.Remote.Name,
-		Verdict:    guardDuplicate,
-		Reason:     "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar amprenta conținutului local confirmă că fișierul rezultat există încă neschimbat.",
-		LocalPath:  row.OutputPath,
-		Method:     "download-history",
-		Candidates: 1,
+
+	// Exact history can miss when yt-dlp changes a size estimate, selected format
+	// or title while the extractor/provider identity remains stable. Surface that
+	// as history evidence, but never auto-block a possible quality upgrade.
+	stable := stableHistoryIdentityV85(res)
+	if stable != "" {
+		downloadHistoryStateV85.RLock()
+		var best downloadHistoryEntryV85
+		found := false
+		for _, candidate := range downloadHistoryStateV85.Entries {
+			if candidate.Identity == stable && strings.EqualFold(strings.TrimSpace(candidate.Source), strings.TrimSpace(res.Remote.Source)) {
+				if !found || candidate.FinishedAt > best.FinishedAt {
+					best = candidate
+					found = true
+				}
+			}
+		}
+		downloadHistoryStateV85.RUnlock()
+		if found {
+			if decision, valid := stableSourceHistoryDecisionV85(res, best); valid {
+				return decision, true
+			}
+		}
 	}
-	return decorateGuardDecision(d), true
+	return DownloadGuardDecision{}, false
 }
