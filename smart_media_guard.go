@@ -556,8 +556,11 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if err != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+err.Error(), localCount, res.LocalPath)
 		}
-		if bestScore < 85 && pending > 0 {
-			return mediaReviewDecisionV85(res, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
+		// Image-only collections must also keep filling the local cache after the
+		// foreground guard releases its lock; the warm worker is coalesced/bounded.
+		scheduleMediaCacheWarmV85(a, entries)
+		if bestScore < 94 && pending > 0 {
+			return mediaReviewDecisionV85(res, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
 		}
 	} else {
 		if a.detectFFmpeg() == "" || a.detectFFprobe() == "" {
@@ -577,15 +580,18 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		analysis := a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
 		bestScore, secondScore = analysis.BestScore, analysis.SecondScore
 		bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
-		if bestScore < 85 && ctx.Err() == nil {
+		// A weak/possible 85–93% match is not strong enough to stop discovery.
+		// Search duration-compatible candidates across the collection so a fully
+		// renamed 98–100% re-encode cannot remain hidden behind the first shortlist.
+		if bestScore < 94 && ctx.Err() == nil {
 			search := a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
 			candidates = search.Candidates
 			pending = search.Pending
 			analysis = a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
 			bestScore, secondScore = analysis.BestScore, analysis.SecondScore
 			bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
-			if bestScore < 85 && pending > 0 {
-				return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Mai există %d videoclipuri locale fără metadate media validate. Au fost analizate %d acum; cache-ul se completează progresiv. Nu declar fișierul nou până nu pot exclude un re-encode complet redenumit.", pending, search.Probed), localCount, bestPath)
+			if bestScore < 94 && pending > 0 {
+				return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Mai există %d videoclipuri locale fără metadate media validate. Au fost analizate %d acum; cache-ul se completează progresiv. Nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude un re-encode complet redenumit.", pending, search.Probed), localCount, bestPath)
 			}
 		}
 	}
