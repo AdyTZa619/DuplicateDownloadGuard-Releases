@@ -1,0 +1,118 @@
+name: MEGA Preview 8.5.22 isolated-origin test
+
+on:
+  push:
+    branches: [fix/v8522-ephemeral-origin-v859]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mega-preview-v8522-isolated-origin
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v8522-ephemeral-origin-v859
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Format Go source in test workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Filter *.go -File | ForEach-Object FullName
+          gofmt -w $files
+
+      - name: JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem web -Filter *.js -File | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax failed: $($_.Name)" }
+          }
+
+      - name: All Go tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+
+      - name: Go vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
+
+      - name: Build Windows x64 test candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content main.go -Raw
+          $src = $src.Replace('8.5.9 Pro Smart Media Guard', '8.5.22-test.1 Pro Smart Media Guard')
+          Set-Content -Path main.go -Value $src -Encoding utf8 -NoNewline
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.22-test.1_MEGA.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.22-test.1_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
+
+      - name: Upload test candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: DDG-8.5.22-test.1-MEGA-ISOLATED-ORIGIN
+          path: artifacts/*
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Publish test candidate to in-app updater
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '8.5.22-test.1'
+          $built = (Resolve-Path 'artifacts/DuplicateDownloadGuard_PRO_8.5.22-test.1_MEGA.exe').Path
+          $sha = (Get-FileHash -Algorithm SHA256 $built).Hash.ToLowerInvariant()
+          if ($sha -notmatch '^[0-9a-f]{64}$') { throw 'SHA-256 invalid.' }
+          $staged = Join-Path $env:RUNNER_TEMP 'DuplicateDownloadGuard_PRO_LATEST.exe'
+          Copy-Item -Force $built $staged
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git reset --hard HEAD
+          git fetch origin main
+          git checkout -B main origin/main
+
+          New-Item -ItemType Directory -Force releases | Out-Null
+          Copy-Item -Force $staged 'releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+          $manifest = [ordered]@{
+            version = $version
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+            sha256 = $sha
+            notes = 'TEST 8.5.22-test.1: bază exactă 8.5.9. Fiecare preview MEGA primește un port/origin local nou, astfel încât conexiunile Range rămase de la playerul anterior să nu mai poată bloca următorul preview în Chromium. Nu schimbă playerul, sesiunea MEGA sau logica de matching.'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 update.json
+          "$sha  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content -Encoding ascii SHA256SUMS.txt
+
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe update.json SHA256SUMS.txt
+          if (git diff --cached --quiet) {
+            Write-Host 'Testul este deja publicat în updater.'
+            exit 0
+          }
+          git commit -m "Publish updater test $version [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'git commit failed; test updater not published' }
+          git push origin main
+          if ($LASTEXITCODE -ne 0) { throw 'git push failed; test updater not published' }
