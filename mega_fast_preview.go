@@ -44,6 +44,45 @@ func megaWebDAVChildURL(rootURL, remotePath string) (string, error) {
 	return root.String(), nil
 }
 
+// extractExactWebDAVURLV8511 fixes a subtle root-selection bug in the older
+// parser. Searching a listing for "/" matched every path and every URL, so a
+// per-file endpoint listed before the root could accidentally be treated as the
+// root. Match the served MEGA path on the left side of the URL exactly instead.
+func extractExactWebDAVURLV8511(out, remotePath string) string {
+	remotePath = strings.TrimSpace(remotePath)
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
+		u := webdavURLRE.FindString(line)
+		if u == "" {
+			continue
+		}
+		idx := strings.Index(line, u)
+		if idx < 0 {
+			continue
+		}
+		left := strings.TrimSpace(line[:idx])
+		left = strings.TrimSpace(strings.TrimSuffix(left, ":"))
+		const prefix = "serving via webdav "
+		if lower := strings.ToLower(left); strings.HasPrefix(lower, prefix) {
+			left = strings.TrimSpace(left[len(prefix):])
+		}
+		if left == remotePath {
+			return strings.TrimSpace(u)
+		}
+	}
+	return ""
+}
+
+func listMegaWarmRootV8511(ctx context.Context, exe string, timeout time.Duration) (string, error) {
+	if strings.TrimSpace(exe) == "" {
+		return "", errors.New("MEGAcmd lipsă")
+	}
+	out, err := runMegaTimed(ctx, timeout, exe, "webdav")
+	if err != nil {
+		return "", err
+	}
+	return extractExactWebDAVURLV8511(out, megaWarmRootRefV86), nil
+}
+
 func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	if strings.TrimSpace(exe) == "" {
 		return "", errors.New("MEGAcmd lipsă")
@@ -52,13 +91,13 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	rootURL := extractWebDAVURL(out, "")
+	rootURL := extractExactWebDAVURLV8511(out, megaWarmRootRefV86)
 	if rootURL == "" {
 		listing, listErr := runMegaTimed(ctx, 4*time.Second, exe, "webdav")
 		if listErr != nil {
 			return "", listErr
 		}
-		rootURL = extractWebDAVURL(listing, megaWarmRootRefV86)
+		rootURL = extractExactWebDAVURLV8511(listing, megaWarmRootRefV86)
 	}
 	if rootURL == "" {
 		return "", errors.New("MEGAcmd nu a returnat URL pentru WebDAV root")
@@ -67,10 +106,17 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 }
 
 // prepareMegaWarmRootAfterScanV86 pays the WebDAV startup cost while the MEGA
-// scan still owns the public-folder session. When Results is shown, preview can
-// therefore resolve a child URL locally instead of starting WebDAV per file.
+// public-folder session is already hot. The scan context may be almost expired
+// after a long listing, so root preparation gets its own short bounded context.
 func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceURL, previousSession string) error {
-	rootURL, err := startMegaWarmRootV86(ctx, exe)
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	rootCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	rootURL, err := startMegaWarmRootV86(rootCtx, exe)
 	if err != nil {
 		return err
 	}
