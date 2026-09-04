@@ -7,20 +7,39 @@ import (
 	"time"
 )
 
-func TestDownloadHistoryDecisionUsesOnlyExistingCompletedFile(t *testing.T) {
+func TestDownloadHistoryDecisionUsesOnlyExistingUnchangedFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "already.mp4")
 	if err := os.WriteFile(path, []byte("ok"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	res := Result{ID: 7, Remote: RemoteItem{Name: "already.mp4"}, DownloadedAt: time.Now().Unix(), DownloadPath: path}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Result{ID: 7, Remote: RemoteItem{Name: "already.mp4", Size: st.Size()}, DownloadedAt: time.Now().Unix(), DownloadPath: path}
 	got, ok := downloadHistoryDecision(res)
 	if !ok {
-		t.Fatal("completed download was not recognized")
+		t.Fatal("completed unchanged download was not recognized")
 	}
 	if got.Method != "download-history" || got.UserStatus != userDownloaded || got.Action != actionDontDownload {
 		t.Fatalf("unexpected history decision: %#v", got)
 	}
+
+	replacedSize := res
+	replacedSize.Remote.Size++
+	if _, ok := downloadHistoryDecision(replacedSize); ok {
+		t.Fatal("different current size must invalidate download history")
+	}
+
+	future := time.Unix(res.DownloadedAt+30, 0)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := downloadHistoryDecision(res); ok {
+		t.Fatal("file modified after the recorded download must not be trusted as downloaded history")
+	}
+
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
