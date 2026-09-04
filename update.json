@@ -1,8 +1,8 @@
 {
-  "version": "8.5.0",
+  "version": "8.5.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "a23f86ff5a62946b7fa3d87fb77314d556d8c6a3161521d31427b6656462acb4",
-  "notes": "Noutăți 8.5.0: Smart Media Guard nou: separă duplicatele exacte de același conținut recodat/redimensionat, alte versiuni și potrivirile doar probabile. • Statusuri mai intuitive în interfață: `AI DEJA`, `ACELAȘI CONȚINUT`, `ALTĂ VERSIUNE`, `PARE ACELAȘI`, `POSIBIL DUPLICAT`, `NU ÎL AI`, `DESCĂRCAT DEJA` și `NU S-A PUTUT VERIFICA`. • Fișierele identice sunt confirmate prin hash/conținut indiferent de nume. • Imaginile folosesc semnături perceptuale mai robuste, cu structură, culoare și variație de luminanță; sunt tratate și WEBP/BMP/AVIF prin fallback FFmpeg. • Videoclipurile folosesc 7 cadre distribuite, elimină cadrele negre/fade/foarte uniforme și pot compensa intro/outro prin aliniere temporală. • Verificare audio Chromaprint pentru a evita blocarea unui video cu aceleași imagini, dar altă limbă, comentariu sau soundtrack.",
-  "publishedAt": "2026-09-04T09:47:42.7024045Z",
+  "sha256": "2f157508ae6f9d3154a877d19b1dd2302c5c6735b8afe980ded87b38335a76e5",
+  "notes": "Noutăți 8.5.1: HUD operațional nou în colțul din dreapta sus: status live, operația curentă/ultima operație și stare colorată clar. • Panou extensibil imersiv cu etapă, progres, durată, fișiere/date procesate, momentul pornirii/finalizării și detaliul tehnic raportat de backend. • Indicator discret animat numai cât timp rulează o operație; succesul, eroarea și anularea au stări vizuale distincte. • Durata ultimei operații este înghețată la finalizare în interfață, iar momentul finalizării este păstrat pentru sesiunea curentă. • Acțiune contextuală în panou: explică ce urmează și oferă acces rapid la Dashboard și Jurnal. • HUD-ul folosește exclusiv endpointul local `/api/status`; nu introduce trafic extern și nu modifică motorul de detecție/download.",
+  "publishedAt": "2026-09-04T10:06:20.6187027Z",
   "channel": "stable"
 }
