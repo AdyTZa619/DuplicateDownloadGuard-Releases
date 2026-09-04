@@ -1,8 +1,8 @@
 {
-  "version": "8.5.12-test.2",
+  "version": "8.5.13-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "92841ec1dd2d1952ac7ee99b2e5ec9f11909d6774a1a468a55549256d3731dbe",
-  "notes": "TEST MEGA Preview 8.5.12-test.2: oprirea intenționată a playerului dezactivează mai întâi onerror, astfel schimbarea rândului nu mai declanșează artificial MEGA TRUE FALLBACK și nu mai transformă fiecare preview într-o inițializare lentă. Păstrează eliberarea conexiunii vechi și adaugă sus doar ceasul real HH:MM:SS.",
-  "publishedAt": "2026-09-04T19:25:50.5774701Z",
+  "sha256": "098a4b9e0ad1059738d783201e3dc52197468d54c669118cbb4fa73f1cd0f999",
+  "notes": "TEST MEGA Preview 8.5.13-test.1: browserul nu mai accesează direct WebDAV-ul MEGAcmd. DDG folosește un proxy local dedicat cu suport Range, conexiuni upstream fără keep-alive și anulare la schimbarea fișierului. Ceasul HH:MM:SS este centrat și mai mare în bara de sus.",
+  "publishedAt": "2026-09-04T19:38:26.0651988Z",
   "channel": "test"
 }
