@@ -2,6 +2,26 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.3] — 2026-09-04
+
+### MEGA Fast Preview
+- După scanarea unui folder MEGA public, aplicația încearcă să pornească o singură rădăcină WebDAV și o păstrează temporar „caldă” pentru verificarea rapidă a fișierelor.
+- Pentru fișierele din același folder, URL-ul de preview este derivat local din rădăcina WebDAV; nu mai este necesară pornirea unui nod WebDAV nou la fiecare rând atunci când fast-path-ul este disponibil.
+- Fast-path-ul face doar o verificare locală foarte scurtă a URL-ului rezultat; dacă structura WebDAV a instalării MEGAcmd nu corespunde, aplicația cade automat pe mecanismul per-fișier existent.
+- Schimbarea dintre două streamuri per-fișier nu mai așteaptă oprirea WebDAV-ului vechi: URL-ul nou este returnat imediat, iar cleanup-ul vechi rulează în fundal după un scurt handoff.
+- Pornirea și fallback-urile WebDAV au timeout-uri mai mici pentru a evita blocarea aparentă a Compare Studio.
+- Corectată construirea URL-urilor WebDAV pentru nume cu spații și caractere care necesită escaping; calea nu mai este dublu codificată.
+
+### Compare Studio
+- Rezumat compact nou direct lângă `REMOTE` și `LOCAL`, astfel încât informațiile principale să fie vizibile fără scroll până la MediaInfo.
+- Pentru video/audio sunt afișate automat durata disponibilă din player; pentru video și imagini apare rezoluția încărcată.
+- Rezumatul include scorul perceptual/general disponibil și verdictul curent (`ACELAȘI CONȚINUT`, `ALTĂ VERSIUNE`, `PARE ACELAȘI`, `AI DEJA`, `NU ÎL AI` etc.).
+- Metadatele rapide sunt citite din elementele media deja încărcate în interfață; nu pornesc un ffprobe suplimentar și nu introduc transfer remote separat.
+
+### Validare
+- Teste dedicate pentru construirea URL-urilor WebDAV child, fast-path/fallback și cleanup-ul asincron.
+- Test de regresie care confirmă că modulul de rezumat REMOTE/LOCAL este inclus efectiv în EXE și încărcat de interfață.
+
 ## [8.5.2] — 2026-09-04
 
 ### Updater & lifecycle fereastră
