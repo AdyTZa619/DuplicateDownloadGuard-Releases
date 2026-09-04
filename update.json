@@ -1,8 +1,8 @@
 {
-  "version": "8.5.16-test.1",
+  "version": "8.5.17-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "12d5826c03990c2549c4b876bda033799e01724a35af584eb6f5d0be1221c978",
-  "notes": "TEST MEGA Preview 8.5.16-test.1: jurnalul diagnostic nu mai face I/O sincron în click, iar previewMu nu mai este ținut în timpul comenzilor MEGAcmd. Păstrează hard-timeout, proxy Range și ceasul mare centrat.",
-  "publishedAt": "2026-09-04T20:45:41.7039327Z",
+  "sha256": "19199b2f19cae39f098366423b32a13bff8a723e2bdef219af4514c1af0b48e1",
+  "notes": "TEST MEGA Preview 8.5.17-test.1: elimină blocarea de ~30 s pe previewMu, face citirile stării non-blocking și tratează Stop stream ca oprire a transferului din browser, păstrând sesiunea MEGA/WebDAV caldă. Suprimă fallback-ul fals produs de oprirea intenționată a playerului.",
+  "publishedAt": "2026-09-04T20:53:48.5023225Z",
   "channel": "test"
 }
