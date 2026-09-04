@@ -44,3 +44,25 @@ func TestImageSignatureRecognizesSameGradientAtDifferentResolution(t *testing.T)
 		t.Fatalf("same visual gradient after resize scored too low: %d", score)
 	}
 }
+
+func TestImageFailureCacheInvalidatesOnFileChange(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	e := FileEntry{Path: `D:\images\broken.webp`, Name: "broken.webp", Size: 4321, MTime: 77}
+	cacheLocalImageFailureV85(a, e, "decode failed")
+	if !cachedLocalImageFailureV85(a, e) {
+		t.Fatal("unreadable image failure was not cached")
+	}
+	if _, ok := cachedLocalImageSignatureV85(a, e); ok {
+		t.Fatal("unreadable image must not be returned as a valid signature")
+	}
+	changed := e
+	changed.Size++
+	if cachedLocalImageFailureV85(a, changed) {
+		t.Fatal("negative image cache must invalidate when size changes")
+	}
+	changed = e
+	changed.MTime++
+	if cachedLocalImageFailureV85(a, changed) {
+		t.Fatal("negative image cache must invalidate when mtime changes")
+	}
+}
