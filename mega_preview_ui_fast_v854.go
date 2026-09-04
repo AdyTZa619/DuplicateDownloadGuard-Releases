@@ -188,11 +188,11 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 	started := time.Now()
 	if !forceFallback {
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
-			return streamURL, mode, time.Since(started), nil
+			return a.browserReadyMegaPreviewV8522(streamURL, mode, started)
 		}
 		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
 		if err == nil {
-			return streamURL, "MEGA DIRECT RESUME", time.Since(started), nil
+			return a.browserReadyMegaPreviewV8522(streamURL, "MEGA DIRECT RESUME", started)
 		}
 		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
@@ -205,5 +205,5 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 	if err != nil {
 		return "", "MEGA TRUE FALLBACK", time.Since(started), err
 	}
-	return streamURL, "MEGA TRUE FALLBACK", time.Since(started), nil
+	return a.browserReadyMegaPreviewV8522(streamURL, "MEGA TRUE FALLBACK", started)
 }
