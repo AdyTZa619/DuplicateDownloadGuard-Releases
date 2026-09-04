@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,6 +123,34 @@ func TestInternalDownloadV855PartNameIsStablePerSource(t *testing.T) {
 	}
 	if sourcePartPathV855("C:/D", "x.mp4", "https://a/x") != a {
 		t.Fatal("same source must produce a stable .part path for resume")
+	}
+}
+
+func TestDownloadJobRemoteSnapshotJSONRoundTrip(t *testing.T) {
+	job := DownloadJob{ID: "j1", ResultID: 7, Name: "v.mp4", Source: "MEGA", Remote: RemoteItem{Name: "v.mp4", Source: "MEGA", URL: "folder", Handle: "HANDLE7"}, RequestedEngine: "auto"}
+	b, err := json.Marshal(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got DownloadJob
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Remote.Handle != "HANDLE7" || got.RequestedEngine != "auto" {
+		t.Fatalf("snapshot lost after JSON roundtrip: %#v", got)
+	}
+}
+
+func TestInternalDownloadV855RejectsHTMLInsteadOfMedia(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html>login</html>")
+	}))
+	defer srv.Close()
+	res := Result{Remote: RemoteItem{Name: "clip.mp4", Source: "HTTP", URL: srv.URL, DirectURL: srv.URL, ContentType: "video/mp4"}}
+	_, err := internalDownloadV855(context.Background(), res, t.TempDir(), func(int64, int64) {})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "pagină html") {
+		t.Fatalf("expected HTML response rejection, got %v", err)
 	}
 }
 

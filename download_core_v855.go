@@ -58,13 +58,39 @@ func remoteSnapshotFromJobV855(j *DownloadJob) RemoteItem {
 	}
 }
 
+func jobHasRemoteSnapshotV855(j *DownloadJob) bool {
+	if j == nil {
+		return false
+	}
+	r := j.Remote
+	return r.Name != "" || r.Path != "" || r.URL != "" || r.DirectURL != "" || r.Handle != "" || r.ProviderID != ""
+}
+
+func legacyQueueMatchesResultV855(j *DownloadJob, res Result) bool {
+	if j == nil || jobHasRemoteSnapshotV855(j) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(j.Source), strings.TrimSpace(res.Remote.Source)) {
+		return false
+	}
+	if j.Name != "" && res.Remote.Name != "" && !strings.EqualFold(strings.TrimSpace(j.Name), strings.TrimSpace(res.Remote.Name)) {
+		return false
+	}
+	legacyURL := strings.TrimSpace(j.URL)
+	currentURL := strings.TrimSpace(resultDownloadURL(res))
+	return legacyURL != "" && currentURL != "" && legacyURL == currentURL
+}
+
 func sameQueueRemoteV855(j *DownloadJob, res Result) bool {
 	if j == nil {
 		return false
 	}
-	a := stableRemoteKeyV855(remoteSnapshotFromJobV855(j))
-	b := stableRemoteKeyV855(res.Remote)
-	return a != "" && b != "" && a == b
+	if jobHasRemoteSnapshotV855(j) {
+		a := stableRemoteKeyV855(j.Remote)
+		b := stableRemoteKeyV855(res.Remote)
+		return a != "" && b != "" && a == b
+	}
+	return legacyQueueMatchesResultV855(j, res)
 }
 
 func (a *App) downloadResultForJobV855(j *DownloadJob) Result {
@@ -77,6 +103,16 @@ func (a *App) downloadResultForJobV855(j *DownloadJob) Result {
 		return live
 	}
 	return fallback
+}
+
+func ytDlpInputURLV855(res Result) string {
+	if strings.EqualFold(res.Remote.Source, "YT-DLP") && strings.TrimSpace(res.Remote.URL) != "" {
+		return strings.TrimSpace(res.Remote.URL)
+	}
+	if strings.TrimSpace(res.Remote.DirectURL) != "" {
+		return strings.TrimSpace(res.Remote.DirectURL)
+	}
+	return strings.TrimSpace(res.Remote.URL)
 }
 
 func isManifestRemoteV855(r RemoteItem) bool {
@@ -124,6 +160,9 @@ func (a *App) validateDownloadEngineV855(res Result, engine string) error {
 	case "yt-dlp":
 		if a.detectYtDlp() == "" {
 			return errors.New("yt-dlp lipsește; instalează-l din AI & Tool Manager")
+		}
+		if ytDlpInputURLV855(res) == "" {
+			return errors.New("yt-dlp nu are URL-ul paginii/streamului de descărcat")
 		}
 	case "aria2":
 		if isManifestRemoteV855(res.Remote) {
@@ -196,6 +235,18 @@ func internalDownloadV855(ctx context.Context, res Result, dest string, progress
 	if st, err := os.Stat(part); err == nil && !st.IsDir() {
 		start = st.Size()
 	}
+	if start > 0 && res.Remote.Size > 0 && !res.Remote.ApproxSize && start == res.Remote.Size {
+		if err := verifyDownloadedAgainstRemote(part, res.Remote); err == nil {
+			final := collisionFreeFinalV855(dest, res.Remote.Name)
+			if err := os.Rename(part, final); err == nil {
+				progress(start, start)
+				return final, nil
+			}
+		} else {
+			_ = os.Remove(part)
+			start = 0
+		}
+	}
 
 	request := func(offset int64) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -231,6 +282,10 @@ func internalDownloadV855(ctx context.Context, res Result, dest string, progress
 			return "", errors.New("HTTP 403: serverul a refuzat downloadul chiar și cu Referer-ul paginii sursă; pot fi necesare cookies/autentificare")
 		}
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	if strings.HasPrefix(contentType, "text/html") && !strings.HasPrefix(strings.ToLower(res.Remote.ContentType), "text/html") {
+		return "", errors.New("serverul a returnat o pagină HTML în locul fișierului media; URL-ul direct poate fi expirat sau poate necesita autentificare")
 	}
 
 	flags := os.O_CREATE | os.O_WRONLY
@@ -338,7 +393,9 @@ func classifyDownloadErrorV855(engine string, err error) (code, title, action st
 		return "HTTP_403", "Acces refuzat de site", "Sursa poate necesita cookies/autentificare. Pentru pagini video încearcă yt-dlp cu cookies din browser."
 	case strings.Contains(msg, "http 404"):
 		return "HTTP_404", "Fișier indisponibil", "Rescanează sursa; URL-ul direct poate fi expirat."
-	case strings.Contains(msg, "url direct lipsă") || strings.Contains(msg, "url direct utilizabil"):
+	case strings.Contains(msg, "pagină html"):
+		return "SOURCE_RESPONSE_HTML", "Sursa nu mai livrează fișierul", "Rescanează pagina/sursa; URL-ul direct poate fi expirat sau poate necesita autentificare."
+	case strings.Contains(msg, "url direct lipsă") || strings.Contains(msg, "url direct utilizabil") || strings.Contains(msg, "nu are url-ul"):
 		return "SOURCE_URL_MISSING", "URL de download lipsă", "Rescanează sursa sau folosește motorul specific site-ului."
 	default:
 		return "DOWNLOAD_ERROR", "Download eșuat", fmt.Sprintf("Motor: %s. Verifică mesajul tehnic și apasă Reîncearcă după corectarea cauzei.", engine)

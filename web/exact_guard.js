@@ -145,8 +145,8 @@
     const downloadButton = document.querySelector('button[onclick="downloadSelected()"]');
     if (downloadButton) {
       downloadButton.id = 'downloadGuardBtn';
-      downloadButton.textContent = '🛡 Verifică inteligent + descarcă';
-      downloadButton.title = 'Rescanează HDD-urile, verifică istoricul, hash-ul și variantele media înainte de orice download';
+      downloadButton.textContent = '⬇ Descarcă selectate';
+      downloadButton.title = 'Smart Guard verifică automat duplicatele înainte de transfer; apoi pornește downloadul sau explică exact de ce nu poate porni.';
       const body = downloadButton.closest('.section')?.querySelector('.sectionBody');
       if (body && !document.getElementById('guardActivity')) {
         body.insertAdjacentHTML('afterbegin', '<div class="noticeBlue hidden" id="guardActivity" style="margin-bottom:12px"></div>');
@@ -323,14 +323,15 @@
     downloadSelected = async function () {
       const ids = idsForAction();
       if (!ids.length) return toast('Selectează fișiere');
-      const destination = cfg.downloadDir || document.getElementById('downloadDir')?.value || '';
-      if (!destination) return toast('Setează folderul de download');
+      const destination = document.getElementById('downloadDir')?.value?.trim() || cfg.downloadDir || '';
+      const engine = document.getElementById('downloadMethod')?.value || cfg.downloadMethod || 'auto';
       const mode = document.getElementById('downloadGuardMode')?.value || cfg.downloadGuardMode || 'smart';
-      const request = { ids, engine: cfg.downloadMethod || 'auto', destination, guardMode: mode };
+      // destination may stay empty: backend then uses the portable downloads\ folder.
+      const request = { ids, engine, destination, guardMode: mode };
       const button = document.getElementById('downloadGuardBtn');
       if (button) {
         button.disabled = true;
-        button.textContent = '🛡 Verific HDD + istoric + media…';
+        button.textContent = '⏳ Verific și pregătesc…';
       }
       const started = Date.now();
       showActivity(`Verificarea a început pentru ${ids.length} fișier(e): index live, istoric, hash și candidați media…`);
@@ -346,8 +347,19 @@
         });
         await loadResults();
         showGuardReport(data.guard, request, data.added);
-        showActivity(data.message || `${data.added || 0} fișier(e) confirmate ca lipsă au intrat în coadă.`, data.added > 0 ? 'ok' : 'info');
+        const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+        if (rejected.length) {
+          const list = document.getElementById('guardDecisionList');
+          if (list) {
+            const html = rejected.map(x => `<div class="guardItem" style="border-left:3px solid #ff6b7a"><div class="row"><b class="dangerText">NU S-A PORNIT</b><span class="guardAction">${esc(x.engine || 'auto')}</span></div><div style="margin-top:5px"><b>${esc(x.name || 'Fișier')}</b></div><div class="guardReason">${esc(x.title || 'Download indisponibil')}: ${esc(x.message || '')}</div>${x.action ? `<div class="muted small" style="margin-top:5px"><b>Ce faci:</b> ${esc(x.action)}</div>` : ''}</div>`).join('');
+            list.insertAdjacentHTML('afterbegin', html);
+          }
+        }
+        const firstReject = rejected[0];
+        const activity = data.message || `${data.added || 0} fișier(e) au intrat în coadă.`;
+        showActivity(firstReject && !data.added ? `${activity}. ${firstReject.title}: ${firstReject.action || firstReject.message}` : activity, data.added > 0 ? 'ok' : (rejected.length ? 'error' : 'info'));
         await loadQueue();
+        if (data.added > 0) goTab('downloads');
       } catch (error) {
         showActivity(`Download oprit cu eroare: ${error.message}`, 'error');
         toast(error.message);
@@ -356,7 +368,7 @@
         guardTicker = null;
         if (button) {
           button.disabled = false;
-          button.textContent = '🛡 Verifică inteligent + descarcă';
+          button.textContent = '⬇ Descarcă selectate';
         }
       }
     };
