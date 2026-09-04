@@ -59,10 +59,15 @@ func downloadHistoryKeyV85(source, rawURL, name string, size int64) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	identity := "name:" + name
 	if rawURL != "" {
-		if source == "MEGA" && strings.Contains(strings.ToLower(rawURL), "/file/") {
+		switch {
+		case source == "MEGA" && strings.Contains(strings.ToLower(rawURL), "/file/"):
 			// A MEGA file handle identifies the node even if the display name later changes.
 			identity = rawURL
-		} else {
+		case source == "YT-DLP":
+			// historyRemoteURLV85 builds this from the stable source page + provider ID.
+			// Do not include the display filename: titles can be edited later.
+			identity = rawURL
+		default:
 			// Generic extractors can expose several same-sized files from one page.
 			// Keep the display name in the identity to avoid shared-page collisions.
 			identity = rawURL + "\x1e" + name
@@ -265,13 +270,33 @@ func ensureDownloadHistoryWatcherV85() {
 }
 
 func historyRemoteURLV85(res Result) string {
-	if u := strings.TrimSpace(resultDownloadURL(res)); u != "" {
+	source := strings.ToUpper(strings.TrimSpace(res.Remote.Source))
+	if source == "MEGA" {
+		if u := strings.TrimSpace(resultDownloadURL(res)); u != "" {
+			return u
+		}
+	}
+	// For extractor-based downloads use the original page/source identity, not
+	// a temporary CDN URL from DirectURL. yt-dlp provider IDs are stable across
+	// expiring signatures and title changes.
+	if source == "YT-DLP" {
+		base := strings.TrimSpace(res.Remote.URL)
+		provider := strings.TrimSpace(res.Remote.ProviderID)
+		extractor := strings.TrimSpace(res.Remote.Extractor)
+		if provider != "" {
+			return base + "\x1d" + extractor + "\x1d" + provider
+		}
+		if base != "" {
+			return base
+		}
+	}
+	if u := strings.TrimSpace(res.Remote.URL); u != "" {
 		return u
 	}
 	if u := strings.TrimSpace(res.Remote.DirectURL); u != "" {
 		return u
 	}
-	return strings.TrimSpace(res.Remote.URL)
+	return strings.TrimSpace(resultDownloadURL(res))
 }
 
 func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bool) {
