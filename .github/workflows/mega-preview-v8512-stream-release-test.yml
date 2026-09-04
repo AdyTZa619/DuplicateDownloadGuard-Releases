@@ -1,4 +1,4 @@
-name: MEGA Preview 8.5.14 diagnostic test
+name: MEGA Preview 8.5.15 async log test
 
 on:
   push:
@@ -59,20 +59,20 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $src = Get-Content main.go -Raw
-          $src = $src.Replace('8.5.9 Pro Smart Media Guard', '8.5.14-test.1 Pro Smart Media Guard')
+          $src = $src.Replace('8.5.9 Pro Smart Media Guard', '8.5.15-test.1 Pro Smart Media Guard')
           Set-Content -Path main.go -Value $src -Encoding utf8 -NoNewline
           New-Item -ItemType Directory -Force artifacts | Out-Null
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.14-test.1_MEGA.exe .
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o artifacts/DuplicateDownloadGuard_PRO_8.5.15-test.1_MEGA.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.14-test.1_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
+          (Get-FileHash -Algorithm SHA256 artifacts/DuplicateDownloadGuard_PRO_8.5.15-test.1_MEGA.exe).Hash.ToLowerInvariant() | Set-Content -Encoding ascii artifacts/SHA256.txt
 
       - name: Upload test candidate only
         uses: actions/upload-artifact@v4
         with:
-          name: DDG-8.5.14-test.1-MEGA-DIAGNOSTIC
+          name: DDG-8.5.15-test.1-MEGA-ASYNC-LOG
           path: artifacts/*
           retention-days: 14
           if-no-files-found: error
@@ -81,8 +81,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = '8.5.14-test.1'
-          $built = (Resolve-Path 'artifacts/DuplicateDownloadGuard_PRO_8.5.14-test.1_MEGA.exe').Path
+          $version = '8.5.15-test.1'
+          $built = (Resolve-Path 'artifacts/DuplicateDownloadGuard_PRO_8.5.15-test.1_MEGA.exe').Path
           $sha = (Get-FileHash -Algorithm SHA256 $built).Hash.ToLowerInvariant()
           if ($sha -notmatch '^[0-9a-f]{64}$') { throw 'SHA-256 invalid.' }
           $staged = Join-Path $env:RUNNER_TEMP 'DuplicateDownloadGuard_PRO_LATEST.exe'
@@ -100,7 +100,7 @@ jobs:
             version = $version
             url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
             sha256 = $sha
-            notes = 'TEST MEGA Preview 8.5.14-test.1: timeout hard real pentru comenzile MEGAcmd din preview pe Windows, jurnal dedicat data/MEGA_Preview_Diagnostic.log cu timpi pe click/comandă/proxy/Range, plus proxy local și ceas mare centrat.'
+            notes = 'TEST MEGA Preview 8.5.15-test.1: elimină loggingul general sincron din traseul clickului MEGA Preview, păstrează hard-timeout-ul Windows și adaugă marcaje post-command/proxy pentru diagnostic exact. Ceasul mare centrat rămâne activ.'
             publishedAt = (Get-Date).ToUniversalTime().ToString('o')
             channel = 'test'
           }
