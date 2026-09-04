@@ -16,7 +16,7 @@ func TestOperationHUDV851IsEmbeddedAndCompatible(t *testing.T) {
 		"operationHudPanel",
 		"operationHudProgressBar",
 		"/api/status",
-		`id=\"topStatus\"`,
+		`id="topStatus"`,
 		"Monitor operațional live",
 	} {
 		if !strings.Contains(s, required) {
