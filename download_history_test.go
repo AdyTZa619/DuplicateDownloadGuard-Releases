@@ -71,6 +71,31 @@ func TestDownloadHistoryKeyV85IsStableAndSpecific(t *testing.T) {
 	}
 }
 
+func TestYtDlpHistoryIdentityIgnoresExpiringDirectURLAndTitle(t *testing.T) {
+	a := Result{Remote: RemoteItem{
+		Source:     "YT-DLP",
+		URL:        "https://video.example/watch?v=abc",
+		DirectURL:  "https://cdn.example/videoplayback?expire=1&sig=old",
+		ProviderID: "abc",
+		Extractor:  "ExampleVideo",
+		Name:       "Old title.mp4",
+		Size:       123456,
+	}}
+	b := a
+	b.Remote.DirectURL = "https://other-cdn.example/videoplayback?expire=2&sig=new"
+	b.Remote.Name = "Edited title.mp4"
+	identityA := historyRemoteURLV85(a)
+	identityB := historyRemoteURLV85(b)
+	if identityA != identityB {
+		t.Fatalf("stable source identity changed with CDN/title: %q != %q", identityA, identityB)
+	}
+	keyA := downloadHistoryKeyV85(a.Remote.Source, identityA, a.Remote.Name, a.Remote.Size)
+	keyB := downloadHistoryKeyV85(b.Remote.Source, identityB, b.Remote.Name, b.Remote.Size)
+	if keyA != keyB {
+		t.Fatal("yt-dlp history key should survive direct URL expiry and title edits")
+	}
+}
+
 func TestQuickFileFingerprintV85DetectsSameSizeReplacement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "same-size.bin")
 	if err := os.WriteFile(path, []byte("abcdefgh"), 0600); err != nil {
