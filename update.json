@@ -1,8 +1,8 @@
 {
-  "version": "8.5.19-recovery.1",
+  "version": "8.5.20-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "061a2f6a06d92eb245a7ca1d1257407944c7ce35d5632277ed7a11e3c990fabd",
-  "notes": "RECOVERY: executabil construit din baza exactă 8.5.9, fără modificările experimentale MEGA Preview din 8.5.10-8.5.18. Scop: restaurarea imediată a comportamentului cunoscut înainte de continuarea remedierii pe o ramură separată.",
-  "publishedAt": "2026-09-04T21:19:01.6926261Z",
+  "sha256": "883d84eba4286c01be4fc4a22de11989645345aa57a6d06b32ba8b03405de519",
+  "notes": "TEST 8.5.20-test.1: bază exactă 8.5.9. Singura schimbare funcțională MEGA: warm-root după scanare folosește un context propriu, nou și limitat, nu contextul scanării care poate fi expirat/anulat. Fără proxy și fără modificările experimentale 8.5.10-8.5.18.",
+  "publishedAt": "2026-09-04T21:35:18.2713181Z",
   "channel": "test"
 }
