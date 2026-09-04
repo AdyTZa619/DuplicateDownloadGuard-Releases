@@ -153,11 +153,11 @@ func TestHotSessionClickDoesNotRebuildRootWithLongCommandV8512(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := strings.Index(resumeSrc, "The scan (or a previous preview) proves this exact public-folder session")
-	end := strings.Index(resumeSrc, "if a.preview.Active {\n\t\t_ = a.stopMegaPreviewLocked")
-	if start < 0 || end <= start {
+	end := strings.Index(resumeSrc[start:], "if old.Active {")
+	if start < 0 || end <= 0 {
 		t.Fatal("hot-session recovery block not found")
 	}
-	hot := resumeSrc[start:end]
+	hot := resumeSrc[start : start+end]
 	if strings.Contains(hot, "startMegaWarmRootV86") {
 		t.Fatal("hot-session click must not repeat the long root creation command")
 	}
