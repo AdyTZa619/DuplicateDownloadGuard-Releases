@@ -5,8 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
+
+var megaPreviewResumeFlightV856 struct {
+	sync.Mutex
+	done chan struct{}
+}
 
 // tryMegaPreviewUICacheV854 is intentionally network-free. The MEGA scan has
 // already logged into the public folder and, when possible, exposed its root
@@ -25,9 +31,6 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 		return "", "", false
 	}
 
-	// Whole-folder WebDAV root prepared by the scan. Construct the child URL
-	// locally; do not HEAD it here. HEAD was the main source of false misses on
-	// MEGAcmd WebDAV and forced the 15+ second per-file fallback.
 	if st.RemotePath == megaWarmRootRefV86 {
 		child, err := megaWebDAVChildURL(st.StreamURL, item.Path)
 		if err == nil && child != "" {
@@ -37,8 +40,6 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 		}
 	}
 
-	// A per-file WebDAV node already exists for this exact item. Reusing it is
-	// also zero-command and should be immediate when returning to a row.
 	remoteRef := megaRemoteRef(item)
 	if remoteRef != "" && st.RemotePath == remoteRef {
 		a.resetPreviewTTLLocked()
@@ -75,8 +76,6 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 
-	// Recheck after acquiring the MEGA gate: another request may have warmed the
-	// root while this request was waiting.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.RemotePath == megaWarmRootRefV86 && a.preview.StreamURL != "" {
 		child, err := megaWebDAVChildURL(a.preview.StreamURL, item.Path)
 		if err == nil && child != "" {
@@ -88,8 +87,8 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	// A scan may have left the public-folder session warm even if WebDAV root
 	// creation failed. In that case do not login again; just retry the root.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" && a.preview.StreamURL == "" {
-		rootURL, err := startMegaWarmRootV86(context.Background(), a.preview.Exe)
-		if err == nil {
+		rootURL, rootErr := startMegaWarmRootV86(context.Background(), a.preview.Exe)
+		if rootErr == nil {
 			a.preview.RemotePath = megaWarmRootRefV86
 			a.preview.StreamURL = rootURL
 			a.resetPreviewTTLLocked()
@@ -99,7 +98,7 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 				return child, nil
 			}
 		}
-		a.logf("MEGA Fast Preview: sesiunea era caldă, dar root WebDAV nu a putut fi refăcut: %v", err)
+		a.logf("MEGA Fast Preview: sesiunea era caldă, dar root WebDAV nu a putut fi refăcut: %v", rootErr)
 	}
 
 	if a.preview.Active {
@@ -115,13 +114,10 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	if oldSession != "" {
-		_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	} else {
-		// keep-session is intentional even for a folder-link session restored by
-		// MEGAcmd itself; it avoids deleting a useful public-folder cache.
-		_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	}
+	// Always preserve the current MEGAcmd cache before switching entity. This is
+	// cheap when there is no session and essential when the current entity is a
+	// folder link that DDG may want to resume later.
+	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
 
 	loginArgs := megaPublicLoginArgsV856(item.URL)
 	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, loginArgs...)
@@ -146,12 +142,54 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 		Exe:             exe,
 	}
 	a.resetPreviewTTLLocked()
-	child, err := megaWebDAVChildURL(rootURL, item.Path)
-	if err != nil || child == "" {
-		return "", fmt.Errorf("WebDAV root este activ, dar calea fișierului nu poate fi construită: %w", err)
+	child, childErr := megaWebDAVChildURL(rootURL, item.Path)
+	if childErr != nil {
+		return "", fmt.Errorf("WebDAV root este activ, dar calea fișierului este invalidă: %w", childErr)
+	}
+	if child == "" {
+		return "", errors.New("WebDAV root este activ, dar URL-ul copil este gol")
 	}
 	a.logf("MEGA Fast Preview restart: cache folder reluat cu --resume -> %s", rootURL)
 	return child, nil
+}
+
+// startMegaPreviewResumeCoalescedV856 prevents the background restart prewarm
+// and a user click from launching two competing MEGAcmd login/webdav sequences.
+// All callers share one initialization, then resolve their own child URL from
+// the warmed root.
+func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		if streamURL, _, ok := a.tryMegaPreviewUICacheV854(item); ok {
+			return streamURL, nil
+		}
+
+		megaPreviewResumeFlightV856.Lock()
+		if inFlight := megaPreviewResumeFlightV856.done; inFlight != nil {
+			megaPreviewResumeFlightV856.Unlock()
+			select {
+			case <-inFlight:
+				continue
+			case <-time.After(60 * time.Second):
+				return "", errors.New("inițializarea MEGA preview nu s-a terminat în 60 secunde")
+			}
+		}
+		done := make(chan struct{})
+		megaPreviewResumeFlightV856.done = done
+		megaPreviewResumeFlightV856.Unlock()
+
+		streamURL, err := a.startMegaPreviewResumeV856(item)
+		megaPreviewResumeFlightV856.Lock()
+		if megaPreviewResumeFlightV856.done == done {
+			megaPreviewResumeFlightV856.done = nil
+			close(done)
+		}
+		megaPreviewResumeFlightV856.Unlock()
+		return streamURL, err
+	}
+	if streamURL, _, ok := a.tryMegaPreviewUICacheV854(item); ok {
+		return streamURL, nil
+	}
+	return "", errors.New("MEGA preview nu a putut reutiliza inițializarea comună")
 }
 
 func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
@@ -160,12 +198,10 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
 			return streamURL, mode, time.Since(started), nil
 		}
-		streamURL, err := a.startMegaPreviewResumeV856(item)
+		streamURL, err := a.startMegaPreviewResumeCoalescedV856(item)
 		if err == nil {
 			return streamURL, "MEGA FAST RESUME", time.Since(started), nil
 		}
-		// Keep the old per-file path as a compatibility fallback. It is only
-		// reached when resume/root startup genuinely failed.
 		a.logf("MEGA Fast Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
 	streamURL, err := a.startMegaPreview(item)
