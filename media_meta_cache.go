@@ -70,6 +70,27 @@ func cacheLocalMediaInfo(a *App, e FileEntry, info MediaInfo) {
 	localMediaMetaCacheState.Unlock()
 }
 
+func pruneLocalMediaMetaCache(a *App, entries []FileEntry) bool {
+	ensureLocalMediaMetaCacheLoaded(a)
+	valid := make(map[string]FileEntry, len(entries))
+	for _, e := range entries {
+		if remoteMediaKind(e.Name) == "video" {
+			valid[pathKey(e.Path)] = e
+		}
+	}
+	changed := false
+	localMediaMetaCacheState.Lock()
+	for key, cached := range localMediaMetaCacheState.Entries {
+		e, ok := valid[key]
+		if !ok || e.Size != cached.Size || e.MTime != cached.MTime {
+			delete(localMediaMetaCacheState.Entries, key)
+			changed = true
+		}
+	}
+	localMediaMetaCacheState.Unlock()
+	return changed
+}
+
 func saveLocalMediaMetaCache(a *App) error {
 	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
@@ -117,7 +138,7 @@ type cachedDurationCandidateV85 struct {
 	SizeRatio     float64
 }
 
-func appendDurationCandidateV85(rows []cachedDurationCandidateV85, remote RemoteItem, e FileEntry, info MediaInfo, ratio float64) []cachedDurationCandidateV85 {
+func appendDurationCandidateV85(rows []cachedDurationCandidateV85, remote RemoteItem, e FileEntry, ratio float64) []cachedDurationCandidateV85 {
 	sizeRatio := 1.0
 	if remote.Size > 0 {
 		sizeRatio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
@@ -143,6 +164,7 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		return existing
 	}
 	ensureLocalMediaMetaCacheLoaded(a)
+	cacheChanged := pruneLocalMediaMetaCache(a, entries)
 
 	matched := make([]cachedDurationCandidateV85, 0, 16)
 	type rough struct {
@@ -157,7 +179,7 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		}
 		if info, ok := cachedLocalMediaInfo(a, e); ok {
 			if ratio, compatible := durationCompatibleV85(remoteInfo, info); compatible {
-				matched = appendDurationCandidateV85(matched, remote, e, info, ratio)
+				matched = appendDurationCandidateV85(matched, remote, e, ratio)
 			}
 			continue
 		}
@@ -184,7 +206,6 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		uncached = uncached[:48]
 	}
 
-	cacheChanged := false
 	for _, row := range uncached {
 		if ctx.Err() != nil {
 			break
@@ -196,7 +217,7 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		cacheLocalMediaInfo(a, row.Entry, info)
 		cacheChanged = true
 		if ratio, compatible := durationCompatibleV85(remoteInfo, info); compatible {
-			matched = appendDurationCandidateV85(matched, remote, row.Entry, info, ratio)
+			matched = appendDurationCandidateV85(matched, remote, row.Entry, ratio)
 		}
 	}
 	if cacheChanged {
