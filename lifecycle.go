@@ -75,12 +75,10 @@ func startUIWatchdog(stop chan<- struct{}) {
 }
 
 // settleMegaOnShutdown waits for any cancelled MEGA worker to finish its own
-// deferred session restoration and always tears down the active WebDAV node.
-// v8.5.9 deliberately keeps the public-folder MEGAcmd session active when DDG
-// did not replace a previous account/session. That lets the next DDG start try
-// WebDAV directly instead of paying another long login --resume cycle. If DDG
-// did replace a previous session, the old session is still restored exactly as
-// before.
+// deferred session restoration. v8.5.10 keeps a DDG-owned public-folder WebDAV
+// root alive across a clean restart when there was no previous MEGA account
+// session to restore. This is the only path that leaves a WebDAV endpoint alive;
+// every other state is cleaned/restored as before.
 func settleMegaOnShutdown(a *App) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -102,6 +100,17 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
+
+	// v8.5.10 persistent-root fast path. MEGAcmd's WebDAV service is independent
+	// of the DDG process, so do not tear down a working root just to recreate it
+	// on the next launch. Save only its loopback URL and public source URL; no
+	// session token or account credential is persisted by DDG.
+	if st.PreviousSession == "" && st.SourceURL != "" && st.RemotePath == megaWarmRootRefV86 && st.StreamURL != "" {
+		a.saveMegaPreviewRestartRootV8510(st.SourceURL, st.StreamURL)
+		a.logf("MEGA shutdown: WebDAV root păstrat activ pentru restart instant -> %s", st.StreamURL)
+		return
+	}
+
 	if st.RemotePath != "" {
 		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
 		if err != nil && ctx.Err() == nil {
@@ -112,12 +121,12 @@ func settleMegaOnShutdown(a *App) {
 		return
 	}
 
-	// No previous MEGA account/session existed when DDG opened this public
-	// folder. Do not log out the folder just to log it back in on the next run.
-	// The hint contains only the public URL, never a MEGA session token.
+	// No previous MEGA account/session existed, but only a per-file endpoint was
+	// active. Preserve the public-folder session hint so the next run can rebuild
+	// one root instead of doing an unnecessary account restoration.
 	if st.PreviousSession == "" && st.SourceURL != "" {
 		a.saveMegaPreviewRestartHintV859(st.SourceURL)
-		a.logf("MEGA shutdown: sesiunea folderului public a rămas activă pentru preview rapid la următoarea pornire")
+		a.logf("MEGA shutdown: sesiunea folderului public a rămas activă pentru refacerea root-ului la următoarea pornire")
 		return
 	}
 
@@ -176,7 +185,7 @@ func shutdownApp(a *App) {
 		q.save(a)
 	}
 
-	// Stop WebDAV cleanly and preserve/restore the appropriate MEGA session.
+	// Stop or preserve WebDAV according to the current MEGA ownership state.
 	settleMegaOnShutdown(a)
 
 	// aria2 is a long-lived helper. Stop it explicitly instead of leaving an
