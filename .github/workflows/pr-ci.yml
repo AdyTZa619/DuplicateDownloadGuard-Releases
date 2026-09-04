@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'fix/**'
+      - 'release/**'
   pull_request:
     branches: [main]
 
@@ -20,6 +21,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare version + verify changelog
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path VERSION)) { throw 'VERSION lipsește.' }
+          if (-not (Test-Path CHANGELOG.md)) { throw 'CHANGELOG.md lipsește.' }
+          $version = (Get-Content -Raw VERSION).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION invalid: $version" }
+          $changelog = Get-Content -Raw CHANGELOG.md
+          if (-not $changelog.Contains("## [$version]")) { throw "CHANGELOG.md nu conține secțiunea ## [$version]" }
+          $main = Get-Content -Raw main.go
+          $pattern = 'const appVersion = "[^"]+"'
+          if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
+          $replacement = 'const appVersion = "' + $version + ' Pro Smart Media Guard"'
+          $main = [regex]::Replace($main, $pattern, $replacement, 1)
+          [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
+          "DDG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Validare release $version cu jurnal prezent."
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -70,13 +90,13 @@ jobs:
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_V85_VALIDATION.exe .
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_VALIDATION.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }
 
       - name: Upload Windows validation build
         uses: actions/upload-artifact@v4
         with:
-          name: DDG-v8.5-validation-${{ github.sha }}
-          path: DDG_V85_VALIDATION.exe
+          name: DDG-${{ env.DDG_VERSION }}-validation-${{ github.sha }}
+          path: DDG_VALIDATION.exe
           if-no-files-found: error
           retention-days: 7
