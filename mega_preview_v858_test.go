@@ -74,8 +74,8 @@ func TestRestartPreviewUsesRootFirstResumePathV8511(t *testing.T) {
 	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item)") {
 		t.Fatal("restart click is not routed through the root-first resume controller")
 	}
-	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
-		t.Fatal("resume mode is not exposed to UI diagnostics")
+	if !strings.Contains(src, `a.proxyMegaUIV8513(streamURL, "MEGA DIRECT RESUME", started)`) {
+		t.Fatal("resume mode is not exposed through the UI proxy diagnostics")
 	}
 
 	resumeSrc, err := osReadTextForTestV858("mega_preview_resume_direct_v858.go")
