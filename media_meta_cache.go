@@ -168,7 +168,10 @@ func durationCompatibleV85(remoteInfo, localInfo MediaInfo) (float64, bool) {
 	maxD := math.Max(remoteInfo.Duration, localInfo.Duration)
 	delta := math.Abs(remoteInfo.Duration - localInfo.Duration)
 	ratio := delta / maxD
-	if ratio > .015 && delta > 1.5 {
+	// Candidate discovery must be broader than the final verdict. A recode with
+	// a short intro/outro can legitimately differ by tens of seconds; frame
+	// fingerprinting decides whether it is really the same material.
+	if ratio > .12 || delta > 90 {
 		return ratio, false
 	}
 	if remoteInfo.Width > 0 && remoteInfo.Height > 0 && localInfo.Width > 0 && localInfo.Height > 0 {
