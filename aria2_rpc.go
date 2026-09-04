@@ -193,6 +193,9 @@ func (m *AriaRPCManager) add(ctx context.Context, a *App, res Result, dest strin
 		return "", errors.New("URL direct lipsă")
 	}
 	opt := map[string]string{"dir": dest, "out": sanitizeFilename(res.Remote.Name), "continue": "true", "auto-file-renaming": "false", "allow-overwrite": "false", "file-allocation": "none", "split": strconv.Itoa(conn), "max-connection-per-server": strconv.Itoa(conn), "min-split-size": "1M", "max-tries": strconv.Itoa(retries + 1), "retry-wait": "2"}
+	if referer := downloadRefererV855(res); referer != "" {
+		opt["referer"] = referer
+	}
 	if limit > 0 {
 		opt["max-download-limit"] = fmt.Sprintf("%dK", limit)
 	}
