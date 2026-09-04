@@ -796,40 +796,42 @@ func (a *App) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 // ---------- Persistent download queue ----------
 
 type DownloadJob struct {
-	ID            string `json:"id"`
-	ResultID      int    `json:"resultId"`
-	Name          string `json:"name"`
-	Source        string `json:"source"`
-	URL           string `json:"url,omitempty"`
-	Destination   string `json:"destination"`
-	Engine        string `json:"engine"`
-	GID           string `json:"gid,omitempty"`
-	Status        string `json:"status"` // queued/running/paused/completed/failed/cancelled/blocked
-	Priority      int    `json:"priority"`
-	BytesDone     int64  `json:"bytesDone"`
-	BytesTotal    int64  `json:"bytesTotal"`
-	SpeedBps      int64  `json:"speedBps"`
-	ETA           int64  `json:"etaSeconds"`
-	Attempts      int    `json:"attempts"`
-	MaxRetries    int    `json:"maxRetries"`
-	Error         string `json:"error,omitempty"`
-	ErrorCode     string `json:"errorCode,omitempty"`
-	ErrorTitle    string `json:"errorTitle,omitempty"`
-	ErrorAction   string `json:"errorAction,omitempty"`
-	Stage         string `json:"stage,omitempty"`
-	OutputPath    string `json:"outputPath,omitempty"`
-	Verification  string `json:"verification,omitempty"`
-	GuardMode     string `json:"guardMode,omitempty"`
-	GuardVerdict  string `json:"guardVerdict,omitempty"`
-	GuardReason   string `json:"guardReason,omitempty"`
-	GuardMethod   string `json:"guardMethod,omitempty"`
-	GuardVersion  int    `json:"guardVersion,omitempty"`
-	GuardAt       int64  `json:"guardAt,omitempty"`
-	GuardOverride bool   `json:"guardOverride,omitempty"`
-	AddedAt       int64  `json:"addedAt"`
-	StartedAt     int64  `json:"startedAt,omitempty"`
-	FinishedAt    int64  `json:"finishedAt,omitempty"`
-	UpdatedAt     int64  `json:"updatedAt"`
+	ID            string     `json:"id"`
+	ResultID      int        `json:"resultId"`
+	Name          string     `json:"name"`
+	Source        string     `json:"source"`
+	URL           string     `json:"url,omitempty"`
+	Remote        RemoteItem `json:"remote,omitempty"`
+	Destination   string     `json:"destination"`
+	Engine        string     `json:"engine"`
+	EngineReason  string     `json:"engineReason,omitempty"`
+	GID           string     `json:"gid,omitempty"`
+	Status        string     `json:"status"` // queued/running/paused/completed/failed/cancelled/blocked
+	Priority      int        `json:"priority"`
+	BytesDone     int64      `json:"bytesDone"`
+	BytesTotal    int64      `json:"bytesTotal"`
+	SpeedBps      int64      `json:"speedBps"`
+	ETA           int64      `json:"etaSeconds"`
+	Attempts      int        `json:"attempts"`
+	MaxRetries    int        `json:"maxRetries"`
+	Error         string     `json:"error,omitempty"`
+	ErrorCode     string     `json:"errorCode,omitempty"`
+	ErrorTitle    string     `json:"errorTitle,omitempty"`
+	ErrorAction   string     `json:"errorAction,omitempty"`
+	Stage         string     `json:"stage,omitempty"`
+	OutputPath    string     `json:"outputPath,omitempty"`
+	Verification  string     `json:"verification,omitempty"`
+	GuardMode     string     `json:"guardMode,omitempty"`
+	GuardVerdict  string     `json:"guardVerdict,omitempty"`
+	GuardReason   string     `json:"guardReason,omitempty"`
+	GuardMethod   string     `json:"guardMethod,omitempty"`
+	GuardVersion  int        `json:"guardVersion,omitempty"`
+	GuardAt       int64      `json:"guardAt,omitempty"`
+	GuardOverride bool       `json:"guardOverride,omitempty"`
+	AddedAt       int64      `json:"addedAt"`
+	StartedAt     int64      `json:"startedAt,omitempty"`
+	FinishedAt    int64      `json:"finishedAt,omitempty"`
+	UpdatedAt     int64      `json:"updatedAt"`
 }
 
 type DownloadQueue struct {
@@ -1006,20 +1008,11 @@ func (q *DownloadQueue) update(a *App, id string, fn func(*DownloadJob)) {
 }
 
 func chooseQueueEngine(a *App, res Result, requested string) string {
-	e := strings.ToLower(strings.TrimSpace(requested))
-	if e != "" && e != "auto" {
-		return e
+	plan, err := chooseDownloadPlanV854(a, res, requested)
+	if err != nil {
+		return "unavailable"
 	}
-	if strings.EqualFold(res.Remote.Source, "MEGA") {
-		return "mega"
-	}
-	if strings.EqualFold(res.Remote.Source, "YT-DLP") && a.detectYtDlp() != "" {
-		return "yt-dlp"
-	}
-	if a.detectAria2() != "" && resultDownloadURL(res) != "" {
-		return "aria2"
-	}
-	return "internal"
+	return plan.Engine
 }
 
 func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
@@ -1030,12 +1023,28 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 		q.mu.Unlock()
 		return
 	}
+	jobSnapshot := *j
 	rid, engine, dest := j.ResultID, j.Engine, j.Destination
 	q.mu.Unlock()
-	res, ok := a.resultByID(rid)
-	if !ok {
-		q.update(a, id, func(x *DownloadJob) { x.Status = "failed"; x.Error = "rezultatul sursă nu mai există" })
+	var live *Result
+	if current, ok := a.resultByID(rid); ok {
+		live = &current
+	}
+	res, sourceErr := resultFromDownloadJobV854(jobSnapshot, live)
+	if sourceErr != nil {
+		q.update(a, id, func(x *DownloadJob) {
+			x.Status = "failed"
+			x.ErrorCode = "SOURCE_SNAPSHOT_MISSING"
+			x.ErrorTitle = "Sursa jobului nu mai poate fi reconstruită"
+			x.Error = sourceErr.Error()
+			x.ErrorAction = "Selectează din nou fișierul în Rezultate și apasă Descarcă selecția."
+			x.Stage = "oprit înainte de pornirea motorului"
+			x.FinishedAt = time.Now().Unix()
+		})
 		return
+	}
+	if strings.TrimSpace(jobSnapshot.Remote.Name) == "" && live != nil {
+		q.update(a, id, func(x *DownloadJob) { x.Remote = res.Remote })
 	}
 	q.mu.Lock()
 	guardVersion, guardOverride, guardMode := 0, false, ""
@@ -1084,17 +1093,27 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				return
 			}
 		}
-		if refreshed, exists := a.resultByID(rid); exists {
-			res = refreshed
-		}
+		// Keep the persistent source snapshot authoritative after Guard.
 	}
-	engine = chooseQueueEngine(a, res, engine)
+	plan, planErr := chooseDownloadPlanV854(a, res, engine)
+	if planErr != nil {
+		q.update(a, id, func(x *DownloadJob) {
+			x.Status = "failed"
+			x.ErrorCode = "ENGINE_NOT_READY"
+			x.ErrorTitle = "Nu există un motor potrivit pentru această sursă"
+			x.Error = planErr.Error()
+			x.ErrorAction = "Folosește Auto sau instalează motorul indicat în AI & Tool Manager."
+			x.Stage = "oprit la alegerea motorului"
+			x.FinishedAt = time.Now().Unix()
+		})
+		return
+	}
+	engine = plan.Engine
 	q.update(a, id, func(x *DownloadJob) {
 		x.Engine = engine
+		x.EngineReason = plan.Reason
 		x.BytesTotal = res.Remote.Size
-		if x.MaxRetries <= 0 {
-			x.MaxRetries = 3
-		}
+		x.Stage = "pregătit • " + plan.Reason
 	})
 	a.mu.RLock()
 	cfgRetries := a.cfg.DownloadRetries
@@ -1102,6 +1121,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 	if cfgRetries <= 0 {
 		cfgRetries = 3
 	}
+	q.update(a, id, func(x *DownloadJob) { x.MaxRetries = cfgRetries + 1 })
 	attempts := 0
 	for {
 		if ctx.Err() != nil {
@@ -1162,10 +1182,13 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 			megaQueueMu.Unlock()
 		case "yt-dlp":
 			exe := a.detectYtDlp()
+			input := ytDlpInputV854(res.Remote)
 			if exe == "" {
 				err = errors.New("yt-dlp lipsește")
+			} else if input == "" {
+				err = errors.New("yt-dlp nu are URL sursă")
 			} else {
-				path, err = a.runYtDlpDownload(ctx, exe, res.Remote.URL, dest)
+				path, err = a.runYtDlpDownload(ctx, exe, input, dest)
 			}
 		case "aria2":
 			if a.detectAria2() == "" {
@@ -1176,12 +1199,7 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				path, err = runAriaRPCQueueJob(ctx, a, q, id, res, dest)
 			}
 		default:
-			u := resultDownloadURL(res)
-			if u == "" {
-				err = errors.New("URL direct lipsă")
-			} else {
-				path, err = internalDownload(ctx, u, dest, res.Remote.Name, progress)
-			}
+			path, err = internalDownloadV854(ctx, res.Remote, dest, res.Remote.Name, progress)
 		}
 		if ctx.Err() != nil {
 			return
@@ -1298,6 +1316,9 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if retries <= 0 {
+		retries = 3
+	}
 	selectedRows := selectedResults(rows, req.IDs)
 	if len(selectedRows) == 0 {
 		http.Error(w, "rezultatele selectate nu mai există", 404)
@@ -1318,6 +1339,20 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 			wanted[decision.ResultID] = true
 		}
 	}
+	plans := map[int]downloadPlanV854{}
+	rejected := []downloadRejectionV854{}
+	for _, res := range selectedRows {
+		if !wanted[res.ID] {
+			continue
+		}
+		plan, planErr := chooseDownloadPlanV854(a, res, req.Engine)
+		if planErr != nil {
+			rejected = append(rejected, downloadRejectionV854{ResultID: res.ID, Name: res.Remote.Name, Reason: planErr.Error()})
+			delete(wanted, res.ID)
+			continue
+		}
+		plans[res.ID] = plan
+	}
 	q := queueFor(a)
 	added := 0
 	ariaRemove := []string{}
@@ -1325,7 +1360,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	// If the same result was left in an old queue, apply the new deterministic
 	// guard verdict immediately so a later Resume cannot bypass the protection.
 	for _, job := range q.Jobs {
-		decision, exists := decisions[job.ResultID]
+		decision, exists := decisionForQueueJobV854(job, selectedRows, decisions)
 		if !exists || job.Status == "completed" || job.Status == "cancelled" || job.Status == "blocked" {
 			continue
 		}
@@ -1359,7 +1394,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		dup := false
 		for _, j := range q.Jobs {
-			if j.ResultID == res.ID && (j.Status == "queued" || j.Status == "running" || j.Status == "paused") {
+			if queueJobMatchesResultV854(j, res) && (j.Status == "queued" || j.Status == "running" || j.Status == "paused") {
 				dup = true
 				break
 			}
@@ -1370,8 +1405,9 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		n := q.Seq.Add(1)
 		jid := fmt.Sprintf("%d-%d", time.Now().UnixNano(), n)
 		decision := decisions[res.ID]
+		plan := plans[res.ID]
 		now := time.Now().Unix()
-		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Destination: dest, Engine: chooseQueueEngine(a, res, req.Engine), Status: "queued", Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries, GuardMode: report.Mode, GuardVerdict: decision.Verdict, GuardReason: decision.Reason, GuardMethod: decision.Method, GuardVersion: downloadGuardVersion, GuardAt: now, GuardOverride: decision.Verdict == guardReview && req.AllowReview, AddedAt: now, UpdatedAt: now})
+		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Remote: res.Remote, Destination: dest, Engine: plan.Engine, EngineReason: plan.Reason, Status: "queued", Stage: "pregătit • " + plan.Reason, Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries + 1, GuardMode: report.Mode, GuardVerdict: decision.Verdict, GuardReason: decision.Reason, GuardMethod: decision.Method, GuardVersion: downloadGuardVersion, GuardAt: now, GuardOverride: decision.Verdict == guardReview && req.AllowReview, AddedAt: now, UpdatedAt: now})
 		added++
 	}
 	q.mu.Unlock()
@@ -1379,8 +1415,8 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	removeAriaQueueJobsAsync(a, ariaRemove)
 	duplicates := report.Counts[guardDuplicate]
 	review := report.Counts[guardReview]
-	message := fmt.Sprintf("%d adăugate în coadă • %d duplicate blocate • %d necesită review", added, duplicates, review)
-	jsonOut(w, map[string]any{"ok": true, "added": added, "destination": dest, "guard": report, "reviewOverride": req.AllowReview, "message": message})
+	message := fmt.Sprintf("%d adăugate în coadă • %d duplicate blocate • %d necesită review • %d respinse de motor", added, duplicates, review, len(rejected))
+	jsonOut(w, map[string]any{"ok": true, "added": added, "rejected": rejected, "destination": dest, "guard": report, "reviewOverride": req.AllowReview, "message": message})
 }
 func queueSummary(rows []DownloadJob) map[string]any {
 	m := map[string]int{"queued": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0, "cancelled": 0, "blocked": 0}
@@ -1410,7 +1446,16 @@ func (a *App) handleQueueList(w http.ResponseWriter, r *http.Request) {
 		megaStatus = &MegaProblem{Code: job.ErrorCode, Title: job.ErrorTitle, Message: job.Error, Action: job.ErrorAction, Retryable: job.Status != "paused" && job.Status != "failed"}
 		megaStatusAt = job.UpdatedAt
 	}
-	jsonOut(w, map[string]any{"jobs": rows, "summary": queueSummary(rows), "megaStatus": megaStatus, "downloadDir": func() string { a.mu.RLock(); defer a.mu.RUnlock(); return a.cfg.DownloadDir }()})
+	downloadDir := func() string {
+		a.mu.RLock()
+		d := strings.TrimSpace(a.cfg.DownloadDir)
+		a.mu.RUnlock()
+		if d == "" {
+			d = portableDownloadsDir()
+		}
+		return d
+	}()
+	jsonOut(w, map[string]any{"jobs": rows, "summary": queueSummary(rows), "megaStatus": megaStatus, "downloadDir": downloadDir})
 }
 
 func removeAriaQueueJobsAsync(a *App, gids []string) {

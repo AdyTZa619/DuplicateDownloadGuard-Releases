@@ -145,8 +145,8 @@
     const downloadButton = document.querySelector('button[onclick="downloadSelected()"]');
     if (downloadButton) {
       downloadButton.id = 'downloadGuardBtn';
-      downloadButton.textContent = '🛡 Verifică inteligent + descarcă';
-      downloadButton.title = 'Rescanează HDD-urile, verifică istoricul, hash-ul și variantele media înainte de orice download';
+      downloadButton.textContent = '⬇ Descarcă selecția';
+      downloadButton.title = 'Descarcă selecția. Smart Guard rulează automat înainte de coadă; Auto alege un motor sigur după tipul sursei.';
       const body = downloadButton.closest('.section')?.querySelector('.sectionBody');
       if (body && !document.getElementById('guardActivity')) {
         body.insertAdjacentHTML('afterbegin', '<div class="noticeBlue hidden" id="guardActivity" style="margin-bottom:12px"></div>');
@@ -202,7 +202,7 @@
       const steps = help.querySelector('.helpSteps');
       if (steps) steps.innerHTML =
         '<div class="helpStep"><div>Selectează fișierele dorite în Rezultate.</div></div>' +
-        '<div class="helpStep"><div>„🛡 Verifică inteligent + descarcă” rescanează live locațiile și verifică mai întâi dacă fișierul a fost deja descărcat.</div></div>' +
+        '<div class="helpStep"><div>„⬇ Descarcă selecția” verifică automat duplicatele și pune imediat în coadă doar fișierele care pot fi descărcate în siguranță.</div></div>' +
         '<div class="helpStep"><div>Pentru duplicate exacte folosește hash/bytes. Pentru poze și video modificate caută aceeași sursă prin fingerprint perceptual; cadrele video aproape uniforme sunt excluse din scor.</div></div>' +
         '<div class="helpStep"><div>Dacă mai există media locală neindexată perceptual, verdictul devine „NU S-A PUTUT VERIFICA”, nu „NU ÎL AI”. Cache-ul se completează progresiv.</div></div>' +
         '<div class="helpStep"><div>Doar „NU ÎL AI” intră automat în coadă. „ALTĂ VERSIUNE”, „PARE ACELAȘI” și „POSIBIL DUPLICAT” cer verificare.</div></div>' +
@@ -322,41 +322,48 @@
 
     downloadSelected = async function () {
       const ids = idsForAction();
-      if (!ids.length) return toast('Selectează fișiere');
-      const destination = cfg.downloadDir || document.getElementById('downloadDir')?.value || '';
-      if (!destination) return toast('Setează folderul de download');
+      if (!ids.length) return toast('Selectează cel puțin un fișier');
+      const destination = document.getElementById('downloadDir')?.value?.trim() || cfg.downloadDir || '';
+      const engine = document.getElementById('downloadMethod')?.value || cfg.downloadMethod || 'auto';
       const mode = document.getElementById('downloadGuardMode')?.value || cfg.downloadGuardMode || 'smart';
-      const request = { ids, engine: cfg.downloadMethod || 'auto', destination, guardMode: mode };
+      const request = { ids, engine, destination, guardMode: mode };
       const button = document.getElementById('downloadGuardBtn');
       if (button) {
         button.disabled = true;
-        button.textContent = '🛡 Verific HDD + istoric + media…';
+        button.textContent = '⬇ Pregătesc descărcarea…';
       }
-      const started = Date.now();
-      showActivity(`Verificarea a început pentru ${ids.length} fișier(e): index live, istoric, hash și candidați media…`);
-      clearInterval(guardTicker);
-      guardTicker = setInterval(() => {
-        const seconds = Math.floor((Date.now() - started) / 1000);
-        showActivity(`Verificare în curs: ${seconds}s • ${ids.length} fișier(e). Cazurile media dificile pot necesita ffprobe/fingerprint.`);
-      }, 1000);
-      toast('Smart Guard verifică dacă fișierele chiar lipsesc…');
+      showActivity(`Pregătesc ${ids.length} fișier(e) • motor ${engine === 'auto' ? 'Auto' : engine} • verific duplicatele înainte de coadă…`);
+      toast('Pregătesc descărcarea…');
       try {
         const data = await api('/api/queue/add', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
         });
         await loadResults();
-        showGuardReport(data.guard, request, data.added);
-        showActivity(data.message || `${data.added || 0} fișier(e) confirmate ca lipsă au intrat în coadă.`, data.added > 0 ? 'ok' : 'info');
-        await loadQueue();
+        const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+        const counts = data.guard?.counts || {};
+        if ((data.added || 0) > 0) {
+          await loadQueue();
+          goTab('downloads');
+          const extra = rejected.length ? ` • ${rejected.length} respins(e): ${rejected[0].reason}` : '';
+          showActivity(`${data.added} fișier(e) au intrat în coadă${extra}`, rejected.length ? 'info' : 'ok');
+          toast(`${data.added} fișier(e) în coadă${rejected.length ? ` • ${rejected.length} respinse` : ''}`);
+          if ((counts.REVIEW || 0) > 0) showGuardReport(data.guard, request, data.added);
+        } else {
+          showGuardReport(data.guard, request, 0);
+          if (rejected.length) {
+            showActivity(`Nu am pornit downloadul: ${rejected[0].reason}`, 'error');
+            toast(rejected[0].reason);
+          } else {
+            showActivity(data.message || 'Niciun fișier nu a intrat în coadă. Verifică verdictul Smart Guard.', 'info');
+          }
+        }
       } catch (error) {
-        showActivity(`Download oprit cu eroare: ${error.message}`, 'error');
+        showActivity(`Download oprit: ${error.message}`, 'error');
         toast(error.message);
       } finally {
-        clearInterval(guardTicker);
-        guardTicker = null;
         if (button) {
           button.disabled = false;
-          button.textContent = '🛡 Verifică inteligent + descarcă';
+          button.textContent = '⬇ Descarcă selecția';
         }
       }
     };
@@ -380,7 +387,7 @@
     };
 
     qStatusLabel = function (status) {
-      return ({ queued: 'ÎN COADĂ', running: 'DESCARCĂ', paused: 'PAUZĂ', completed: 'GATA', failed: 'EROARE', cancelled: 'ANULAT', blocked: 'NU DESCĂRCA' })[status] || status;
+      return ({ queued: 'ÎN AȘTEPTARE', running: 'SE DESCARCĂ', paused: 'PAUZĂ', completed: 'GATA', failed: 'EROARE', cancelled: 'ANULAT', blocked: 'NU DESCĂRCA' })[status] || status;
     };
 
     loadQueue = async function () {
@@ -410,8 +417,8 @@
           const stage = job.stage ? `<div class="muted small">Etapă: ${esc(job.stage)}</div>` : '';
           const errorStatus = job.error ? `<span class="errorStatusV85">${esc(errorUserStatus(job.errorCode))}</span>` : '';
           const destination = job.error ? `<span class="dangerText">${errorStatus}<b>${esc(job.errorTitle || 'Eroare')}</b>${job.errorCode ? ` [${esc(job.errorCode)}]` : ''}<br>${esc(job.error)}${job.errorAction ? `<br><b>Ce faci:</b> ${esc(job.errorAction)}` : ''}</span>${stage}` : `${esc(job.outputPath || job.destination || '')}${stage}`;
-          return `<tr><td><input class="check qcheck" type="checkbox" data-qid="${esc(job.id)}" ${checked} onchange="queueToggle('${esc(job.id)}',this.checked)"/></td><td><b class="${qClass(job.status)}">${qStatusLabel(job.status)}</b><div class="muted small">P${job.priority || 0}</div></td><td><b>${esc(job.name)}</b><div class="muted small">${esc(job.source || '')}</div>${guard}</td><td>${esc(job.engine || 'auto')}${job.gid ? `<div class="muted small">GID ${esc(job.gid)}</div>` : ''}</td><td><div class="downloadBar"><i style="width:${percent}%"></i></div><div class="muted small">${fmt(job.bytesDone || 0)} / ${job.bytesTotal > 0 ? fmt(job.bytesTotal) : '?'}</div></td><td>${job.speedBps > 0 ? fmt(job.speedBps) + '/s' : '—'}</td><td>${qEta(job.etaSeconds)}</td><td>${job.attempts || 0}/${job.maxRetries || 0}</td><td class="path">${destination}</td></tr>`;
-        }).join('') || '<tr><td colspan="9" class="muted" style="padding:25px;text-align:center">Coada este goală. Selectează rezultate și apasă „🛡 Verifică inteligent + descarcă”.</td></tr>';
+          return `<tr><td><input class="check qcheck" type="checkbox" data-qid="${esc(job.id)}" ${checked} onchange="queueToggle('${esc(job.id)}',this.checked)"/></td><td><b class="${qClass(job.status)}">${qStatusLabel(job.status)}</b><div class="muted small">P${job.priority || 0}</div></td><td><b>${esc(job.name)}</b><div class="muted small">${esc(job.source || '')}</div>${guard}</td><td>${esc(job.engine || 'auto')}${job.engineReason ? `<div class="muted small">${esc(job.engineReason)}</div>` : ''}${job.gid ? `<div class="muted small">GID ${esc(job.gid)}</div>` : ''}</td><td><div class="downloadBar"><i style="width:${percent}%"></i></div><div class="muted small">${fmt(job.bytesDone || 0)} / ${job.bytesTotal > 0 ? fmt(job.bytesTotal) : '?'}</div></td><td>${job.speedBps > 0 ? fmt(job.speedBps) + '/s' : '—'}</td><td>${qEta(job.etaSeconds)}</td><td>${job.attempts || 0}/${job.maxRetries || 0}</td><td class="path">${destination}</td></tr>`;
+        }).join('') || '<tr><td colspan="9" class="muted" style="padding:25px;text-align:center">Coada este goală. Selectează rezultate și apasă „⬇ Descarcă selecția”.</td></tr>';
       } catch (error) {
         const megaBanner = document.getElementById('megaProblemBanner');
         if (megaBanner) {
