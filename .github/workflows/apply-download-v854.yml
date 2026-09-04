@@ -4,6 +4,7 @@ on:
     branches: [fix/v8.5.4-download-flow]
     paths:
       - tools/apply_download_v854.py
+      - tools/apply_download_v854_post.py
       - .github/workflows/apply-download-v854.yml
 permissions:
   contents: write
@@ -22,7 +23,9 @@ jobs:
           node-version: '22'
       - name: Apply exact patch
         shell: pwsh
-        run: python tools/apply_download_v854.py
+        run: |
+          python tools/apply_download_v854.py
+          python tools/apply_download_v854_post.py
       - name: Format Go
         shell: pwsh
         run: gofmt -w download_flow_v854.go download_flow_v854_test.go v8_extra.go aria2_rpc.go
@@ -39,7 +42,7 @@ jobs:
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+AdyTZa619@users.noreply.github.com"
           git add -A
           git commit -m "Fix download queue source persistence and engine logic"
           git push
