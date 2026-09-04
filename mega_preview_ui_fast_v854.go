@@ -35,7 +35,7 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 		child, err := megaWebDAVChildURL(st.StreamURL, item.Path)
 		if err == nil && child != "" {
 			a.resetPreviewTTLLocked()
-			a.logf("MEGA UI Fast Preview root hit: %s -> %s", item.Path, child)
+			a.previewLogfAsyncV8515("MEGA UI Fast Preview root hit: %s -> %s", item.Path, child)
 			return child, "MEGA FAST ROOT", true
 		}
 	}
@@ -43,7 +43,7 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 	remoteRef := megaRemoteRef(item)
 	if remoteRef != "" && st.RemotePath == remoteRef {
 		a.resetPreviewTTLLocked()
-		a.logf("MEGA UI Fast Preview cache hit: %s", item.Path)
+		a.previewLogfAsyncV8515("MEGA UI Fast Preview cache hit: %s", item.Path)
 		return st.StreamURL, "MEGA FAST CACHE", true
 	}
 	return "", "", false
@@ -87,11 +87,11 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 			a.resetPreviewTTLLocked()
 			child, childErr := megaWebDAVChildURL(rootURL, item.Path)
 			if childErr == nil && child != "" {
-				a.logf("MEGA Fast Preview: root reparat fără relogin -> %s", rootURL)
+				a.previewLogfAsyncV8515("MEGA Fast Preview: root reparat fără relogin -> %s", rootURL)
 				return child, nil
 			}
 		}
-		a.logf("MEGA Fast Preview: sesiunea era caldă, dar root WebDAV nu a putut fi refăcut: %v", rootErr)
+		a.previewLogfAsyncV8515("MEGA Fast Preview: sesiunea era caldă, dar root WebDAV nu a putut fi refăcut: %v", rootErr)
 	}
 
 	if a.preview.Active {
@@ -139,7 +139,7 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	if child == "" {
 		return "", errors.New("WebDAV root este activ, dar URL-ul copil este gol")
 	}
-	a.logf("MEGA Fast Preview restart: cache folder reluat cu --resume -> %s", rootURL)
+	a.previewLogfAsyncV8515("MEGA Fast Preview restart: cache folder reluat cu --resume -> %s", rootURL)
 	return child, nil
 }
 
@@ -165,6 +165,7 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 		megaPreviewResumeFlightV856.Unlock()
 
 		streamURL, err := a.startMegaPreviewResumeDirectV858(item)
+		megaPreviewDiagfV8514("COALESCE RET item=%q elapsed-step=returned", item.Path)
 		megaPreviewResumeFlightV856.Lock()
 		if megaPreviewResumeFlightV856.done == done {
 			megaPreviewResumeFlightV856.done = nil
@@ -180,12 +181,14 @@ func (a *App) startMegaPreviewResumeCoalescedV856(item RemoteItem) (string, erro
 }
 
 func (a *App) proxyMegaUIV8513(streamURL, mode string, started time.Time) (string, string, time.Duration, error) {
+	megaPreviewDiagfV8514("PROXY WRAP   mode=%s elapsed=%s", mode, time.Since(started).Round(time.Millisecond))
 	proxyURL, err := wrapMegaPreviewProxyURLV8513(streamURL)
 	if err != nil {
 		megaPreviewDiagfV8514("CLICK END    mode=%s elapsed=%s proxy-error=%v", mode, time.Since(started).Round(time.Millisecond), err)
 		return "", mode, time.Since(started), fmt.Errorf("proxy local MEGA indisponibil: %w", err)
 	}
-	a.logf("MEGA UI PROXY: %s -> %s", mode, proxyURL)
+	megaPreviewDiagfV8514("PROXY READY  mode=%s elapsed=%s", mode, time.Since(started).Round(time.Millisecond))
+	a.previewLogfAsyncV8515("MEGA UI PROXY: %s -> %s", mode, proxyURL)
 	megaPreviewDiagfV8514("CLICK END    mode=%s elapsed=%s result=OK", mode, time.Since(started).Round(time.Millisecond))
 	return proxyURL, mode, time.Since(started), nil
 }
@@ -208,7 +211,7 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 			return a.proxyMegaUIV8513(streamURL, "MEGA DIRECT RESUME", started)
 		}
 		megaPreviewDiagfV8514("CLICK RESUME item=%q elapsed=%s error=%v", item.Path, time.Since(started).Round(time.Millisecond), err)
-		a.logf("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
+		a.previewLogfAsyncV8515("MEGA Direct Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
 
 	megaPreviewDiagfV8514("CLICK PATH   item=%q path=true-fallback", item.Path)
