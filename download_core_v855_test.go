@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChooseQueueEngineV855IsDeterministic(t *testing.T) {
@@ -124,4 +125,4 @@ func TestInternalDownloadV855PartNameIsStablePerSource(t *testing.T) {
 	}
 }
 
-var modTimeV855 = func() (t time.Time) { return time.Unix(1700000000, 0) }()
+var modTimeV855 = time.Unix(1700000000, 0)
