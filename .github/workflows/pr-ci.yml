@@ -77,12 +77,17 @@ jobs:
             throw 'Go formatting check failed'
           }
 
-      - name: Verify UI JavaScript syntax
+      - name: Verify all UI JavaScript syntax
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          node --check web/exact_guard.js
-          if ($LASTEXITCODE -ne 0) { throw 'exact_guard.js syntax check failed' }
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
+          foreach ($script in $scripts) {
+            Write-Host "node --check $($script.FullName)"
+            node --check $script.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
 
       - name: Tests
         shell: pwsh
