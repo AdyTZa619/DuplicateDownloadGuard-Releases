@@ -370,6 +370,9 @@ func guardReviewDecision(res Result, method, reason string, candidates int, loca
 
 func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []FileEntry, bySize map[int64][]FileEntry, mode string, megaRemoteAvailable bool) DownloadGuardDecision {
 	base := DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDownload, Method: "live-size-index"}
+	if history, ok := downloadHistoryDecision(res); ok {
+		return history
+	}
 	if res.Remote.Size <= 0 || res.Remote.ApproxSize {
 		return guardReviewDecision(res, "metadata-incomplete", "Mărimea remote nu este exactă; descărcarea automată este oprită până la verificare manuală.", 0, res.LocalPath)
 	}
