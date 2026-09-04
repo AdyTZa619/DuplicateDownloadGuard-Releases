@@ -374,7 +374,13 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 		return history
 	}
 	if res.Remote.Size <= 0 || res.Remote.ApproxSize {
-		return guardReviewDecision(res, "metadata-incomplete", "Mărimea remote nu este exactă; descărcarea automată este oprită până la verificare manuală.", 0, res.LocalPath)
+		kind := remoteMediaKind(res.Remote.Name)
+		if kind == "image" || kind == "video" {
+			if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+				return mediaDecision
+			}
+		}
+		return guardReviewDecision(res, "metadata-incomplete", "Mărimea remote nu este exactă. Am încercat verificările de conținut disponibile, dar descărcarea automată rămâne oprită până la un verdict sigur.", 0, res.LocalPath)
 	}
 	candidates := rankGuardCandidates(res.Remote, bySize[res.Remote.Size])
 	base.Candidates = len(candidates)
