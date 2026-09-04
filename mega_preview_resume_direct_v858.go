@@ -12,10 +12,23 @@ func (a *App) snapshotMegaPreviewV8516() MegaPreviewState {
 	if a == nil {
 		return MegaPreviewState{}
 	}
-	a.previewMu.Lock()
-	st := a.preview
-	a.previewMu.Unlock()
-	return st
+	// v8.5.17: a stale/legacy preview path must never make a new UI click wait
+	// tens of seconds merely to read in-memory state. Normal holders keep this
+	// mutex for microseconds; if it is still busy after 25 ms, fall back to a
+	// zero snapshot and let the MEGA session gate decide the real operation.
+	deadline := time.Now().Add(25 * time.Millisecond)
+	for {
+		if a.previewMu.TryLock() {
+			st := a.preview
+			a.previewMu.Unlock()
+			return st
+		}
+		if time.Now().After(deadline) {
+			megaPreviewDiagfV8514("STATE SNAPSHOT BUSY >25ms; skip stale preview state")
+			return MegaPreviewState{}
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func (a *App) commitMegaPreviewV8516(st MegaPreviewState) {
