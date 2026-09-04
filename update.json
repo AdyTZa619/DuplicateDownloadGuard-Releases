@@ -1,8 +1,8 @@
 {
   "version": "8.5.16-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "268c84ffd5bcceb7fc313918300eaac50c028cf445244bc1ef8d6611d444f576",
+  "sha256": "12d5826c03990c2549c4b876bda033799e01724a35af584eb6f5d0be1221c978",
   "notes": "TEST MEGA Preview 8.5.16-test.1: jurnalul diagnostic nu mai face I/O sincron în click, iar previewMu nu mai este ținut în timpul comenzilor MEGAcmd. Păstrează hard-timeout, proxy Range și ceasul mare centrat.",
-  "publishedAt": "2026-09-04T20:43:20.0835211Z",
+  "publishedAt": "2026-09-04T20:45:41.7039327Z",
   "channel": "test"
 }
