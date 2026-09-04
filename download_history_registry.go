@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +22,7 @@ type downloadHistoryEntryV85 struct {
 	FinishedAt int64  `json:"finishedAt"`
 	FileSize   int64  `json:"fileSize"`
 	FileMTime  int64  `json:"fileMtime"`
+	QuickHash  string `json:"quickHash,omitempty"`
 }
 
 type queueHistoryJobV85 struct {
@@ -69,6 +71,67 @@ func downloadHistoryKeyV85(source, rawURL, name string, size int64) string {
 	s := source + "\x1f" + identity + "\x1f" + strconv.FormatInt(size, 10)
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// quickFileFingerprintV85 hashes the whole file when it is small, otherwise
+// five deterministic 64 KiB samples spread across the file. It is deliberately
+// independent of filename and timestamps, so the history registry can detect a
+// same-size replacement even when metadata was preserved.
+func quickFileFingerprintV85(path string, size int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if size < 0 {
+		if st, statErr := f.Stat(); statErr == nil {
+			size = st.Size()
+		}
+	}
+	h := sha256.New()
+	_, _ = io.WriteString(h, strconv.FormatInt(size, 10))
+	_, _ = io.WriteString(h, "\x00")
+	const fullLimit = int64(12 << 20)
+	if size <= fullLimit {
+		if _, err := io.Copy(h, f); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(h.Sum(nil)), nil
+	}
+	const block = int64(64 << 10)
+	maxStart := size - block
+	if maxStart < 0 {
+		maxStart = 0
+	}
+	offsets := []int64{0, maxStart / 4, maxStart / 2, maxStart * 3 / 4, maxStart}
+	seen := map[int64]bool{}
+	buf := make([]byte, block)
+	for _, off := range offsets {
+		if seen[off] {
+			continue
+		}
+		seen[off] = true
+		n := block
+		if off+n > size {
+			n = size - off
+		}
+		if n <= 0 {
+			continue
+		}
+		_, _ = io.WriteString(h, strconv.FormatInt(off, 10))
+		_, _ = io.WriteString(h, "\x00")
+		got, readErr := f.ReadAt(buf[:n], off)
+		if readErr != nil && readErr != io.EOF {
+			return "", readErr
+		}
+		if int64(got) != n {
+			return "", io.ErrUnexpectedEOF
+		}
+		if _, err := h.Write(buf[:got]); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func loadDownloadHistoryV85() {
@@ -139,8 +202,7 @@ func syncCompletedQueueToHistoryV85() {
 	if json.Unmarshal(b, &jobs) != nil {
 		return
 	}
-	changed := false
-	downloadHistoryStateV85.Lock()
+	updates := make([]downloadHistoryEntryV85, 0, len(jobs))
 	for _, job := range jobs {
 		if job.Status != "completed" || strings.TrimSpace(job.OutputPath) == "" {
 			continue
@@ -161,7 +223,8 @@ func syncCompletedQueueToHistoryV85() {
 		if finished <= 0 {
 			finished = fileInfo.ModTime().Unix()
 		}
-		row := downloadHistoryEntryV85{
+		quickHash, _ := quickFileFingerprintV85(job.OutputPath, fileInfo.Size())
+		updates = append(updates, downloadHistoryEntryV85{
 			Key:        key,
 			Source:     job.Source,
 			Name:       job.Name,
@@ -170,9 +233,14 @@ func syncCompletedQueueToHistoryV85() {
 			FinishedAt: finished,
 			FileSize:   fileInfo.Size(),
 			FileMTime:  fileInfo.ModTime().UnixNano(),
-		}
-		if old, ok := downloadHistoryStateV85.Entries[key]; !ok || old.OutputPath != row.OutputPath || old.FileMTime != row.FileMTime || old.FileSize != row.FileSize || old.FinishedAt != row.FinishedAt {
-			downloadHistoryStateV85.Entries[key] = row
+			QuickHash:  quickHash,
+		})
+	}
+	changed := false
+	downloadHistoryStateV85.Lock()
+	for _, row := range updates {
+		if old, ok := downloadHistoryStateV85.Entries[row.Key]; !ok || old.OutputPath != row.OutputPath || old.FileMTime != row.FileMTime || old.FileSize != row.FileSize || old.FinishedAt != row.FinishedAt || old.QuickHash != row.QuickHash {
+			downloadHistoryStateV85.Entries[row.Key] = row
 			changed = true
 		}
 	}
@@ -227,16 +295,20 @@ func persistentDownloadHistoryDecisionV85(res Result) (DownloadGuardDecision, bo
 	if size > 0 && !res.Remote.ApproxSize && st.Size() != size {
 		return DownloadGuardDecision{}, false
 	}
-	// mtime is a cheap tamper/replacement guard. A changed file falls through to
-	// the normal live hash/media checks rather than being trusted from history.
-	if row.FileMTime != 0 && st.ModTime().UnixNano() != row.FileMTime {
+	if row.QuickHash != "" {
+		currentHash, hashErr := quickFileFingerprintV85(row.OutputPath, st.Size())
+		if hashErr != nil || currentHash != row.QuickHash {
+			return DownloadGuardDecision{}, false
+		}
+	} else if row.FileMTime != 0 && st.ModTime().UnixNano() != row.FileMTime {
+		// Compatibility with history rows created before content fingerprints.
 		return DownloadGuardDecision{}, false
 	}
 	d := DownloadGuardDecision{
 		ResultID:   res.ID,
 		Name:       res.Remote.Name,
 		Verdict:    guardDuplicate,
-		Reason:     "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar fișierul rezultat există încă neschimbat.",
+		Reason:     "Acest fișier apare în istoricul persistent al descărcărilor finalizate, iar amprenta conținutului local confirmă că fișierul rezultat există încă neschimbat.",
 		LocalPath:  row.OutputPath,
 		Method:     "download-history",
 		Candidates: 1,
