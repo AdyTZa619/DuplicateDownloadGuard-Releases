@@ -12,9 +12,11 @@ import (
 )
 
 type localMediaMetaCacheEntry struct {
-	Size  int64     `json:"size"`
-	MTime int64     `json:"mtime"`
-	Info  MediaInfo `json:"info"`
+	Size     int64     `json:"size"`
+	MTime    int64     `json:"mtime"`
+	Info     MediaInfo `json:"info"`
+	Unusable bool      `json:"unusable,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 var localMediaMetaCacheState = struct {
@@ -59,10 +61,18 @@ func cachedLocalMediaInfo(a *App, e FileEntry) (MediaInfo, bool) {
 	localMediaMetaCacheState.Lock()
 	defer localMediaMetaCacheState.Unlock()
 	row, ok := localMediaMetaCacheState.Entries[key]
-	if !ok || row.Size != e.Size || row.MTime != e.MTime || !row.Info.OK {
+	if !ok || row.Size != e.Size || row.MTime != e.MTime || row.Unusable || !row.Info.OK {
 		return MediaInfo{}, false
 	}
 	return row.Info, true
+}
+
+func cachedLocalMediaFailureV85(a *App, e FileEntry) bool {
+	ensureLocalMediaMetaCacheLoaded(a)
+	localMediaMetaCacheState.Lock()
+	defer localMediaMetaCacheState.Unlock()
+	row, ok := localMediaMetaCacheState.Entries[pathKey(e.Path)]
+	return ok && row.Size == e.Size && row.MTime == e.MTime && row.Unusable
 }
 
 func cacheLocalMediaInfo(a *App, e FileEntry, info MediaInfo) {
@@ -72,6 +82,19 @@ func cacheLocalMediaInfo(a *App, e FileEntry, info MediaInfo) {
 	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
 	localMediaMetaCacheState.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Info: info}
+	localMediaMetaCacheState.Dirty = true
+	localMediaMetaCacheState.Generation++
+	localMediaMetaCacheState.Unlock()
+}
+
+func cacheLocalMediaFailureV85(a *App, e FileEntry, reason string) {
+	ensureLocalMediaMetaCacheLoaded(a)
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	localMediaMetaCacheState.Lock()
+	localMediaMetaCacheState.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Unusable: true, Error: reason}
 	localMediaMetaCacheState.Dirty = true
 	localMediaMetaCacheState.Generation++
 	localMediaMetaCacheState.Unlock()
@@ -209,14 +232,15 @@ type videoDurationSearchV85 struct {
 	Pending    int
 	Probed     int
 	Cached     int
+	Excluded   int
 }
 
 // videoDurationCandidatesCached makes renamed-video discovery scalable without
 // ever treating a partial cache as proof that a video is missing. Cached
 // metadata is searched across the whole collection. A bounded number of
-// uncached files is probed per call, and Pending reports everything that still
-// cannot be ruled out so Download Guard can fail closed instead of returning a
-// false MISSING verdict.
+// uncached files is probed per call. Local files proven unreadable are cached as
+// unusable until size/mtime changes; they cannot be a usable re-encoded copy and
+// therefore do not keep every remote video permanently in REVIEW.
 func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) videoDurationSearchV85 {
 	if limit <= 0 {
 		limit = 7
@@ -252,6 +276,11 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 			}
 			continue
 		}
+		if cachedLocalMediaFailureV85(a, e) {
+			result.Cached++
+			result.Excluded++
+			continue
+		}
 		nameScore := nameSimilarity(remote.Name, e.Name)
 		sizeRatio := 1.0
 		if remote.Size > 0 {
@@ -273,24 +302,30 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 	})
 
 	const probeLimit = 48
-	successful := 0
+	resolved := 0
 	for i, row := range uncached {
 		if i >= probeLimit || ctx.Err() != nil {
 			break
 		}
 		result.Probed++
 		info := probeMedia(ctx, fp, row.Entry.Path, "LOCAL")
+		if ctx.Err() != nil {
+			break
+		}
+		resolved++
 		if !info.OK {
+			cacheLocalMediaFailureV85(a, row.Entry, info.Error)
+			cacheChanged = true
+			result.Excluded++
 			continue
 		}
-		successful++
 		cacheLocalMediaInfo(a, row.Entry, info)
 		cacheChanged = true
 		if ratio, compatible := durationCompatibleV85(remoteInfo, info); compatible {
 			matched = appendDurationCandidateV85(matched, remote, row.Entry, ratio)
 		}
 	}
-	result.Pending = len(uncached) - successful
+	result.Pending = len(uncached) - resolved
 	if result.Pending < 0 {
 		result.Pending = 0
 	}
