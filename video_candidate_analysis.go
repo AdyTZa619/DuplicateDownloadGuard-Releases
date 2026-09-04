@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -57,6 +58,18 @@ func videoBaseMethodV85(score int) string {
 	}
 }
 
+func meaningfulVideoDurationDeltaV85(remoteInfo, localInfo MediaInfo) (float64, float64, bool) {
+	if !remoteInfo.OK || !localInfo.OK || remoteInfo.Duration <= 0 || localInfo.Duration <= 0 {
+		return 0, 0, false
+	}
+	delta := math.Abs(remoteInfo.Duration - localInfo.Duration)
+	ratio := delta / math.Max(remoteInfo.Duration, localInfo.Duration)
+	// Container/timestamp rounding can differ slightly after a recode. More than
+	// three seconds and 0.1% of the material is large enough to treat as a
+	// possible intro/outro/cut rather than silently auto-blocking it.
+	return delta, ratio, delta > 3 && ratio > .001
+}
+
 // resolveVideoEvidenceV85 is deliberately conservative. Visual fingerprints
 // are the primary evidence. Audio can only keep or downgrade a strong visual
 // match; it can never promote a weaker visual match into a duplicate.
@@ -75,13 +88,23 @@ func resolveVideoEvidenceV85(visualScore, secondScore int, remoteInfo, localInfo
 		return "media-looks-same", fmt.Sprintf(" • potrivire ambiguă: al doilea candidat are %d%%", secondScore)
 	}
 
+	if delta, _, meaningful := meaningfulVideoDurationDeltaV85(remoteInfo, localInfo); meaningful {
+		return "media-version", fmt.Sprintf(" • durată diferită cu %.1fs; poate exista intro/outro sau o tăietură", delta)
+	}
+
 	remoteHasAudio := strings.TrimSpace(remoteInfo.AudioCodec) != ""
 	localHasAudio := strings.TrimSpace(localInfo.AudioCodec) != ""
 	if remoteHasAudio != localHasAudio {
 		return "media-version", " • audio diferit: numai una dintre versiuni are pistă audio"
 	}
 	if !remoteHasAudio {
-		return "media-same-content", " • ambele versiuni sunt fără audio"
+		// With no soundtrack available as a second independent signal, 98–99%
+		// visual similarity is not enough for an automatic block. A perfect,
+		// non-ambiguous frame match can still identify a silent re-encode.
+		if visualScore < 100 {
+			return "media-version", " • ambele versiuni sunt fără audio; 98–99% vizual rămâne review pentru siguranță"
+		}
+		return "media-same-content", " • ambele versiuni sunt fără audio, iar cadrele informative coincid 100%"
 	}
 
 	// Both have audio. If Chromaprint is unavailable, do not silently assume the
