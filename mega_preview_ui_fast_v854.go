@@ -204,9 +204,14 @@ func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (st
 		}
 		a.logf("MEGA Fast Resume nereușit; încerc fallback per-fișier: %v", err)
 	}
-	streamURL, err := a.startMegaPreview(item)
+
+	// Browser fallback must never re-enter startMegaPreview(), because that
+	// function is allowed to return the same warm-root child URL. Use the true
+	// per-file path so a failed FAST ROOT is replaced with a different WebDAV
+	// endpoint addressed by the file handle/path.
+	streamURL, err := a.startMegaPreviewPerFileFallbackV858(item)
 	if err != nil {
-		return "", "MEGA FALLBACK", time.Since(started), err
+		return "", "MEGA TRUE FALLBACK", time.Since(started), err
 	}
-	return streamURL, "MEGA FALLBACK", time.Since(started), nil
+	return streamURL, "MEGA TRUE FALLBACK", time.Since(started), nil
 }
