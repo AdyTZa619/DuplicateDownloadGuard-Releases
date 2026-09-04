@@ -96,8 +96,10 @@ func mediaGuardCandidates(remote RemoteItem, entries []FileEntry, limit int) []F
 		if remote.Size > 0 {
 			ratio = float64(abs64(e.Size-remote.Size)) / float64(remote.Size)
 		}
-		// Near-duplicate media may have very different byte sizes after re-encode,
-		// but completely unrelated names should not trigger expensive probes.
+		// Re-encoding can change bytes and size substantially, but an unrelated
+		// name plus a very different size is too weak to justify an expensive
+		// perceptual probe. Exact same-size candidates remain eligible because
+		// they are cheap and are a useful safety net for renamed files.
 		if name < 45 && ratio > .35 {
 			continue
 		}
@@ -141,8 +143,10 @@ func filepathExt(name string) string {
 	return ""
 }
 
-// visualVideoScoreV85 samples seven distributed frames instead of three. It
-// tolerates re-encoding while still penalizing meaningful duration differences.
+// visualVideoScoreV85 samples seven distributed frames instead of three. A
+// high average is not sufficient by itself: several independent frames must
+// agree and very different durations are deliberately capped/rejected. This
+// keeps re-encodes detectable without turning generic intros into duplicates.
 func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (int, string, MediaInfo, MediaInfo, error) {
 	ff := a.detectFFmpeg()
 	fp := a.detectFFprobe()
@@ -154,10 +158,19 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 	if !ri.OK || !li.OK || ri.Duration <= 0 || li.Duration <= 0 {
 		return 0, "", ri, li, fmt.Errorf("nu pot citi durata ambelor videoclipuri")
 	}
+	maxD := math.Max(ri.Duration, li.Duration)
 	minD := math.Min(ri.Duration, li.Duration)
+	delta := math.Abs(ri.Duration - li.Duration)
+	durationRatio := delta / maxD
+	if durationRatio > .35 {
+		return 0, "", ri, li, fmt.Errorf("duratele diferă prea mult: %.1f%%", durationRatio*100)
+	}
+
 	points := []float64{.08, .20, .35, .50, .65, .80, .92}
 	sum := 0
 	matched := 0
+	highMatches := 0
+	veryHighMatches := 0
 	for _, p := range points {
 		sec := minD * p
 		rh, err := frameHash(ctx, ff, target, sec)
@@ -169,19 +182,39 @@ func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (in
 			continue
 		}
 		d := bits.OnesCount64(rh ^ lh)
-		sum += int(math.Round(float64(64-d) * 100 / 64))
+		frameScore := int(math.Round(float64(64-d) * 100 / 64))
+		sum += frameScore
 		matched++
+		if frameScore >= 90 {
+			highMatches++
+		}
+		if frameScore >= 95 {
+			veryHighMatches++
+		}
 	}
 	if matched < 4 {
 		return 0, "", ri, li, fmt.Errorf("prea puține cadre comparabile: %d/7", matched)
 	}
+
 	score := int(math.Round(float64(sum) / float64(matched)))
-	delta := math.Abs(ri.Duration - li.Duration)
-	tolerance := math.Max(1.0, minD*.012)
-	if delta > tolerance {
-		score = int(math.Round(float64(score) * .78))
+	// Require consistency across the timeline, not just one or two matching
+	// scenes. Weak consistency can still be surfaced as POSIBIL DUPLICAT.
+	if highMatches < 4 && score > 88 {
+		score = 88
 	}
-	return score, fmt.Sprintf("%d/7 cadre • durată Δ %.2fs", matched, delta), ri, li, nil
+	if veryHighMatches < 4 && score > 93 {
+		score = 93
+	}
+	// Small edits/intros are allowed as another version. Large duration changes
+	// cannot claim ACELAȘI CONȚINUT even if sampled frames happen to match.
+	if durationRatio > .12 && score > 88 {
+		score = 88
+	} else if durationRatio > .03 && score > 97 {
+		score = 97
+	}
+
+	note := fmt.Sprintf("%d/7 cadre • %d foarte apropiate • durată Δ %.2fs", matched, highMatches, delta)
+	return score, note, ri, li, nil
 }
 
 func mediaQualityHint(remote, local MediaInfo) string {
