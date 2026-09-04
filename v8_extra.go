@@ -542,7 +542,6 @@ func (a *App) ollamaTags(ctx context.Context) (ollamaTags, error) {
 	err = json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&out)
 	return out, err
 }
-
 func (a *App) handleAIStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, c := context.WithTimeout(r.Context(), 2*time.Second)
 	defer c()
@@ -878,13 +877,27 @@ func queueFor(a *App) *DownloadQueue {
 }
 func (q *DownloadQueue) save(a *App) {
 	q.mu.Lock()
-	b, _ := json.MarshalIndent(q.Jobs, "", "  ")
+	b, err := json.MarshalIndent(q.Jobs, "", "  ")
 	q.mu.Unlock()
+	if err != nil {
+		a.logf("Download Studio: serializarea cozii a eșuat: %v", err)
+		return
+	}
 	tmp := filepath.Join(a.appDir, "download_queue.json.tmp")
 	dst := filepath.Join(a.appDir, "download_queue.json")
-	if os.WriteFile(tmp, b, 0644) == nil {
-		_ = os.Rename(tmp, dst)
+	if err := os.WriteFile(tmp, b, 0644); err != nil {
+		a.logf("Download Studio: salvarea temporară a cozii a eșuat: %v", err)
+		return
 	}
+	if err := replaceCacheFileV85(tmp, dst); err != nil {
+		a.logf("Download Studio: înlocuirea atomică a cozii a eșuat: %v", err)
+		return
+	}
+	// A completed job is now durable on disk. Synchronize JDownloader-style
+	// history immediately; the background watcher remains only a crash-recovery
+	// fallback. The history sync skips unchanged completed files, so ordinary
+	// queue state saves do not repeatedly rehash them.
+	syncCompletedQueueToHistoryV85()
 }
 func (q *DownloadQueue) snapshot() []DownloadJob {
 	q.mu.Lock()
