@@ -178,12 +178,16 @@ func resultFromDownloadJobV854(job DownloadJob, live *Result) (Result, error) {
 	if strings.TrimSpace(job.Remote.Name) != "" || strings.TrimSpace(job.Remote.Source) != "" {
 		return Result{ID: job.ResultID, Remote: job.Remote}, nil
 	}
-	if live != nil && legacyQueueJobMatchesResultV854(job, *live) {
-		return *live, nil
+	if live != nil {
+		if legacyQueueJobMatchesResultV854(job, *live) {
+			return *live, nil
+		}
+		return Result{}, errors.New("job vechi ambiguu: ResultID a fost reutilizat pentru altă sursă; re-adaugă fișierul în coadă")
 	}
 	// Legacy queue entries stored only the final URL. That is enough for a
-	// plain HTTP file, but not for MEGA/yt-dlp/gallery-dl where handles/page
-	// identity and other metadata are required for a correct retry.
+	// plain HTTP file when no conflicting live result exists, but not for
+	// MEGA/yt-dlp/gallery-dl where handles/page identity and other metadata are
+	// required for a correct retry.
 	if strings.EqualFold(job.Source, "HTTP") && strings.TrimSpace(job.URL) != "" {
 		r := RemoteItem{ID: job.ResultID, Name: job.Name, Path: job.Name, Size: job.BytesTotal, Source: "HTTP", URL: job.URL, DirectURL: job.URL}
 		return Result{ID: job.ResultID, Remote: r}, nil
