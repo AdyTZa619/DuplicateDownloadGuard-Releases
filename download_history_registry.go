@@ -55,9 +55,16 @@ func downloadHistoryKeyV85(source, rawURL, name string, size int64) string {
 	source = strings.ToUpper(strings.TrimSpace(source))
 	rawURL = strings.TrimSpace(rawURL)
 	name = strings.ToLower(strings.TrimSpace(name))
-	identity := rawURL
-	if identity == "" {
-		identity = "name:" + name
+	identity := "name:" + name
+	if rawURL != "" {
+		if source == "MEGA" && strings.Contains(strings.ToLower(rawURL), "/file/") {
+			// A MEGA file handle identifies the node even if the display name later changes.
+			identity = rawURL
+		} else {
+			// Generic extractors can expose several same-sized files from one page.
+			// Keep the display name in the identity to avoid shared-page collisions.
+			identity = rawURL + "\x1e" + name
+		}
 	}
 	s := source + "\x1f" + identity + "\x1f" + strconv.FormatInt(size, 10)
 	h := sha256.Sum256([]byte(s))
