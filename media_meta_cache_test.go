@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestDurationCompatibleV85(t *testing.T) {
 	remote := MediaInfo{OK: true, Duration: 600, Width: 1920, Height: 1080}
@@ -56,5 +60,30 @@ func TestPruneLocalMediaMetaCacheRemovesStaleEntries(t *testing.T) {
 	}
 	if _, ok := cachedLocalMediaInfo(a, stale); ok {
 		t.Fatal("stale cache entry was not removed")
+	}
+}
+
+func TestReplaceCacheFileV85ReplacesExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.json")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(path, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceCacheFileV85(tmp, path); err != nil {
+		t.Fatalf("replace cache file failed: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "new" {
+		t.Fatalf("cache content=%q, want new", string(b))
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("temporary cache still exists: %v", err)
 	}
 }
