@@ -35,7 +35,7 @@
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
     if (method === 'media-version') return 'ALTĂ VERSIUNE';
     if (method === 'media-looks-same' || method === 'deterministic-samples') return 'PARE ACELAȘI';
-    if (['metadata-incomplete', 'mega-busy', 'remote-unavailable', 'full-sha256-error', 'sample-error'].includes(method)) return 'NU S-A PUTUT VERIFICA';
+    if (['metadata-incomplete', 'mega-busy', 'remote-unavailable', 'full-sha256-error', 'sample-error', 'media-tools-missing', 'media-index-incomplete', 'image-index-incomplete', 'media-unverified'].includes(method)) return 'NU S-A PUTUT VERIFICA';
     return legacyVerdictLabel(item.verdict || item.guardVerdict || '');
   }
 
@@ -88,6 +88,7 @@
       .guardLegendV85{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
       .guardLegendV85 span{font-size:11px;border:1px solid #314155;border-radius:999px;padding:4px 7px;background:#0e151e}
       .errorStatusV85{display:inline-flex;margin:0 6px 4px 0;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:850;letter-spacing:.03em;background:#4a2228;color:#ffadb5}
+      .provisionalMediaV85{outline:1px solid rgba(255,217,121,.34);outline-offset:-1px}
     `;
     document.head.appendChild(style);
   }
@@ -134,7 +135,7 @@
     }
     const megaHint = document.querySelector('#compare .section .sectionBody p.muted.small');
     if (megaHint) {
-      megaHint.textContent = 'După scanare, sesiunea folderului MEGA rămâne pregătită temporar pentru preview și verificare; sesiunea anterioară este restaurată automat.';
+      megaHint.textContent = 'După scanare, sesiunea folderului MEGA rămâne pregătită temporar pentru preview și verificare; schimbarea rapidă a rândurilor este stabilizată înainte de a comuta WebDAV.';
     }
 
     const downloadButton = document.querySelector('button[onclick="downloadSelected()"]');
@@ -162,11 +163,11 @@
             </select>
           </div>
           <div class="noticeBlue" style="flex:2;margin-top:20px">
-            v8.5 verifică live HDD-urile, istoricul descărcărilor, hash/mărime și fișiere media recodate. Pentru video redenumit poate folosi durată + structură media + fingerprint pe 7 cadre.
+            v8.5 verifică live HDD-urile, istoricul, hash/mărime și fișiere media recodate. Pentru media complet redenumită folosește cache-uri persistente de metadate/semnături și refuză să spună „NU ÎL AI” cât timp verificarea locală este incompletă.
           </div>
         </div>
         <label style="display:block;margin-top:10px"><input type="checkbox" id="liveRefreshCompare" checked/> Actualizează indexul live înainte de fiecare comparație</label>
-        <div class="muted small" style="margin-top:4px">Un nume sau o mărime diferită nu mai înseamnă automat „NU ÎL AI”. Cazurile incerte sunt oprite pentru verificare, nu declarate duplicate fără dovadă.</div>`);
+        <div class="muted small" style="margin-top:4px">Un nume sau o mărime diferită nu mai înseamnă automat „NU ÎL AI”. Cazurile incerte sunt oprite pentru verificare, nu declarate duplicate sau fișiere noi fără dovadă.</div>`);
     }
 
     const fullVerify = document.getElementById('fullVerifyMaxMB');
@@ -198,7 +199,8 @@
       if (steps) steps.innerHTML =
         '<div class="helpStep"><div>Selectează fișierele dorite în Rezultate.</div></div>' +
         '<div class="helpStep"><div>„🛡 Verifică inteligent + descarcă” rescanează live locațiile și verifică mai întâi dacă fișierul a fost deja descărcat.</div></div>' +
-        '<div class="helpStep"><div>Pentru duplicate exacte folosește hash/bytes. Pentru poze și video modificate caută aceeași sursă prin fingerprint perceptual; video folosește 7 cadre și controlul duratei.</div></div>' +
+        '<div class="helpStep"><div>Pentru duplicate exacte folosește hash/bytes. Pentru poze și video modificate caută aceeași sursă prin fingerprint perceptual; cadrele video aproape uniforme sunt excluse din scor.</div></div>' +
+        '<div class="helpStep"><div>Dacă mai există media locală neindexată perceptual, verdictul devine „NU S-A PUTUT VERIFICA”, nu „NU ÎL AI”. Cache-ul se completează progresiv.</div></div>' +
         '<div class="helpStep"><div>Doar „NU ÎL AI” intră automat în coadă. „ALTĂ VERSIUNE”, „PARE ACELAȘI” și „POSIBIL DUPLICAT” cer verificare.</div></div>' +
         '<div class="helpStep"><div>În Descărcări ai Pauză TOT și STOP TOT; cota MEGA apare explicit ca „LIMITĂ / COTĂ”, iar linkurile/cheile indisponibile ca „INDISPONIBIL”.</div></div>';
     }
@@ -434,17 +436,55 @@
     const originalShowDetail = showDetail;
     showDetail = async function (row) {
       await originalShowDetail(row);
-      if (!row.guardVerdict) return;
       const detail = document.getElementById('detail');
       if (!detail) return;
-      const status = inferUserStatus(row);
-      const action = inferAction(row);
-      const klass = row.guardVerdict === 'DUPLICATE' ? 'VERIFIED' : row.guardVerdict === 'DOWNLOAD' ? 'MISSING' : 'POSSIBLE';
-      const extra = row.visualScore ? ` • similaritate ${esc(String(row.visualScore))}%` : '';
-      const value = `<span class="badge ${klass}">${esc(status)}</span> <b style="margin-left:6px">${esc(action)}</b> ` +
-        `<span class="muted small">${esc(row.guardMethod || '')}${extra}${row.guardReason ? ' • ' + esc(row.guardReason) : ''}</span>`;
-      detail.insertAdjacentHTML('beforeend', `<b>Smart Guard</b><span>${value}</span>`);
+      if (row.guardVerdict) {
+        const status = inferUserStatus(row);
+        const action = inferAction(row);
+        const klass = row.guardVerdict === 'DUPLICATE' ? 'VERIFIED' : row.guardVerdict === 'DOWNLOAD' ? 'MISSING' : 'POSSIBLE';
+        const extra = row.visualScore ? ` • similaritate ${esc(String(row.visualScore))}%` : '';
+        const value = `<span class="badge ${klass}">${esc(status)}</span> <b style="margin-left:6px">${esc(action)}</b> ` +
+          `<span class="muted small">${esc(row.guardMethod || '')}${extra}${row.guardReason ? ' • ' + esc(row.guardReason) : ''}</span>`;
+        detail.insertAdjacentHTML('beforeend', `<b>Smart Guard</b><span>${value}</span>`);
+      }
+      if (isProvisionalDifferentMedia(row)) {
+        detail.insertAdjacentHTML('beforeend', '<b>Verdict media inițial</b><span><span class="badge POSSIBLE">POSIBIL DUPLICAT</span> <span class="muted small">Același nume, dar mărime diferită poate însemna re-encode/resize. Verdictul final se dă de Smart Guard înainte de download.</span></span>');
+      }
     };
+  }
+
+  function basenameV85(path) {
+    return String(path || '').split(/[\\/]/).pop().toLowerCase();
+  }
+
+  function mediaKindV85(name) {
+    const n = String(name || '').toLowerCase();
+    if (/\.(jpg|jpeg|png|gif|webp|bmp|avif)$/.test(n)) return 'image';
+    if (/\.(mp4|webm|ogv|mov|m4v|mkv|avi|flv|ts|mts|m2ts)$/.test(n)) return 'video';
+    return '';
+  }
+
+  function isProvisionalDifferentMedia(row) {
+    if (!row || row.manual || row.status !== 'DIFFERENT' || !row.localPath || row.remote?.hash) return false;
+    const remoteName = row.remote?.name || row.remote?.path || '';
+    return !!mediaKindV85(remoteName) && basenameV85(remoteName) === basenameV85(row.localPath);
+  }
+
+  function softenInitialMediaRows() {
+    if (!Array.isArray(visibleRows)) return;
+    for (const row of visibleRows) {
+      if (!isProvisionalDifferentMedia(row)) continue;
+      const tr = document.querySelector(`#tbody tr[data-rid="${row.id}"]`);
+      if (!tr) continue;
+      tr.classList.add('provisionalMediaV85');
+      const badge = tr.querySelector('td:nth-child(2) .badge');
+      if (badge) {
+        badge.classList.remove('DIFFERENT');
+        badge.classList.add('POSSIBLE');
+        badge.textContent = 'POSIBIL DUPLICAT';
+        badge.title = 'Același nume cu mărime diferită poate fi re-encode/resize; Smart Guard verifică înainte de download.';
+      }
+    }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -453,5 +493,97 @@
     installControls();
     installFunctionOverrides();
     syncModeFromConfig();
+    if (typeof loadResults === 'function') {
+      const previousLoadResults = loadResults;
+      loadResults = async function () {
+        const out = await previousLoadResults();
+        softenInitialMediaRows();
+        return out;
+      };
+    }
   });
+})();
+
+// MEGA preview stabilizer. The legacy UI starts a WebDAV switch for every row
+// selection. When a user arrows/clicks through several results quickly this can
+// queue expensive stop/start cycles. v8.5 waits briefly for the selection to
+// settle, but an explicit external-player click bypasses the delay immediately.
+(() => {
+  'use strict';
+  if (typeof loadRemotePreview !== 'function' || typeof playRemote !== 'function') return;
+
+  const originalLoadRemotePreview = loadRemotePreview;
+  const originalPlayRemote = playRemote;
+  let timer = null;
+  let scheduled = null;
+  let pendingId = 0;
+  let pendingPromise = null;
+  let scheduledResolve = null;
+
+  function isMegaPreviewRow(row) {
+    const remote = row && row.remote;
+    if (!remote || String(remote.source || '').toUpperCase() !== 'MEGA') return false;
+    const name = String(remote.name || remote.path || '');
+    return /\.(jpg|jpeg|png|gif|webp|bmp|avif|mp4|webm|ogv|mov|m4v|mkv|avi|flv|ts|mts|m2ts|mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(name);
+  }
+
+  function clearScheduled(resolve = true) {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    scheduled = null;
+    if (resolve && scheduledResolve) scheduledResolve();
+    scheduledResolve = null;
+  }
+
+  async function startNow(row, seq) {
+    const id = Number(row?.id || 0);
+    if (!id) return;
+    if (pendingId === id && pendingPromise) return pendingPromise;
+    pendingId = id;
+    pendingPromise = Promise.resolve(originalLoadRemotePreview(row, seq));
+    try {
+      await pendingPromise;
+    } finally {
+      if (pendingId === id) {
+        pendingId = 0;
+        pendingPromise = null;
+      }
+    }
+  }
+
+  loadRemotePreview = function (row, seq) {
+    if (!isMegaPreviewRow(row)) return originalLoadRemotePreview(row, seq);
+    clearScheduled();
+    scheduled = { row, seq };
+    const preview = document.getElementById('remotePreview');
+    if (preview) {
+      preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Pregătesc preview-ul REMOTE…</b><span class="small">Stabilizez selecția pentru a evita comutări WebDAV inutile. Playerul extern pornește imediat dacă îl apeși.</span></div>';
+    }
+    return new Promise(resolve => {
+      scheduledResolve = resolve;
+      timer = setTimeout(async () => {
+        const job = scheduled;
+        timer = null;
+        scheduled = null;
+        scheduledResolve = null;
+        if (job) await startNow(job.row, job.seq);
+        resolve();
+      }, 320);
+    });
+  };
+
+  playRemote = async function () {
+    if (currentRow && isMegaPreviewRow(currentRow)) {
+      if (scheduled && Number(scheduled.row?.id || 0) === Number(currentRow.id || 0)) {
+        const job = scheduled;
+        const resolve = scheduledResolve;
+        clearScheduled(false);
+        await startNow(job.row, job.seq);
+        if (resolve) resolve();
+      } else if (pendingId === Number(currentRow.id || 0) && pendingPromise) {
+        try { await pendingPromise; } catch (_) {}
+      }
+    }
+    return originalPlayRemote();
+  };
 })();
