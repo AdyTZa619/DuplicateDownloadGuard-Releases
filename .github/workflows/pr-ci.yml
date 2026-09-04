@@ -42,6 +42,13 @@ jobs:
             throw 'Go formatting check failed'
           }
 
+      - name: Verify UI JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check web/exact_guard.js
+          if ($LASTEXITCODE -ne 0) { throw 'exact_guard.js syntax check failed' }
+
       - name: Tests
         shell: pwsh
         run: |
