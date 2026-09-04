@@ -134,6 +134,26 @@
     window.showDetail = wrapped;
   }
 
+  // The backend still prepares/reuses MEGAcmd WebDAV, but Edge never receives
+  // that raw localhost port anymore. All embedded MEGA media is served through
+  // DDG's same-origin proxy, which forwards HTTP Range/206 for seek and avoids
+  // browser↔MEGAcmd CORS/origin/port failures.
+  function installMegaProxyV860() {
+    if (typeof window.remoteMediaHTML !== 'function' || window.remoteMediaHTML.__ddgProxyV860) return;
+    const original = window.remoteMediaHTML;
+    const wrapped = function(u, kind, name) {
+      let mediaURL = u;
+      const isMega = String(currentRow?.remote?.source || '').toUpperCase() === 'MEGA';
+      const id = Number(currentRow?.id || 0);
+      if (isMega && id > 0) mediaURL = `/api/remote-preview/proxy?id=${encodeURIComponent(id)}`;
+      let html = original(mediaURL, kind, name);
+      if (isMega && id > 0) html = html.replace('REMOTE • streaming la cerere', 'REMOTE • DDG proxy • Range');
+      return html;
+    };
+    wrapped.__ddgProxyV860 = true;
+    window.remoteMediaHTML = wrapped;
+  }
+
   function observe() {
     for (const id of ['remotePreview','localPreview']) {
       const el = document.getElementById(id);
@@ -168,6 +188,7 @@
   function boot() {
     install();
     wrapShowDetail();
+    installMegaProxyV860();
     observe();
     render();
     setTimeout(prewarmMegaAfterRestart, 2500);
