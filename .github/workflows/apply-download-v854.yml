@@ -1,0 +1,45 @@
+name: Apply v8.5.4 download flow patch
+on:
+  push:
+    branches: [fix/v8.5.4-download-flow]
+    paths:
+      - tools/apply_download_v854.py
+      - .github/workflows/apply-download-v854.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply exact patch
+        shell: pwsh
+        run: python tools/apply_download_v854.py
+      - name: Format Go
+        shell: pwsh
+        run: gofmt -w download_flow_v854.go download_flow_v854_test.go v8_extra.go aria2_rpc.go
+      - name: Verify UI syntax
+        shell: pwsh
+        run: node --check web/exact_guard.js
+      - name: Test
+        shell: pwsh
+        run: go test ./...
+      - name: Vet
+        shell: pwsh
+        run: go vet ./...
+      - name: Commit product patch only
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix download queue source persistence and engine logic"
+          git push
