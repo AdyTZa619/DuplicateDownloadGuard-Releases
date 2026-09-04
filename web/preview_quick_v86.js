@@ -53,8 +53,8 @@
       style.textContent = `
         .previewHead .previewQuickV86{flex:1;min-width:0;text-align:center;color:#d7e7f8;font-size:11px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
         .previewHead .previewQuickV86.good{color:#8ee6bd}.previewHead .previewQuickV86.warn{color:#ffd979}.previewHead .previewQuickV86.bad{color:#ff9aa5}
-        #appClockV8512{margin-left:14px;padding:6px 10px;border:1px solid #314155;border-radius:8px;background:#0d151e;color:#b9dcff;font-family:Consolas,monospace;font-size:13px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
-        @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}#appClockV8512{margin-left:6px}}
+        #appClockV8512{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;padding:8px 18px;border:1px solid #3a536b;border-radius:10px;background:#0d151e;color:#c8e5ff;font-family:Consolas,monospace;font-size:20px;line-height:1;font-weight:900;letter-spacing:.08em;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+        @media(max-width:760px){.previewHead{flex-wrap:wrap;gap:6px}.previewHead .previewQuickV86{order:3;flex-basis:100%;text-align:left;padding:0}#appClockV8512{font-size:16px;padding:6px 11px;letter-spacing:.05em}}
       `;
       document.head.appendChild(style);
     }
