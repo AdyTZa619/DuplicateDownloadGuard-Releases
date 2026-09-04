@@ -104,13 +104,17 @@ func settleMegaOnShutdown(a *App) {
 	if ctx.Err() != nil {
 		return
 	}
-	_, _ = runMegaTimed(ctx, 4*time.Second, st.Exe, "logout")
+	// Keep the public-folder session/cache so a subsequent login <folder> --resume
+	// can reuse the local MEGAcmd cache instead of rebuilding a large public
+	// folder from scratch. The previously active user/account session is still
+	// restored immediately below, so DDG does not leave MEGAcmd on the folder.
+	_, _ = runMegaTimed(ctx, 4*time.Second, st.Exe, "logout", "--keep-session")
 	if st.PreviousSession != "" && ctx.Err() == nil {
 		out, err := runMegaTimed(ctx, 10*time.Second, st.Exe, "login", st.PreviousSession)
 		if err != nil {
 			a.logf("MEGA shutdown: sesiunea anterioară nu a putut fi restaurată: %v • %s", err, sanitizeMega(out))
 		} else {
-			a.logf("MEGA shutdown: sesiunea anterioară restaurată")
+			a.logf("MEGA shutdown: sesiunea anterioară restaurată; cache-ul folderului public a fost păstrat")
 		}
 	}
 }
@@ -158,7 +162,8 @@ func shutdownApp(a *App) {
 
 	// Ensure MEGAcmd does not keep a public-folder/WebDAV session behind after
 	// the UI is gone. This also waits briefly for cancelled MEGA workers to run
-	// their deferred session cleanup.
+	// their deferred session cleanup. The public-folder cache itself is retained
+	// so the next DDG start can use MEGAcmd's --resume path.
 	settleMegaOnShutdown(a)
 
 	// aria2 is a long-lived helper. Stop it explicitly instead of leaving an
