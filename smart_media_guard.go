@@ -340,6 +340,17 @@ func mediaQualityHint(remote, local MediaInfo) string {
 	return ""
 }
 
+func mediaQualityReason(hint string) string {
+	switch hint {
+	case "remote":
+		return " Versiunea remote pare mai bună după rezoluție/bitrate; recomandare: REMOTE E MAI BUN."
+	case "local":
+		return " Versiunea locală pare mai bună după rezoluție/bitrate; recomandare: AI DEJA VERSIUNEA MAI BUNĂ."
+	default:
+		return ""
+	}
+}
+
 func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, candidates []FileEntry) (int, string, string) {
 	a.mu.RLock()
 	mb := a.cfg.VisualImageMaxMB
@@ -429,16 +440,16 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	switch {
 	case bestScore >= 98:
 		d.Method = "media-same-content"
-		d.Reason = fmt.Sprintf("Aceeași imagine/video este indicată foarte puternic de fingerprint-ul media: %d%% (%s). Fișierul poate fi recodat, redimensionat sau recomprimat.", bestScore, bestNote)
+		d.Reason = fmt.Sprintf("Aceeași imagine/video este indicată foarte puternic de fingerprint-ul media: %d%% (%s). Fișierul poate fi recodat, redimensionat sau recomprimat.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 94:
 		d.Method = "media-version"
-		d.Reason = fmt.Sprintf("Pare o altă versiune a aceluiași material: %d%% similaritate (%s).", bestScore, bestNote)
+		d.Reason = fmt.Sprintf("Pare o altă versiune a aceluiași material: %d%% similaritate (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 89:
 		d.Method = "media-looks-same"
-		d.Reason = fmt.Sprintf("Pare același material, dar nu există suficiente dovezi pentru blocare automată: %d%% (%s).", bestScore, bestNote)
+		d.Reason = fmt.Sprintf("Pare același material, dar nu există suficiente dovezi pentru blocare automată: %d%% (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	default:
 		d.Method = "media-possible"
-		d.Reason = fmt.Sprintf("Există o asemănare media relevantă de %d%% (%s); verifică manual.", bestScore, bestNote)
+		d.Reason = fmt.Sprintf("Există o asemănare media relevantă de %d%% (%s); verifică manual.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	}
 	return decorateGuardDecision(d), true
 }
