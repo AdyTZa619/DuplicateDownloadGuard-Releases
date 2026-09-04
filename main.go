@@ -1827,6 +1827,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			r.Confidence = "Nedemonstrată strict"
 			r.Reason += " Sursa nu oferă un hash comparabil, deci identitatea criptografică nu poate fi confirmată fără transfer."
 		}
+		normalizeInitialMediaResultV85(&r)
 		r.AutoStatus, r.AutoConfidence, r.AutoReason = r.Status, r.Confidence, r.Reason
 		a.mu.RLock()
 		d, hasDecision := a.decisions[decisionKey(it)]
@@ -3120,28 +3121,13 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 		return a.preview.StreamURL, nil
 	}
 
-	// Same public folder: switch only the served node and keep the public session active.
+	// Same public folder: start and validate the new WebDAV node before stopping
+	// the old one so a failed switch never interrupts the currently playing file.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
-		ctx := context.Background()
-		if old.RemotePath != "" {
-			_, _ = runMegaTimed(ctx, 12*time.Second, old.Exe, "webdav", "-d", old.RemotePath)
-		}
-		out, err := runMegaTimed(ctx, 30*time.Second, old.Exe, "webdav", remoteRef)
+		streamURL, err := a.switchMegaPreviewSameSourceV85(old, remoteRef)
 		if err != nil {
-			_ = a.stopMegaPreviewLocked("schimbare fișier eșuată")
-			problem := classifyMegaProblem(out, err)
-			return "", newMegaProblemError(problem, out)
-		}
-		streamURL := extractWebDAVURL(out, remoteRef)
-		if streamURL == "" {
-			listing, _ := runMegaTimed(ctx, 10*time.Second, old.Exe, "webdav")
-			streamURL = extractWebDAVURL(listing, remoteRef)
-		}
-		if streamURL == "" {
-			_, _ = runMegaTimed(ctx, 10*time.Second, old.Exe, "webdav", "-d", remoteRef)
-			_ = a.stopMegaPreviewLocked("URL streaming lipsă")
-			return "", errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
+			return "", err
 		}
 		a.preview = MegaPreviewState{Active: true, SourceURL: item.URL, RemotePath: remoteRef, StreamURL: streamURL, PreviousSession: old.PreviousSession, Exe: old.Exe}
 		a.resetPreviewTTLLocked()

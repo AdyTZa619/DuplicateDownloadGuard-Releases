@@ -42,6 +42,13 @@ jobs:
             throw 'Go formatting check failed'
           }
 
+      - name: Verify UI JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check web/exact_guard.js
+          if ($LASTEXITCODE -ne 0) { throw 'exact_guard.js syntax check failed' }
+
       - name: Tests
         shell: pwsh
         run: |
@@ -63,5 +70,13 @@ jobs:
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_VALIDATION.exe .
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_V85_VALIDATION.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }
+
+      - name: Upload Windows validation build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DDG-v8.5-validation-${{ github.sha }}
+          path: DDG_V85_VALIDATION.exe
+          if-no-files-found: error
+          retention-days: 7

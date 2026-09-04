@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +38,67 @@ func megaProblemFromError(err error) MegaProblem {
 	return classifyMegaProblem("", err)
 }
 
+// Keep the cue and the numeric value separate. The older expression allowed the
+// generic "quota..." prefix to consume the first digit of a value (12 -> 2),
+// producing incorrect retry times. These forms intentionally recognize only a
+// duration explicitly tied to retry/wait/reset wording.
+var megaRetryDurationRxV85 = regexp.MustCompile(`(?i)(?:retry(?:\s+(?:after|in))?|try\s+again(?:\s+(?:after|in))?|wait(?:\s+for)?|available\s+again(?:\s+(?:after|in))?|reset(?:s)?(?:\s+(?:after|in))?|quota(?:\s+reset)?(?:\s+(?:after|in)))\D{0,20}([0-9]{1,6})\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b`)
+var megaRetryClockRxV85 = regexp.MustCompile(`(?i)(?:retry(?:\s+(?:after|in))?|try\s+again(?:\s+(?:after|in))?|wait(?:\s+for)?|available\s+again(?:\s+(?:after|in))?|reset(?:s)?(?:\s+(?:after|in))?|quota(?:\s+reset)?(?:\s+(?:after|in)))\D{0,20}([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?`)
+
+func megaRetrySecondsV85(raw string) int64 {
+	if m := megaRetryClockRxV85.FindStringSubmatch(raw); len(m) >= 3 {
+		a, _ := strconv.ParseInt(m[1], 10, 64)
+		b, _ := strconv.ParseInt(m[2], 10, 64)
+		if len(m) >= 4 && m[3] != "" {
+			c, _ := strconv.ParseInt(m[3], 10, 64)
+			// HH:MM:SS when three fields are present.
+			return a*3600 + b*60 + c
+		}
+		// MM:SS for two fields.
+		return a*60 + b
+	}
+	m := megaRetryDurationRxV85.FindStringSubmatch(raw)
+	if len(m) < 3 {
+		return 0
+	}
+	n, _ := strconv.ParseInt(m[1], 10, 64)
+	unit := strings.ToLower(m[2])
+	switch {
+	case strings.HasPrefix(unit, "h"):
+		return n * 3600
+	case strings.HasPrefix(unit, "m"):
+		return n * 60
+	default:
+		return n
+	}
+}
+
+func megaRetryHumanV85(seconds int64) string {
+	if seconds <= 0 {
+		return ""
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("~%d secunde", seconds)
+	}
+	if seconds < 3600 {
+		mins := (seconds + 59) / 60
+		return fmt.Sprintf("~%d minute", mins)
+	}
+	hours := seconds / 3600
+	mins := (seconds % 3600) / 60
+	if mins == 0 {
+		return fmt.Sprintf("~%d ore", hours)
+	}
+	return fmt.Sprintf("~%dh %dm", hours, mins)
+}
+
+func megaActionWithRetryV85(action, raw string) string {
+	if seconds := megaRetrySecondsV85(raw); seconds > 0 {
+		return strings.TrimSpace(action) + " Timp indicat de MEGA: " + megaRetryHumanV85(seconds) + "."
+	}
+	return action
+}
+
 func classifyMegaProblem(output string, err error) MegaProblem {
 	raw := strings.TrimSpace(output)
 	if err != nil {
@@ -52,10 +116,10 @@ func classifyMegaProblem(output string, err error) MegaProblem {
 		return problem("CANCELLED", "Operație MEGA anulată", "Operația a fost oprită la cererea utilizatorului sau la închiderea aplicației.", "Poți relua operația când dorești.", false)
 	case containsAny(text, "checksum", "dimensiune diferită după download", "download incomplet", "rezultatul downloadului este un folder"):
 		return problem("DOWNLOAD_VERIFY_FAILED", "Fișier MEGA invalid după download", "Fișierul rezultat nu corespunde dimensiunii sau checksum-ului cunoscut pentru sursa remote.", "Fișierul nu este marcat finalizat. Verifică discul și sursa înainte de o nouă încercare.", false)
-	case containsAny(text, "eoverquota", "over quota", "overquota", "transfer quota", "bandwidth quota", "quota exceeded", "exceeded your transfer"):
-		return problem("MEGA_QUOTA", "Cotă MEGA depășită", "MEGA a refuzat transferul deoarece limita de transfer a fost atinsă.", "Jobul a fost pus pe pauză. Reia-l după ce MEGA permite din nou transferul.", false)
-	case containsAny(text, "eblocked", "account blocked", "account has been suspended", "link has been blocked", "copyright violation"):
-		return problem("MEGA_BLOCKED", "Acces MEGA blocat", "Contul sau linkul a fost blocat de MEGA și nu poate fi folosit.", "Verifică linkul în browser sau folosește o sursă validă. Reîncercarea automată nu ajută.", false)
+	case containsAny(text, "api_eoverquota", "eoverquota", "over quota", "overquota", "transfer quota", "bandwidth quota", "quota exceeded", "exceeded your transfer", "bandwidth limit exceeded", "http 509", "status 509"):
+		return problem("MEGA_QUOTA", "Cotă MEGA depășită", "MEGA a refuzat transferul deoarece limita de transfer a fost atinsă.", megaActionWithRetryV85("Jobul a fost pus pe pauză. Reia-l după ce MEGA permite din nou transferul.", raw), false)
+	case containsAny(text, "eblocked", "account blocked", "account has been suspended", "link has been blocked", "copyright violation", "api_ebusinesspastdue"):
+		return problem("MEGA_BLOCKED", "Acces MEGA blocat", "Contul sau linkul a fost blocat ori restricționat de MEGA și nu poate fi folosit.", "Verifică linkul/contul în browser sau folosește o sursă validă. Reîncercarea automată nu ajută.", false)
 	case containsAny(text, "not logged in", "not logged", "not logged-in", "please log in", "please login"):
 		return problem("MEGA_AUTH", "Sesiune MEGA indisponibilă", "MEGAcmd nu are o sesiune valabilă pentru această operație.", "Scanează din nou linkul MEGA, apoi reia jobul.", false)
 	case containsAny(text, "invalid key", "decryption key", "missing key", "ekey", "api_ekey"):
@@ -68,10 +132,10 @@ func classifyMegaProblem(output string, err error) MegaProblem {
 		return problem("DISK_FULL", "Spațiu insuficient", "Windows sau MEGAcmd nu poate scrie fișierul deoarece discul nu are spațiu disponibil.", "Eliberează spațiu în folderul de download, apoi reia jobul.", false)
 	case containsAny(text, "eaccess", "api_eaccess", "access denied", "permission denied", "not permitted"):
 		return problem("ACCESS_DENIED", "Acces refuzat", "Fișierul nu poate fi scris sau citit cu permisiunile actuale.", "Verifică folderul de download și protecția antivirus, apoi reia jobul.", false)
-	case containsAny(text, "etoomany", "api_etoomany", "too many requests", "rate limit", "too many connections"):
-		return problem("MEGA_RATE_LIMIT", "Prea multe cereri MEGA", "MEGA limitează temporar numărul de cereri sau conexiuni.", "Programul va reîncerca; dacă persistă, pune coada pe pauză câteva minute.", true)
+	case containsAny(text, "etoomany", "api_etoomany", "too many requests", "rate limit", "too many connections", "http 429", "status 429"):
+		return problem("MEGA_RATE_LIMIT", "Prea multe cereri MEGA", "MEGA limitează temporar numărul de cereri sau conexiuni.", megaActionWithRetryV85("Programul va reîncerca; dacă persistă, pune coada pe pauză câteva minute.", raw), true)
 	case containsAny(text, "etempunavail", "api_etempunavail", "temporarily unavailable", "temporary unavailable", "try again later"):
-		return problem("MEGA_TEMPORARY", "MEGA temporar indisponibil", "Serverul sau fișierul nu este disponibil momentan.", "Programul va reîncerca automat.", true)
+		return problem("MEGA_TEMPORARY", "MEGA temporar indisponibil", "Serverul sau fișierul nu este disponibil momentan.", megaActionWithRetryV85("Programul va reîncerca automat.", raw), true)
 	case errors.Is(err, context.DeadlineExceeded) || containsAny(text, "timeout", "timed out"):
 		return problem("MEGA_TIMEOUT", "MEGA nu a răspuns la timp", "Operația MEGAcmd a depășit timpul maxim de așteptare.", "Programul va reîncerca automat.", true)
 	case containsAny(text, "network", "connection", "couldn't connect", "could not connect", "eagain", "api request failed"):
