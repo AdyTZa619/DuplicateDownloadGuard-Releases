@@ -9,30 +9,16 @@ import (
 	"time"
 )
 
-func TestSwitchSameSourceWebDAVReturnsBeforeOldCleanupCompletes(t *testing.T) {
-	old := MegaPreviewState{RemotePath: "H:OLD"}
-	var mu sync.Mutex
+func TestSwitchSameSourceWebDAVReturnsNewURLWithoutCleanup(t *testing.T) {
+	old := MegaPreviewState{Exe: "MegaClient.exe", RemotePath: "H:OLD"}
 	calls := []string{}
-	cleanupStarted := make(chan struct{}, 1)
-	cleanupRelease := make(chan struct{})
 	run := func(_ time.Duration, args ...string) (string, error) {
-		call := strings.Join(args, " ")
-		mu.Lock()
-		calls = append(calls, call)
-		mu.Unlock()
+		calls = append(calls, strings.Join(args, " "))
 		if len(args) == 2 && args[0] == "webdav" && args[1] == "H:NEW" {
 			return "H:NEW http://127.0.0.1:4443/new.mp4", nil
 		}
-		if call == "webdav -d H:OLD" {
-			select {
-			case cleanupStarted <- struct{}{}:
-			default:
-			}
-			<-cleanupRelease
-		}
 		return "", nil
 	}
-
 	start := time.Now()
 	got, err := switchSameSourceWebDAVV85(old, "H:NEW", run)
 	if err != nil {
@@ -42,22 +28,49 @@ func TestSwitchSameSourceWebDAVReturnsBeforeOldCleanupCompletes(t *testing.T) {
 		t.Fatal("new stream URL missing")
 	}
 	if time.Since(start) > 250*time.Millisecond {
-		t.Fatalf("switch waited for old cleanup instead of returning new URL quickly: %s", time.Since(start))
+		t.Fatalf("switch should return immediately after new URL is known: %s", time.Since(start))
+	}
+	if !reflect.DeepEqual(calls, []string{"webdav H:NEW"}) {
+		t.Fatalf("switch itself must not wait for old cleanup; calls=%v", calls)
+	}
+}
+
+func TestSchedulePreviousMegaPreviewCleanupRunsInBackground(t *testing.T) {
+	old := MegaPreviewState{Exe: "MegaClient.exe", RemotePath: "H:OLD"}
+	var mu sync.Mutex
+	calls := []string{}
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	run := func(_ time.Duration, args ...string) (string, error) {
+		call := strings.Join(args, " ")
+		mu.Lock()
+		calls = append(calls, call)
+		mu.Unlock()
+		if call == "webdav -d H:OLD" {
+			started <- struct{}{}
+			<-release
+		}
+		return "", nil
+	}
+	start := time.Now()
+	if !schedulePreviousMegaPreviewCleanupV86(old, "H:NEW", 0, run) {
+		t.Fatal("cleanup should be scheduled")
+	}
+	if time.Since(start) > 100*time.Millisecond {
+		t.Fatal("cleanup scheduling blocked caller")
 	}
 	select {
-	case <-cleanupStarted:
+	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("old WebDAV cleanup did not start asynchronously")
+		t.Fatal("background cleanup did not start")
 	}
-	close(cleanupRelease)
+	close(release)
 	time.Sleep(20 * time.Millisecond)
-
 	mu.Lock()
-	gotCalls := append([]string(nil), calls...)
+	got := append([]string(nil), calls...)
 	mu.Unlock()
-	want := []string{"webdav H:NEW", "webdav -d H:OLD"}
-	if !reflect.DeepEqual(gotCalls, want) {
-		t.Fatalf("calls=%v want=%v", gotCalls, want)
+	if !reflect.DeepEqual(got, []string{"webdav -d H:OLD"}) {
+		t.Fatalf("calls=%v", got)
 	}
 }
 
