@@ -8,10 +8,30 @@ import (
 	"time"
 )
 
-// startMegaPreviewResumeDirectV858 is the restart path. v8.5.9 first tries the
-// exact public-folder session that DDG deliberately preserved at the previous
-// shutdown. Only if that short direct attempt fails does it pay for the older
-// session/logout/login --resume sequence.
+func (a *App) activateMegaRootV8511(item RemoteItem, exe, rootURL, previousSession string) (string, error) {
+	child, err := megaWebDAVChildURL(rootURL, item.Path)
+	if err != nil || child == "" {
+		if err == nil {
+			err = errors.New("URL copil gol")
+		}
+		return "", fmt.Errorf("WebDAV root este activ, dar calea fișierului este invalidă: %w", err)
+	}
+	a.preview = MegaPreviewState{
+		Active:          true,
+		SourceURL:       item.URL,
+		RemotePath:      megaWarmRootRefV86,
+		StreamURL:       rootURL,
+		PreviousSession: previousSession,
+		Exe:             exe,
+	}
+	a.resetPreviewTTLLocked()
+	return child, nil
+}
+
+// startMegaPreviewResumeDirectV858 is the restart path. v8.5.11 keeps the
+// validated 8.5.9 session model but changes the priority: discover/reuse one
+// existing whole-folder WebDAV root first, then create that root in the current
+// session, and only then fall back to per-file or login --resume work.
 func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
 		return "", errors.New("sursa nu este MEGA")
@@ -46,10 +66,22 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		a.resetPreviewTTLLocked()
 		return a.preview.StreamURL, nil
 	}
-	// Same public folder already resumed: switch directly to requested node.
+
+	// Same public folder is already active in MEGAcmd but DDG currently tracks a
+	// legacy per-file endpoint. Promote it back to one root before doing another
+	// per-file switch.
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		ctx := context.Background()
+		if rootURL, err := startMegaWarmRootV86(ctx, old.Exe); err == nil && rootURL != "" {
+			child, childErr := a.activateMegaRootV8511(item, old.Exe, rootURL, old.PreviousSession)
+			if childErr == nil {
+				a.cleanupPreviousMegaPreviewAsyncV86(old, megaWarmRootRefV86)
+				a.logf("MEGA ROOT PROMOTE: sesiunea existentă a revenit la un singur root -> %s", rootURL)
+				return child, nil
+			}
+		}
+
 		run := func(timeout time.Duration, args ...string) (string, error) {
 			return runMegaTimed(ctx, timeout, old.Exe, args...)
 		}
@@ -87,12 +119,32 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		return runMegaTimed(ctx, timeout, exe, args...)
 	}
 
-	// v8.5.9 cold-start fast path. A graceful DDG shutdown can leave the public
-	// folder session active when there was no previous account session to
-	// restore. The non-secret hint tells us this exact source should still be
-	// current, so try only WebDAV first. A stale hint costs at most a few seconds
-	// and is immediately discarded.
+	// A graceful previous DDG run leaves the public session and canonical root
+	// configured. Ask MEGAcmd for its live served-location list; never trust a
+	// saved localhost URL blindly and never create a per-file endpoint first.
 	if a.matchesMegaPreviewRestartHintV859(item.URL) {
+		if rootURL, err := listMegaWarmRootV8511(ctx, exe, 4*time.Second); err == nil && rootURL != "" {
+			child, childErr := a.activateMegaRootV8511(item, exe, rootURL, "")
+			if childErr == nil {
+				a.logf("MEGA ROOT REUSE: root existent găsit în MEGAcmd -> %s", rootURL)
+				return child, nil
+			}
+		} else if err != nil {
+			a.logf("MEGA ROOT REUSE: listarea WebDAV nu a răspuns normal: %v", err)
+		}
+
+		// If the session survived but its root was not restored, create exactly
+		// one root in that same hot session before considering per-file fallback.
+		if rootURL, err := startMegaWarmRootV86(ctx, exe); err == nil && rootURL != "" {
+			child, childErr := a.activateMegaRootV8511(item, exe, rootURL, "")
+			if childErr == nil {
+				a.logf("MEGA CURRENT ROOT: sesiunea păstrată a primit root -> %s", rootURL)
+				return child, nil
+			}
+		} else {
+			a.logf("MEGA CURRENT ROOT indisponibil; încerc compatibilitatea per-fișier: %v", err)
+		}
+
 		result, err := tryMegaCurrentSessionWebDAVV859(remoteRef, run)
 		if err == nil && result.StreamURL != "" {
 			a.preview = MegaPreviewState{
@@ -103,7 +155,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 				Exe:        exe,
 			}
 			a.resetPreviewTTLLocked()
-			a.logf("MEGA CURRENT SESSION: direct per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+			a.logf("MEGA CURRENT SESSION: compatibilitate per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 			return result.StreamURL, nil
 		}
 		a.clearMegaPreviewRestartHintV859()
@@ -120,6 +172,24 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
 		return "", newMegaProblemError(problem, loginOut)
+	}
+
+	// After the unavoidable cold resume, establish one root for this run. The
+	// per-file constructor is now only a compatibility path if root exposure
+	// itself fails.
+	if rootURL, rootErr := startMegaWarmRootV86(ctx, exe); rootErr == nil && rootURL != "" {
+		child, childErr := a.activateMegaRootV8511(item, exe, rootURL, oldSession)
+		if childErr == nil {
+			if oldSession == "" {
+				a.saveMegaPreviewRestartHintV859(item.URL)
+			} else {
+				a.clearMegaPreviewRestartHintV859()
+			}
+			a.logf("MEGA ROOT RESUME: --resume + un singur WebDAV root -> %s", rootURL)
+			return child, nil
+		}
+	} else {
+		a.logf("MEGA ROOT RESUME indisponibil; folosesc per-file: %v", rootErr)
 	}
 
 	result, err := switchSameSourceWebDAVV85(MegaPreviewState{Exe: exe}, remoteRef, run)
@@ -146,6 +216,6 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		a.clearMegaPreviewRestartHintV859()
 	}
 	a.resetPreviewTTLLocked()
-	a.logf("MEGA DIRECT RESUME: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
+	a.logf("MEGA DIRECT RESUME fallback: --resume + per-file %s [%s] -> %s", item.Path, remoteRef, result.StreamURL)
 	return result.StreamURL, nil
 }
