@@ -67,6 +67,14 @@ func TestLegacyComplexQueueJobFailsInsteadOfDownloadingWrongURL(t *testing.T) {
 	}
 }
 
+func TestLegacyQueueDoesNotAttachToReusedResultID(t *testing.T) {
+	job := DownloadJob{ResultID: 7, Source: "HTTP", Name: "old.jpg", URL: "https://cdn.test/old.jpg", BytesTotal: 10}
+	wrong := Result{ID: 7, Remote: RemoteItem{Source: "HTTP", Name: "new.jpg", Size: 10, URL: "https://cdn.test/new.jpg", DirectURL: "https://cdn.test/new.jpg"}}
+	if _, err := resultFromDownloadJobV854(job, &wrong); err == nil {
+		t.Fatal("reused ResultID must not attach legacy job to a different remote")
+	}
+}
+
 func TestInternalDownloadSendsRefererAndDownloadsMedia(t *testing.T) {
 	const page = "/gallery/1"
 	payload := []byte("real-media-payload")
@@ -100,6 +108,67 @@ func TestInternalDownloadSendsRefererAndDownloadsMedia(t *testing.T) {
 	}
 	if filepath.Base(path) != "photo.jpg" {
 		t.Fatalf("unexpected output name: %s", path)
+	}
+}
+
+func TestInternalDownloadResumesPartFile(t *testing.T) {
+	payload := []byte("abcdefghij")
+	var sawRange bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=4-" {
+			sawRange = true
+			w.Header().Set("Content-Range", "bytes 4-9/10")
+			w.Header().Set("Content-Length", "6")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(payload[4:])
+			return
+		}
+		t.Fatalf("expected Range bytes=4-, got %q", r.Header.Get("Range"))
+	}))
+	defer srv.Close()
+	dest := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dest, "resume.bin.part"), payload[:4], 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Source: "HTTP", Name: "resume.bin", URL: srv.URL + "/resume.bin", DirectURL: srv.URL + "/resume.bin"}
+	path, err := internalDownloadV854(context.Background(), remote, dest, remote.Name, func(int64, int64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawRange {
+		t.Fatal("resume request did not use Range")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("resume payload mismatch: %q", got)
+	}
+}
+
+func TestInternalDownloadRestartsWhenServerIgnoresRange(t *testing.T) {
+	payload := []byte("abcdefghij")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+	dest := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dest, "restart.bin.part"), payload[:4], 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Source: "HTTP", Name: "restart.bin", URL: srv.URL + "/restart.bin", DirectURL: srv.URL + "/restart.bin"}
+	path, err := internalDownloadV854(context.Background(), remote, dest, remote.Name, func(int64, int64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("server ignored Range; downloader should restart cleanly, got %q", got)
 	}
 }
 
