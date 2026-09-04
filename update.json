@@ -1,8 +1,8 @@
 {
-  "version": "8.5.1",
+  "version": "8.5.2",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "2f157508ae6f9d3154a877d19b1dd2302c5c6735b8afe980ded87b38335a76e5",
-  "notes": "Noutăți 8.5.1: HUD operațional nou în colțul din dreapta sus: status live, operația curentă/ultima operație și stare colorată clar. • Panou extensibil imersiv cu etapă, progres, durată, fișiere/date procesate, momentul pornirii/finalizării și detaliul tehnic raportat de backend. • Indicator discret animat numai cât timp rulează o operație; succesul, eroarea și anularea au stări vizuale distincte. • Durata ultimei operații este înghețată la finalizare în interfață, iar momentul finalizării este păstrat pentru sesiunea curentă. • Acțiune contextuală în panou: explică ce urmează și oferă acces rapid la Dashboard și Jurnal. • HUD-ul folosește exclusiv endpointul local `/api/status`; nu introduce trafic extern și nu modifică motorul de detecție/download.",
-  "publishedAt": "2026-09-04T10:06:20.6187027Z",
+  "sha256": "4935353356ce0867ce0cfb4bc79556ced028b07e7dd01fb9335532a6fb132171",
+  "notes": "Noutăți 8.5.2: Reparat cazul în care după update pornea versiunea nouă, dar fereastra Edge-app a versiunii vechi rămânea deschisă. • La o pornire confirmată ca handoff de updater, noua versiune închide nativ fereastra DDG rămasă înainte să-și deschidă propria interfață. • Cleanup-ul este activ numai cât timp există markerul real `apply_update.json`; pornirile normale ale aplicației nu închid ferestre. • Potrivirea ferestrei este strictă pe titlul dedicat `Duplicate Download Guard Pro`, pentru a evita închiderea unei ferestre Edge/Chrome obișnuite care ar putea conține alte taburi. • Updaterul păstrează în continuare backup, verificare SHA-256, health-check și rollback automat.",
+  "publishedAt": "2026-09-04T10:26:15.7350998Z",
   "channel": "stable"
 }

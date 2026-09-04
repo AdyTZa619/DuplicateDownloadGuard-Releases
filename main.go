@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.1 Pro Smart Media Guard"
+const appVersion = "8.5.2 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
