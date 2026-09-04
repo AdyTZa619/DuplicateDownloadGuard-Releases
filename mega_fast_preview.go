@@ -21,7 +21,7 @@ func megaWebDAVChildURL(rootURL, remotePath string) (string, error) {
 		return root.String(), nil
 	}
 	parts := strings.Split(remotePath, "/")
-	escaped := make([]string, 0, len(parts))
+	clean := make([]string, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" || part == "." {
@@ -30,14 +30,16 @@ func megaWebDAVChildURL(rootURL, remotePath string) (string, error) {
 		if part == ".." {
 			return "", errors.New("cale remote WebDAV invalidă")
 		}
-		escaped = append(escaped, url.PathEscape(part))
+		// Keep the decoded component in Path. url.URL.String() performs the
+		// escaping exactly once; pre-escaping here would turn %20 into %2520.
+		clean = append(clean, part)
 	}
-	if len(escaped) == 0 {
+	if len(clean) == 0 {
 		return root.String(), nil
 	}
 	root.RawQuery = ""
 	root.Fragment = ""
-	root.Path = strings.TrimRight(root.Path, "/") + "/" + strings.Join(escaped, "/")
+	root.Path = strings.TrimRight(root.Path, "/") + "/" + strings.Join(clean, "/")
 	root.RawPath = ""
 	return root.String(), nil
 }
