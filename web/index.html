@@ -121,7 +121,7 @@
 </div>
 <div class="modalFoot"><button class="btn" onclick="closeSmartSelection()">Anulează</button><button class="btn" onclick="previewSmart(currentSmartRule||'all')">Recalculează</button><button class="btn primary" disabled="" id="smartApply" onclick="applySmartSelection()">Adaugă la selecție</button></div>
 </div>
-</div><script defer src="/exact_guard.js"></script><script>
+</div><script defer src="/exact_guard.js"></script><script defer src="/preview_quick_v86.js"></script><script>
 let cfg={},page=0,total=0,currentStatus='ALL',sort='path',order='asc',selected=new Set(),currentRow=null,timer=null,detailSeq=0,remotePreviewActive=false,visibleRows=[],resultsReqSeq=0,lastRevision=0,summaryCache={},currentSmartRule='',smartPreviewIDs=[],batchStop=false,lastOpActive=false,lastStatsAt=0,queueSelected=new Set(),queueTimer=null;
 const $=id=>document.getElementById(id);const fmt=n=>{let x=Number(n),u=['B','KB','MB','GB','TB'];let i=0;while(x>=1024&&i<u.length-1){x/=1024;i++}return (i?x.toFixed(2):x)+' '+u[i]};async function api(url,opt){let r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());let ct=r.headers.get('content-type')||'';return ct.includes('json')?r.json():r.text()}
 function toast(s){$('topStatus').textContent=s;setTimeout(()=>$('topStatus').textContent='Pregătit',3500)}

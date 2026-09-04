@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -12,14 +11,14 @@ const megaWebDAVURLMissingV85 = "MEGAcmd a activat WebDAV, dar nu a returnat URL
 type megaWebDAVRunnerV85 func(timeout time.Duration, args ...string) (string, error)
 
 type megaWebDAVSwitchResultV85 struct {
-	StreamURL      string
-	StartOutput    string
-	CleanupWarning error
+	StreamURL   string
+	StartOutput string
 }
 
-// switchSameSourceWebDAVV85 deliberately starts and validates the new WebDAV
-// node before stopping the old one. A failed switch therefore leaves the
-// currently playing preview intact instead of creating an avoidable gap.
+// switchSameSourceWebDAVV85 starts and validates the requested WebDAV node but
+// deliberately does NOT wait for cleanup of the previous node. Cleanup is a
+// lifecycle concern and must never keep the player waiting after the new stream
+// URL is already available.
 func switchSameSourceWebDAVV85(old MegaPreviewState, remoteRef string, run megaWebDAVRunnerV85) (megaWebDAVSwitchResultV85, error) {
 	if run == nil {
 		return megaWebDAVSwitchResultV85{}, errors.New("MEGA WebDAV runner lipsă")
@@ -28,32 +27,53 @@ func switchSameSourceWebDAVV85(old MegaPreviewState, remoteRef string, run megaW
 		return megaWebDAVSwitchResultV85{}, errors.New("referință MEGA remote lipsă")
 	}
 
-	out, err := run(30*time.Second, "webdav", remoteRef)
+	out, err := run(15*time.Second, "webdav", remoteRef)
 	result := megaWebDAVSwitchResultV85{StartOutput: out}
 	if err != nil {
 		return result, err
 	}
 	streamURL := extractWebDAVURL(out, remoteRef)
 	if streamURL == "" {
-		listing, _ := run(10*time.Second, "webdav")
+		listing, _ := run(3*time.Second, "webdav")
 		streamURL = extractWebDAVURL(listing, remoteRef)
 	}
 	if streamURL == "" {
-		// The new node may have been enabled even though MEGAcmd did not return a
-		// usable URL. Clean only the new node; never touch the known-good old one.
 		if old.RemotePath != remoteRef {
-			_, _ = run(10*time.Second, "webdav", "-d", remoteRef)
+			_, _ = run(4*time.Second, "webdav", "-d", remoteRef)
 		}
 		return result, errors.New(megaWebDAVURLMissingV85)
 	}
 	result.StreamURL = streamURL
-
-	if old.RemotePath != "" && old.RemotePath != remoteRef {
-		if cleanupOut, cleanupErr := run(12*time.Second, "webdav", "-d", old.RemotePath); cleanupErr != nil {
-			result.CleanupWarning = fmt.Errorf("cleanup WebDAV vechi: %w: %s", cleanupErr, sanitizeMega(cleanupOut))
-		}
-	}
 	return result, nil
+}
+
+// schedulePreviousMegaPreviewCleanupV86 is deliberately separate from the
+// switch itself so latency and cleanup can be tested independently. It returns
+// immediately after scheduling the old node removal.
+func schedulePreviousMegaPreviewCleanupV86(old MegaPreviewState, newRemoteRef string, delay time.Duration, run megaWebDAVRunnerV85) bool {
+	if run == nil || old.Exe == "" || old.RemotePath == "" || old.RemotePath == newRemoteRef || old.RemotePath == megaWarmRootRefV86 {
+		return false
+	}
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		_, _ = run(5*time.Second, "webdav", "-d", old.RemotePath)
+	}()
+	return true
+}
+
+func (a *App) cleanupPreviousMegaPreviewAsyncV86(old MegaPreviewState, newRemoteRef string) {
+	run := func(timeout time.Duration, args ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		out, err := runMegaTimed(ctx, timeout, old.Exe, args...)
+		if err != nil {
+			a.logf("MEGA preview: cleanup WebDAV vechi în fundal: %v • %s", err, sanitizeMega(out))
+		}
+		return out, err
+	}
+	_ = schedulePreviousMegaPreviewCleanupV86(old, newRemoteRef, 1200*time.Millisecond, run)
 }
 
 func (a *App) switchMegaPreviewSameSourceV85(old MegaPreviewState, remoteRef string) (string, error) {
@@ -63,16 +83,15 @@ func (a *App) switchMegaPreviewSameSourceV85(old MegaPreviewState, remoteRef str
 	}
 	result, err := switchSameSourceWebDAVV85(old, remoteRef, run)
 	if err != nil {
-		// Missing stream URL is a local WebDAV response problem, not a quota or
-		// login problem. Preserve it even when MEGAcmd printed non-empty output.
 		if err.Error() == megaWebDAVURLMissingV85 {
 			return "", err
 		}
 		problem := classifyMegaProblem(result.StartOutput, err)
 		return "", newMegaProblemError(problem, result.StartOutput)
 	}
-	if result.CleanupWarning != nil {
-		a.logf("MEGA preview: noul stream este activ, dar cleanup-ul celui vechi a eșuat: %v", result.CleanupWarning)
-	}
+
+	// Critical latency fix: return the new URL immediately and clean the old node
+	// in the background instead of blocking the HTTP response for up to 12 s.
+	a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
 	return result.StreamURL, nil
 }
