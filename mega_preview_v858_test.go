@@ -68,7 +68,9 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 
 	// Static regression guard for the backend strategy. The legacy whole-root
 	// helper may remain for compatibility, but coalesced user initialization
-	// must call the direct per-file resume path.
+	// must call the direct per-file resume path. v8.5.23 is allowed to wrap the
+	// returned WebDAV URL through the persistent browser-facing media server,
+	// while preserving the DIRECT RESUME diagnostic mode.
 	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +78,8 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item)") {
 		t.Fatal("restart click is not routed through direct per-file resume")
 	}
-	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
-		t.Fatal("direct resume mode is not exposed to UI diagnostics")
+	if !strings.Contains(src, `browserReadyMegaPreviewV8523(streamURL, "MEGA DIRECT RESUME", started)`) {
+		t.Fatal("direct resume mode is not preserved through the browser-facing media server")
 	}
 }
 
