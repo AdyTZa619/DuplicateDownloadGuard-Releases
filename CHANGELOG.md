@@ -2,6 +2,21 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.9] — 2026-09-04
+
+### MEGA Preview — cold-start și blocaje după mai multe vizualizări
+- Reparată concurența dintre clickurile de preview și comenzile `webdav -d` de cleanup pornite în fundal; cleanup-ul vechi nu mai poate ocoli arbitrul global al sesiunii MEGA.
+- Curățarea unui nod WebDAV vechi este acum strict low-priority: încearcă gate-ul MEGA doar pentru o fereastră foarte scurtă și renunță dacă există activitate foreground, în loc să stea în coadă înaintea playerului.
+- Cleanup-ul este limitat la un timeout scurt și verifică să nu oprească nodul devenit între timp din nou activ.
+- Dacă DDG nu a înlocuit o sesiune MEGA existentă, la închiderea controlată oprește WebDAV-ul dar păstrează sesiunea folderului public activă; astfel restartul nu mai trebuie să execute obligatoriu `session` → `logout` → `login <folder> --resume` înainte de primul preview.
+- Se salvează numai un hint local non-secret cu URL-ul folderului public; DDG nu persistă tokenul/session ID-ul MEGA.
+- La următoarea pornire, pentru aceeași sursă, DDG încearcă mai întâi `webdav <fișier>` direct pe sesiunea păstrată. Dacă hintul este stale sau sesiunea a fost schimbată extern, tentativa expiră rapid, hintul este invalidat și se revine sigur la ruta `--resume`.
+- După un login `--resume` reușit fără sesiune anterioară de restaurat, hintul este actualizat pentru restartul următor.
+
+### Validare
+- Teste noi verifică round-trip-ul hintului, izolarea între două URL-uri MEGA și faptul că fast path-ul de restart nu execută `session`, `logout` sau `login` când sesiunea păstrată este validă.
+- Ramura a trecut formatarea, verificarea tuturor fișierelor JavaScript, toate testele Go, `go vet` și build-ul Windows x64 înainte de bump-ul final la 8.5.9; release-ul este revalidat după bump.
+
 ## [8.5.8] — 2026-09-04
 
 ### MEGA Preview — reparare regresie de latență
@@ -35,7 +50,7 @@ Acest fișier păstrează schimbările importante pentru fiecare versiune public
 - CI verifică acum cu `node --check` toate fișierele JavaScript separate din `web/*.js`, nu doar `exact_guard.js`.
 - Pipeline-ul de release verifică `gofmt` pentru toate fișierele Go și sintaxa tuturor fișierelor JavaScript separate înainte de teste și build.
 - Teste de regresie pentru adăugare de folder cu fișier redenumit de tip `original-D3558.jpg`, pentru `LiveRefreshCompare` activ/dezactivat, eliminarea unui folder și păstrarea corectă a unui subfolder încă activ.
-- Pachetul a trecut `gofmt`, verificarea JavaScript, toate testele Go, `go vet` și build-ul Windows x64 înainte de pregătirea release-ului.
+- Pachetul a trecut `gofmt`, verificarea JavaScript, toate testele Go, `go vet` și build Windows x64 înainte de pregătirea release-ului.
 
 ## [8.5.6] — 2026-09-04
 
