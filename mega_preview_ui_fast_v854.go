@@ -45,10 +45,12 @@ func (a *App) tryMegaPreviewUICacheV854(item RemoteItem) (string, string, bool) 
 	return "", "", false
 }
 
-func (a *App) startMegaPreviewForUIV854(item RemoteItem) (string, string, time.Duration, error) {
+func (a *App) startMegaPreviewForUIV854(item RemoteItem, forceFallback bool) (string, string, time.Duration, error) {
 	started := time.Now()
-	if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
-		return streamURL, mode, time.Since(started), nil
+	if !forceFallback {
+		if streamURL, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
+			return streamURL, mode, time.Since(started), nil
+		}
 	}
 	streamURL, err := a.startMegaPreview(item)
 	if err != nil {
