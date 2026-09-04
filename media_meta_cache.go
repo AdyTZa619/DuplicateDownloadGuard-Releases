@@ -19,9 +19,12 @@ type localMediaMetaCacheEntry struct {
 
 var localMediaMetaCacheState = struct {
 	sync.Mutex
-	AppDir  string
-	Loaded  bool
-	Entries map[string]localMediaMetaCacheEntry
+	SaveMu     sync.Mutex
+	AppDir     string
+	Loaded     bool
+	Dirty      bool
+	Generation uint64
+	Entries    map[string]localMediaMetaCacheEntry
 }{}
 
 func localMediaMetaCacheFile(a *App) string {
@@ -37,6 +40,8 @@ func ensureLocalMediaMetaCacheLoaded(a *App) {
 	}
 	localMediaMetaCacheState.AppDir = appDir
 	localMediaMetaCacheState.Loaded = true
+	localMediaMetaCacheState.Dirty = false
+	localMediaMetaCacheState.Generation = 0
 	localMediaMetaCacheState.Entries = map[string]localMediaMetaCacheEntry{}
 	b, err := os.ReadFile(localMediaMetaCacheFile(a))
 	if err != nil {
@@ -67,6 +72,8 @@ func cacheLocalMediaInfo(a *App, e FileEntry, info MediaInfo) {
 	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
 	localMediaMetaCacheState.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Info: info}
+	localMediaMetaCacheState.Dirty = true
+	localMediaMetaCacheState.Generation++
 	localMediaMetaCacheState.Unlock()
 }
 
@@ -86,6 +93,10 @@ func pruneLocalMediaMetaCache(a *App, entries []FileEntry) bool {
 			delete(localMediaMetaCacheState.Entries, key)
 			changed = true
 		}
+	}
+	if changed {
+		localMediaMetaCacheState.Dirty = true
+		localMediaMetaCacheState.Generation++
 	}
 	localMediaMetaCacheState.Unlock()
 	return changed
@@ -116,7 +127,15 @@ func replaceCacheFileV85(tmp, path string) error {
 
 func saveLocalMediaMetaCache(a *App) error {
 	ensureLocalMediaMetaCacheLoaded(a)
+	localMediaMetaCacheState.SaveMu.Lock()
+	defer localMediaMetaCacheState.SaveMu.Unlock()
+
 	localMediaMetaCacheState.Lock()
+	if !localMediaMetaCacheState.Dirty {
+		localMediaMetaCacheState.Unlock()
+		return nil
+	}
+	generation := localMediaMetaCacheState.Generation
 	rows := make(map[string]localMediaMetaCacheEntry, len(localMediaMetaCacheState.Entries))
 	for k, v := range localMediaMetaCacheState.Entries {
 		rows[k] = v
@@ -131,7 +150,15 @@ func saveLocalMediaMetaCache(a *App) error {
 	if err := os.WriteFile(tmp, b, 0644); err != nil {
 		return err
 	}
-	return replaceCacheFileV85(tmp, path)
+	if err := replaceCacheFileV85(tmp, path); err != nil {
+		return err
+	}
+	localMediaMetaCacheState.Lock()
+	if localMediaMetaCacheState.Generation == generation {
+		localMediaMetaCacheState.Dirty = false
+	}
+	localMediaMetaCacheState.Unlock()
+	return nil
 }
 
 func durationCompatibleV85(remoteInfo, localInfo MediaInfo) (float64, bool) {
