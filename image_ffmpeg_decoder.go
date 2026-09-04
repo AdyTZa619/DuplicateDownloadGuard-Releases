@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Go's standard image decoders cover JPEG/PNG/GIF, while Smart Media Guard
@@ -81,10 +83,15 @@ func decodeImageViaFFmpegV85(r io.Reader) (image.Image, error) {
 		"-vcodec", "png",
 		"pipe:1",
 	}
-	cmd := exec.Command(ff, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ff, args...)
 	hideChildWindow(cmd)
 	cmd.Stdin = io.LimitReader(r, 256<<20)
 	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("FFmpeg imagine a depășit limita de timp: %w", ctx.Err())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("FFmpeg imagine: %w", err)
 	}
