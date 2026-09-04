@@ -1,8 +1,8 @@
 {
-  "version": "8.5.3",
+  "version": "8.5.4",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "9c95501e401ef9fceec62435966bc7a1aa1c2ba18d12d0805aab050a24d09b30",
-  "notes": "Noutăți 8.5.3: După scanarea unui folder MEGA public, aplicația încearcă să pornească o singură rădăcină WebDAV și o păstrează temporar „caldă” pentru verificarea rapidă a fișierelor. • Pentru fișierele din același folder, URL-ul de preview este derivat local din rădăcina WebDAV; nu mai este necesară pornirea unui nod WebDAV nou la fiecare rând atunci când fast-path-ul este disponibil. • Fast-path-ul face doar o verificare locală foarte scurtă a URL-ului rezultat; dacă structura WebDAV a instalării MEGAcmd nu corespunde, aplicația cade automat pe mecanismul per-fișier existent. • Schimbarea dintre două streamuri per-fișier nu mai așteaptă oprirea WebDAV-ului vechi: URL-ul nou este returnat imediat, iar cleanup-ul vechi rulează în fundal după un scurt handoff. • Pornirea și fallback-urile WebDAV au timeout-uri mai mici pentru a evita blocarea aparentă a Compare Studio. • Corectată construirea URL-urilor WebDAV pentru nume cu spații și caractere care necesită escaping; calea nu mai este dublu codificată.",
-  "publishedAt": "2026-09-04T10:54:01.7060534Z",
+  "sha256": "a5bc1d8dcef3f38ff4e6885d5d3d38f76168fe8422a5c23e801bb2e7f9468f23",
+  "notes": "Noutăți 8.5.4: Eliminată verificarea `HEAD` sincronă din calea rapidă a preview-ului MEGA. După ce scanarea a pregătit WebDAV root, URL-ul fișierului este construit local și trimis imediat playerului. • Un cache hit `MEGA FAST ROOT` sau `MEGA FAST CACHE` nu mai așteaptă mutexul global MEGA și nu mai lansează nicio comandă MEGAcmd. • Endpointul de preview raportează modul folosit și timpul de pregătire în milisecunde, pentru diagnosticarea clară a cazurilor care cad pe fallback. • Dacă URL-ul root rapid nu poate fi consumat de browser, interfața încearcă automat o singură dată fallback-ul WebDAV per-fișier înainte să ofere player extern/MEGA. • Debounce-ul navigării prin rezultate a fost redus de la 320 ms la 140 ms; rămâne suficient pentru a evita comutări WebDAV inutile când se navighează rapid. • Analizele Smart Guard, ffprobe și fingerprint rămân pe traseele lor verificate; optimizarea zero-command este limitată la preview-ul interactiv din Compare Studio.",
+  "publishedAt": "2026-09-04T11:26:51.8968739Z",
   "channel": "stable"
 }
