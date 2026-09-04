@@ -47,9 +47,8 @@ func switchSameSourceWebDAVV85(old MegaPreviewState, remoteRef string, run megaW
 	return result, nil
 }
 
-// schedulePreviousMegaPreviewCleanupV86 is deliberately separate from the
-// switch itself so latency and cleanup can be tested independently. It returns
-// immediately after scheduling the old node removal.
+// schedulePreviousMegaPreviewCleanupV86 remains a small pure scheduling helper
+// used by regression tests and non-App callers.
 func schedulePreviousMegaPreviewCleanupV86(old MegaPreviewState, newRemoteRef string, delay time.Duration, run megaWebDAVRunnerV85) bool {
 	if run == nil || old.Exe == "" || old.RemotePath == "" || old.RemotePath == newRemoteRef || old.RemotePath == megaWarmRootRefV86 {
 		return false
@@ -63,17 +62,44 @@ func schedulePreviousMegaPreviewCleanupV86(old MegaPreviewState, newRemoteRef st
 	return true
 }
 
+// cleanupPreviousMegaPreviewAsyncV86 used to launch an ungated MEGAcmd command
+// 1.2 s after every file switch. Several quick previews could therefore overlap
+// cleanup commands with the next user-triggered WebDAV start even though
+// MEGAcmd has one process-wide session. v8.5.9 makes cleanup strictly
+// low-priority: it runs only if the MEGA gate is immediately available, never
+// touches the currently active node, and is bounded to a short best-effort
+// command. Skipping cleanup is safer than delaying the player's next click.
 func (a *App) cleanupPreviousMegaPreviewAsyncV86(old MegaPreviewState, newRemoteRef string) {
-	run := func(timeout time.Duration, args ...string) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		out, err := runMegaTimed(ctx, timeout, old.Exe, args...)
-		if err != nil {
-			a.logf("MEGA preview: cleanup WebDAV vechi în fundal: %v • %s", err, sanitizeMega(out))
-		}
-		return out, err
+	if a == nil || old.Exe == "" || old.RemotePath == "" || old.RemotePath == newRemoteRef || old.RemotePath == megaWarmRootRefV86 {
+		return
 	}
-	_ = schedulePreviousMegaPreviewCleanupV86(old, newRemoteRef, 1200*time.Millisecond, run)
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+
+		gateCtx, gateCancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+		defer gateCancel()
+		if err := acquireMegaSession(gateCtx); err != nil {
+			// A user operation owns or is about to own MEGA. Do not queue behind it.
+			return
+		}
+		defer releaseMegaSession()
+
+		// A later click may have returned to the node that this older cleanup was
+		// going to remove. Never tear down the currently active stream.
+		a.previewMu.Lock()
+		current := a.preview
+		a.previewMu.Unlock()
+		if current.Active && current.Exe == old.Exe && current.RemotePath == old.RemotePath {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		out, err := runMegaTimed(ctx, 1500*time.Millisecond, old.Exe, "webdav", "-d", old.RemotePath)
+		if err != nil && ctx.Err() == nil {
+			a.logf("MEGA preview: cleanup WebDAV vechi omis/întârziat: %v • %s", err, sanitizeMega(out))
+		}
+	}()
 }
 
 func (a *App) switchMegaPreviewSameSourceV85(old MegaPreviewState, remoteRef string) (string, error) {
@@ -90,8 +116,8 @@ func (a *App) switchMegaPreviewSameSourceV85(old MegaPreviewState, remoteRef str
 		return "", newMegaProblemError(problem, result.StartOutput)
 	}
 
-	// Critical latency fix: return the new URL immediately and clean the old node
-	// in the background instead of blocking the HTTP response for up to 12 s.
+	// Return the new URL immediately. Old-node cleanup is best-effort and must
+	// never compete with another user preview.
 	a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
 	return result.StreamURL, nil
 }
