@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,38 @@ func TestMegaPreviewRestartHintRoundTripV859(t *testing.T) {
 	a.clearMegaPreviewRestartHintV859()
 	if a.matchesMegaPreviewRestartHintV859(url) {
 		t.Fatal("restart hint survived clear")
+	}
+}
+
+func TestPersistentMegaRootRoundTripV8510(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	a := &App{appDir: t.TempDir()}
+	source := "https://mega.nz/folder/example#key"
+	a.saveMegaPreviewRestartRootV8510(source, ts.URL+"/root")
+	item := RemoteItem{Source: "MEGA", URL: source, Path: "sub/video.mp4", Name: "video.mp4"}
+	root, child, ok := a.tryPersistedMegaRootV8510(item)
+	if !ok {
+		t.Fatal("persisted loopback root was not reused")
+	}
+	if root != ts.URL+"/root" {
+		t.Fatalf("root=%q", root)
+	}
+	if child != ts.URL+"/root/sub/video.mp4" {
+		t.Fatalf("child=%q", child)
+	}
+}
+
+func TestPersistentMegaRootRejectsNonLoopbackV8510(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	source := "https://mega.nz/folder/example#key"
+	a.saveMegaPreviewRestartRootV8510(source, "https://example.com/root")
+	item := RemoteItem{Source: "MEGA", URL: source, Path: "video.mp4"}
+	if _, _, ok := a.tryPersistedMegaRootV8510(item); ok {
+		t.Fatal("persistent root must only trust a loopback listener")
 	}
 }
 

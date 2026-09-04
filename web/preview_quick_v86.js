@@ -63,9 +63,10 @@
     }
   }
 
-  // v8.5.8: a FAST ROOT browser error must use a genuinely different WebDAV
-  // endpoint. The backend forceFallback path now switches to the file handle/
-  // path directly. Retry exactly once per selected result to avoid loops.
+  // v8.5.10 owns the single browser-error fallback. One failed FAST ROOT item
+  // may use a genuinely different per-file endpoint, but that fallback must not
+  // trigger the older v8.5.4 wrapper a second time and must not destroy the
+  // backend root used by following rows.
   function wrapMegaRootFailureV858() {
     const original = window.remotePreviewError;
     if (typeof original !== 'function' || original.__megaTrueFallbackV858) return;
@@ -74,7 +75,7 @@
       const id = Number(current?.id || 0);
       const sourceEl = document.getElementById('remoteSource');
       const sourceText = String(sourceEl?.textContent || '').toUpperCase();
-      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME');
+      const rootMode = sourceText.includes('MEGA FAST ROOT') || sourceText.includes('MEGA FAST RESUME') || sourceText.includes('MEGA PERSISTENT ROOT');
       const now = Date.now();
       const recentlyRetried = id && trueFallbackIDV858 === id && now - trueFallbackAtV858 < 15000;
       if (!id || !rootMode || recentlyRetried) return original.apply(this, arguments);
@@ -82,7 +83,7 @@
       trueFallbackIDV858 = id;
       trueFallbackAtV858 = now;
       const preview = document.getElementById('remotePreview');
-      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; trec pe fallback MEGA per-fișier…</b><span class="small">Nu repet același URL fast.</span></div>';
+      if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Streamul rapid nu a fost acceptat; încerc o singură dată fallback MEGA per-fișier…</b><span class="small">Root-ul rămâne activ pentru următoarele fișiere.</span></div>';
       try {
         const d = await api('/api/remote-preview/start', {
           method: 'POST',
@@ -101,6 +102,10 @@
         if (preview) preview.innerHTML = remoteMediaHTML(d.url, kind, current.remote?.name || current.remote?.path || 'remote');
         return;
       } catch (_) {
+        // The original handler currently includes the older v8.5.4 fallback
+        // wrapper. Change the source marker before delegating so it renders the
+        // final error instead of issuing a second forceFallback request.
+        if (sourceEl) sourceEl.textContent = 'MEGA TRUE FALLBACK • EROARE';
         return original.apply(this, arguments);
       }
     };
