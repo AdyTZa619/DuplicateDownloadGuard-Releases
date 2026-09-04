@@ -5,6 +5,7 @@ on:
     branches: [fix/v8.5.5-download-core]
     paths:
       - tools/apply_download_v855.py
+      - .github/workflows/apply-download-v855.yml
 
 permissions:
   contents: write
