@@ -1,0 +1,67 @@
+name: Prepare DDG 8.5.38
+
+on:
+  push:
+    branches: [release/8.5.38]
+    paths:
+      - '.github/workflows/prepare-8538.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/8.5.38
+
+      - name: Prepare release metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '8.5.38'
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'VERSION'), "$version`n", [System.Text.UTF8Encoding]::new($false))
+
+          $mainPath = Join-Path $PWD 'main.go'
+          $main = [System.IO.File]::ReadAllText($mainPath)
+          $pattern = 'const appVersion = "[^"]+"'
+          if (-not [regex]::IsMatch($main, $pattern)) { throw 'appVersion lipsește din main.go' }
+          $main = [regex]::Replace($main, $pattern, 'const appVersion = "8.5.38 Pro Smart Media Guard"', 1)
+          [System.IO.File]::WriteAllText($mainPath, $main, [System.Text.UTF8Encoding]::new($false))
+
+          $changelogPath = Join-Path $PWD 'CHANGELOG.md'
+          $changelog = [System.IO.File]::ReadAllText($changelogPath)
+          $lines = @(
+            '## [8.5.38] — 2026-09-06',
+            '',
+            '### GoFile / Bunkr / Cyberdrop — scanare fără blocaj înainte de rezultate',
+            '- Scanarea inițială nu mai execută câte un HEAD/Range HTTP pentru fiecare fișier după ce gallery-dl a furnizat deja metadata necesară comparației locale.',
+            '- GoFile, Bunkr și Cyberdrop trimit lista extrasă direct către comparator; detaliile HTTP de transport sunt rezolvate ulterior numai când sunt necesare pentru preview, verificare sau download.',
+            '- Elimină cazul în care un folder cu multe fișiere părea că nu face nimic și nu afișa nici rezultat, nici eroare, din cauza timeout-urilor de până la 25 secunde pe probele CDN.',
+            '- Sursele gallery-dl generice păstrează fallback-ul de îmbogățire HTTP atunci când metadata extractorului nu este suficientă.',
+            '',
+            '### Compatibilitate',
+            '- MEGA Preview și semantica de matching rămân neschimbate.',
+            '- Testele verifică explicit că GoFile/Bunkr/Cyberdrop nu mai intră pe calea de probe HTTP blocante înainte de rezultate.',
+            '',
+            ''
+          )
+          $section = $lines -join "`n"
+          $rx = '(?ms)^## \[8\.5\.38\].*?(?=^## \[|\z)'
+          if ([regex]::IsMatch($changelog, $rx)) {
+            $changelog = [regex]::Replace($changelog, $rx, $section, 1)
+          } else {
+            $first = [regex]::Match($changelog, '(?m)^## \[')
+            if (-not $first.Success) { throw 'Nu am găsit prima secțiune de versiune în CHANGELOG.md' }
+            $changelog = $changelog.Insert($first.Index, $section)
+          }
+          [System.IO.File]::WriteAllText($changelogPath, $changelog, [System.Text.UTF8Encoding]::new($false))
+
+          Remove-Item '.github/workflows/prepare-8538.yml' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add VERSION main.go CHANGELOG.md .github/workflows/prepare-8538.yml
+          git commit -m 'Prepare 8.5.38 release metadata'
+          git push origin HEAD:release/8.5.38
