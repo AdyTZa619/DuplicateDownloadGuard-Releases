@@ -1,8 +1,8 @@
 {
-  "version": "8.5.33",
+  "version": "8.5.34",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "cba8da1c107b3f4e86111f6284ef7edc8c6147c2fe73d941f2bbc0f500262abd",
-  "notes": "Noutăți 8.5.33: Preview-ul folosește un singur controller pe durata aplicației, cu listener separat pentru control și media; operațiile lente MEGAcmd nu mai blochează serverul principal. • Selecțiile rapide sunt comasate timp de 90 ms, iar numai ultima selecție pornește preview-ul; cererile depășite sunt anulate fără a fi raportate ca erori MEGA. • Fallback-ul per-fișier rămâne disponibil și nu mai concurează cu fallback-uri JavaScript duplicate. • Jurnalul tehnic notează pentru fiecare click traseul, comenzile, timpii, starea root-ului, anulările și motivul fallback-ului. • Candidata 8.5.33-test.1 a fost validată pe Windows cu MEGAcmd în 61 schimbări de preview: pregătirea serverului a avut media 107 ms și maxim 158 ms, comenzile per-fișier media 163 ms și maxim 277 ms. • Nu au existat erori MEGA, cleanup concurent, `webdav -d` sau degradare după schimbări repetate; utilizatorul a confirmat că preview-ul funcționează bine.",
-  "publishedAt": "2026-09-05T19:25:21.9974452Z",
+  "sha256": "eda174d2aa45e88ee63ad3d3df34e64522b8ccd39fd14c01621fe538f7e224de",
+  "notes": "Noutăți 8.5.34: Compararea versiunilor respectă acum precedența SemVer: pentru același nucleu numeric, versiunea stable este mai nouă decât orice prerelease `-test.N`. • Repară cazul concret în care `8.5.33-test.1` era considerată mai nouă decât `8.5.33` și updaterul afișa greșit „sunt la zi”. • Testele acoperă trecerea test → stable, ordinea între două candidate test, egalitatea stable și intrările invalide. • MEGA Preview rămâne identic cu arhitectura 8.5.33 validată real pe Windows.",
+  "publishedAt": "2026-09-05T19:46:31.6314946Z",
   "channel": "stable"
 }
