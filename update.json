@@ -1,8 +1,8 @@
 {
-  "version": "8.5.39",
+  "version": "8.5.40",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "13750cbd1dc139220d755b1a4a12a4c33a7465941d3956a11d73a0103ef9ae8e",
-  "notes": "Noutăți 8.5.39: GoFile folosește acum un adapter nativ pe API-ul curent pentru listarea folderelor, cu token web dinamic și metadata directă; `gallery-dl` rămâne fallback, nu dependență principală. • Scanarea GoFile are timeout controlat și jurnal explicit pe etape, astfel încât un eșec nu mai poate rămâne fără rezultat și fără eroare. • Contextul de autentificare GoFile rămâne numai în memorie; tokenurile/cookie-urile nu sunt salvate în `RemoteItem` sau în istoricul persistent. • Repară oprirea noii versiuni la câteva secunde după update: procesul `--ddg-native-updater-cleanup` nu mai poate închide fereastra DDG proaspăt pornită. • Păstrează cleanup-ul automat al update-urilor vechi și un singur backup pentru rollback. • MEGA Preview și semantica de matching nu sunt modificate.",
-  "publishedAt": "2026-09-05T23:23:24.4497569Z",
+  "sha256": "6076c30f89631e9e4151e0f6ede99add96497a6ae67f2a56ef8a8d988b07ecc5",
+  "notes": "Noutăți 8.5.40: Repară `GoFile API HTTP 401`: DDG folosește saltul curent pentru `X-Website-Token`, sincronizat cu protocolul GoFile actual. • La `401`, tokenul guest din RAM este invalidat și refăcut o singură dată înainte de a declara scanarea eșuată. • La `429 Too Many Requests`, DDG nu mai cade imediat în fallback: respectă `Retry-After` când este furnizat și reîncearcă controlat de până la 5 ori. • Cererile native GoFile sunt distanțate cu minimum 500 ms pentru a reduce declanșarea rate-limit-ului pe foldere și subfoldere. • Saltul GoFile poate fi suprascris prin `GOFILE_WT_SALT` fără recompilare dacă providerul îl rotește din nou. • MEGA Preview, matching-ul și celelalte providere nu sunt modificate.",
+  "publishedAt": "2026-09-05T23:53:02.5772486Z",
   "channel": "stable"
 }
