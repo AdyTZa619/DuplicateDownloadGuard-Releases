@@ -1,8 +1,8 @@
 {
-  "version": "8.5.30-test.1",
+  "version": "8.5.31-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "8a741b82f2233d56d55b49a0f36a46e4f043af1f0e7f1e26839a4073fd078377",
-  "notes": "TEST MEGA Preview 8.5.30-test.1: păstrează recuperarea verificată a erorii 231 din 8.5.29. Jurnalul Windows cu 31 de preview-uri arată că după recuperare toate cele 27 de comenzi MEGAcmd au răspuns în 97-432 ms, media 139 ms, dar 8 clickuri au stat între 1,595 și 13,087 s înainte să ajungă la backend. Cauza rămasă este streamul nativ vechi: eliminarea nodului video/audio/imagine din DOM nu garantează anularea descărcării și poate ocupa sloturile HTTP ale browserului. Candidatul golește src plus load() pentru video/audio și înlocuiește src pentru imagini înainte de următoarea cerere /start; evenimentele elementelor vechi sunt ignorate. Este numai test, nu stable.",
-  "publishedAt": "2026-09-05T12:20:23.3371530Z",
+  "sha256": "220799299226480e32026e847785af503a9335ae5d1f3611ac1be8034d24ff84",
+  "notes": "TEST MEGA Preview 8.5.31-test.1: jurnalul real 8.5.30 cu 32 de preview-uri confirmă că MEGAcmd este sănătos (media 159 ms, maxim 493 ms), dar portul HTTP comun rămânea congestionat: T0→T1 a ajuns la 16,364 s, iar T4→T5 la 9,524 s. Playerul media folosește acum un al doilea listener 127.0.0.1 cu port dinamic, dedicat exclusiv proxy-ului image/video/audio. UI, /start, status și diagnosticul rămân pe portul principal și nu mai împart pool-ul de conexiuni al browserului cu streamurile Range. La fiecare schimbare sunt închise explicit socketurile browser-facing ale generației vechi, iar keep-alive este dezactivat pe listenerul media. Păstrează recuperarea unică a erorii 231. Este numai test, nu stable; rezolvarea necesită confirmare Windows reală.",
+  "publishedAt": "2026-09-05T12:41:03.9038017Z",
   "channel": "test"
 }
