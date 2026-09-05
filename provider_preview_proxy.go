@@ -56,12 +56,15 @@ func buildProviderPreviewRequestV86(ctx context.Context, incoming *http.Request,
 func copyProviderPreviewResponseHeadersV86(dst, src http.Header) {
 	for _, key := range []string{
 		"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",
-		"ETag", "Last-Modified", "Cache-Control", "Content-Disposition",
+		"ETag", "Last-Modified", "Cache-Control",
 	} {
 		if value := src.Get(key); value != "" {
 			dst.Set(key, value)
 		}
 	}
+	// Deliberately do not forward Content-Disposition: attachment. The route is
+	// a preview surface; forwarding it would make browsers download media that
+	// should be rendered inline.
 	dst.Set("X-Content-Type-Options", "nosniff")
 }
 
@@ -74,14 +77,17 @@ func providerRefreshableSourceV86(source string) bool {
 	}
 }
 
-func sameProviderRemoteV86(old, fresh RemoteItem) bool {
+func providerRemoteMatchRankV86(old, fresh RemoteItem) int {
 	if old.ProviderID != "" && fresh.ProviderID != "" && strings.EqualFold(strings.TrimSpace(old.ProviderID), strings.TrimSpace(fresh.ProviderID)) {
-		return true
+		return 3
 	}
 	if old.Path != "" && fresh.Path != "" && strings.EqualFold(filepathSlashV86(old.Path), filepathSlashV86(fresh.Path)) {
-		return true
+		return 2
 	}
-	return old.Name != "" && fresh.Name != "" && strings.EqualFold(strings.TrimSpace(old.Name), strings.TrimSpace(fresh.Name))
+	if old.Name != "" && fresh.Name != "" && strings.EqualFold(strings.TrimSpace(old.Name), strings.TrimSpace(fresh.Name)) {
+		return 1
+	}
+	return 0
 }
 
 func filepathSlashV86(path string) string {
@@ -98,12 +104,39 @@ func (a *App) refreshProviderRemoteV86(ctx context.Context, old RemoteItem) (Rem
 	if err != nil {
 		return RemoteItem{}, err
 	}
+	bestRank := 0
+	bestCount := 0
+	best := RemoteItem{}
 	for _, fresh := range items {
-		if sameProviderRemoteV86(old, fresh) {
-			return fresh, nil
+		rank := providerRemoteMatchRankV86(old, fresh)
+		if rank > bestRank {
+			bestRank = rank
+			bestCount = 1
+			best = fresh
+		} else if rank > 0 && rank == bestRank {
+			bestCount++
 		}
 	}
-	return RemoteItem{}, fmt.Errorf("fișierul nu a mai fost găsit în sursa remote")
+	if bestRank == 0 {
+		return RemoteItem{}, fmt.Errorf("fișierul nu a mai fost găsit în sursa remote")
+	}
+	if bestCount > 1 {
+		return RemoteItem{}, fmt.Errorf("reîmprospătarea este ambiguă: %d fișiere corespund aceleiași identități", bestCount)
+	}
+	return best, nil
+}
+
+func (a *App) replaceResultRemoteV86(resultID int, fresh RemoteItem) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.results {
+		if a.results[i].ID != resultID {
+			continue
+		}
+		fresh.ID = a.results[i].Remote.ID
+		a.results[i].Remote = fresh
+		return
+	}
 }
 
 func invalidateGoFileGuestTokenV86() {
@@ -172,6 +205,7 @@ func (a *App) handleProviderPreviewMediaV86(w http.ResponseWriter, r *http.Reque
 		}
 		if fresh, refreshErr := a.refreshProviderRemoteV86(r.Context(), item); refreshErr == nil {
 			item = fresh
+			a.replaceResultRemoteV86(id, fresh)
 			resp, err = doProviderPreviewRequestV86(r.Context(), r, item)
 			if err != nil {
 				http.Error(w, "Sursa remote nu răspunde după reîmprospătare", http.StatusBadGateway)
