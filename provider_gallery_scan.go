@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -104,46 +104,95 @@ func galleryRemotePathV86(meta map[string]any, name string) string {
 	return filepath.ToSlash(filepath.Join(album, name))
 }
 
+func galleryMessageTypeV86(v any) int {
+	switch x := v.(type) {
+	case json.Number:
+		n, _ := strconv.Atoi(x.String())
+		return n
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(x))
+		return n
+	default:
+		return 0
+	}
+}
+
+func appendGalleryMessageV86(items *[]RemoteItem, seen map[string]bool, msg []any, sourceURL, source string) {
+	// gallery-dl Message.Url == 3. Directory (2) and Queue (6) entries are
+	// metadata/control messages and must not become fake downloadable files.
+	if len(msg) < 3 || galleryMessageTypeV86(msg[0]) != 3 {
+		return
+	}
+	direct, ok := msg[1].(string)
+	if !ok || (!strings.HasPrefix(direct, "http://") && !strings.HasPrefix(direct, "https://")) {
+		return
+	}
+	meta, _ := msg[2].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	name := galleryRemoteNameV86(meta, direct)
+	providerID := galleryStringV86(meta, "id", "id_url", "uuid", "slug", "file_id")
+	key := providerContextKeyV86(direct) + "|" + strings.ToLower(name)
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	*items = append(*items, RemoteItem{
+		Path:       galleryRemotePathV86(meta, name),
+		Name:       name,
+		Size:       galleryInt64V86(meta, "size", "filesize", "file_size", "content_size"),
+		Source:     source,
+		URL:        sourceURL,
+		DirectURL:  direct,
+		Extractor:  strings.ToLower(source),
+		ProviderID: providerID,
+	})
+}
+
+func walkGalleryJSONV86(v any, items *[]RemoteItem, seen map[string]bool, sourceURL, source string) {
+	arr, ok := v.([]any)
+	if !ok {
+		return
+	}
+	if len(arr) >= 3 && galleryMessageTypeV86(arr[0]) != 0 {
+		appendGalleryMessageV86(items, seen, arr, sourceURL, source)
+		return
+	}
+	for _, child := range arr {
+		walkGalleryJSONV86(child, items, seen, sourceURL, source)
+	}
+}
+
 func parseGalleryRemoteItemsV86(output []byte, sourceURL string) []RemoteItem {
 	source := providerSourceLabelV86(sourceURL)
 	items := []RemoteItem{}
 	seen := map[string]bool{}
-	scanner := bufio.NewScanner(bytes.NewReader(output))
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 || line[0] != '[' {
-			continue
+
+	// Newer gallery-dl can emit one message per JSON line with output.jsonl.
+	// Older builds ignore that option and emit one classic JSON document whose
+	// top-level array contains all message tuples. json.Decoder accepts both:
+	// multiple consecutive JSON values (JSONL) and a single nested JSON array.
+	dec := json.NewDecoder(bytes.NewReader(output))
+	dec.UseNumber()
+	for {
+		var raw any
+		err := dec.Decode(&raw)
+		if err == io.EOF {
+			break
 		}
-		dec := json.NewDecoder(bytes.NewReader(line))
-		dec.UseNumber()
-		var msg []any
-		if err := dec.Decode(&msg); err != nil || len(msg) < 3 {
-			continue
+		if err != nil {
+			break
 		}
-		direct, ok := msg[1].(string)
-		if !ok || (!strings.HasPrefix(direct, "http://") && !strings.HasPrefix(direct, "https://")) {
-			continue
-		}
-		meta, _ := msg[2].(map[string]any)
-		name := galleryRemoteNameV86(meta, direct)
-		providerID := galleryStringV86(meta, "id", "id_url", "uuid", "slug", "file_id")
-		key := providerContextKeyV86(direct) + "|" + strings.ToLower(name)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		items = append(items, RemoteItem{
-			Path:       galleryRemotePathV86(meta, name),
-			Name:       name,
-			Size:       galleryInt64V86(meta, "size", "filesize", "file_size", "content_size"),
-			Source:     source,
-			URL:        sourceURL,
-			DirectURL:  direct,
-			Extractor:  strings.ToLower(source),
-			ProviderID: providerID,
-		})
+		walkGalleryJSONV86(raw, &items, seen, sourceURL, source)
 	}
+
 	for i := range items {
 		items[i].ID = i + 1
 	}
@@ -195,7 +244,7 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 	_ = parseGalleryResolvedContextV86(output, sourceURL, cookies)
 	items := parseGalleryRemoteItemsV86(output, sourceURL)
 	if len(items) == 0 {
-		return nil, errors.New("gallery-dl nu a returnat fișiere")
+		return nil, errors.New("gallery-dl a răspuns, dar DDG nu a găsit niciun fișier în metadata")
 	}
 
 	// Metadata from the extractor is primary. Small parallel HEAD/range probes
