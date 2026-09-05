@@ -1,8 +1,8 @@
 {
-  "version": "8.5.32-test.1",
+  "version": "8.5.33-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "043fb4a554f8fb8798d9c5a54c4a40e5ff3f20e314d6f111f7745a1a6da48738",
-  "notes": "TEST MEGA Preview 8.5.32-test.1: jurnalul real 8.5.31 confirmă că portul media separat a eliminat întârzierea dintre WebDAV gata și prima cerere media: 26/26 sub 500 ms, media 25,4 ms, maxim 389 ms. A rămas congestia click→backend pe portul principal: 16/32 peste 500 ms, maxim 17,077 s; generațiile depășite nu mai ajungeau la player. Acest candidat mută /start, status, event, stop și timings pe un al treilea listener loopback dedicat controlului MEGA Preview, cu CORS limitat exact la originea UI. Elimină keepalive din evenimentele normale, nu mai trimite T11/T12 înaintea următorului /start și anulează cererea /start precedentă la un click nou. Media rămâne pe propriul port, cu închiderea socketurilor vechi. Este numai test, nu stable; necesită validare Windows reală.",
-  "publishedAt": "2026-09-05T13:03:40.8103965Z",
+  "sha256": "6eb5d84872127fcda7236b5f35bcc015af2e1d296919eb80e2685b3e225b0bb6",
+  "notes": "TEST MEGA Preview 8.5.33-test.1: jurnalul Windows 8.5.32 confirmă că cele trei trasee separate au eliminat pauzele de 20–30 s: 65/65 cereri de control sub 500 ms (media 29,7 ms, maxim 215 ms), 42 comenzi MEGAcmd sub 500 ms (media 227,9 ms, maxim 400 ms), T4→T5 media 22,6 ms și maxim 222 ms, iar toate cele 37 de cadre afișate au apărut sub 3 s. Testul a descoperit însă 27 de selecții într-un val rapid, cu 25 de generații anulate și 31 de linii CANCELLED. Cauza: stabilizatorul vechi era instalat înaintea override-ului final și era ocolit. Acest candidat mută coalescing-ul în proprietarul final MEGA Preview: fereastra de 90 ms păstrează numai ultima selecție, fără să întrerupă o comandă MegaClient pornită. Anulările normale ale unui player depășit devin SUPERSEDED/cancelled, nu erori MEGA. Este numai test, nu stable; necesită validare Windows reală.",
+  "publishedAt": "2026-09-05T13:25:34.8364881Z",
   "channel": "test"
 }
