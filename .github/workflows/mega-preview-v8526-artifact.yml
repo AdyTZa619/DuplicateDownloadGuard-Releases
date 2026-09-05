@@ -1,0 +1,70 @@
+name: MEGA Preview v8.5.26 test artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/v8526-mega-preview-controller-v859
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: Format Go sources
+        shell: pwsh
+        run: gofmt -w (Get-ChildItem -Path . -Filter *.go -File | ForEach-Object FullName)
+
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff --check
+
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check web/exact_guard.js
+          node --check web/preview_quick_v86.js
+          node --check web/mega_preview_v8526.js
+
+      - name: Run all tests
+        shell: pwsh
+        run: go test ./... -count=1 -timeout=8m
+
+      - name: Run Go vet
+        shell: pwsh
+        run: go vet ./...
+
+      - name: Build Windows amd64 test executable
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags "-s -w" -o DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe .
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe" | Set-Content SHA256_v8.5.26-test.1.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DDG-v8.5.26-test.1-MEGA-PREVIEW
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe
+            SHA256_v8.5.26-test.1.txt
+            MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
+
