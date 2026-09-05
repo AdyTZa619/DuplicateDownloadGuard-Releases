@@ -530,3 +530,30 @@ func TestMegaPreviewUIOwnsT0ToT12AndNoAutomaticFallbackV8526(t *testing.T) {
 		t.Fatal("v8.5.27 preview UI is not embedded")
 	}
 }
+
+func TestMegaPreviewUIDisconnectsOldNativeMediaBeforeNextStartV8530(t *testing.T) {
+	b, err := os.ReadFile("web/mega_preview_v8526.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(b)
+	videoReset := strings.Index(source, "media.removeAttribute('src')")
+	videoLoad := strings.Index(source, "media.load()")
+	videoRemove := strings.Index(source, "media.remove()")
+	imageReset := strings.Index(source, "image.src = 'data:image/gif;base64,")
+	imageRemove := strings.Index(source, "image.remove()")
+	requestStart := strings.Index(source, "const data = await api('/api/remote-preview/start'")
+	cleanupCall := strings.Index(source, "removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection')")
+	if videoReset < 0 || videoLoad < videoReset || videoRemove < videoLoad {
+		t.Fatal("video/audio must clear src, call load, then detach the DOM node")
+	}
+	if imageReset < 0 || imageRemove < imageReset {
+		t.Fatal("progressive images must replace src before detaching the DOM node")
+	}
+	if cleanupCall < 0 || requestStart < cleanupCall {
+		t.Fatal("old native media must be disconnected before the next preview start request")
+	}
+	if !strings.Contains(source, "activeV8526 = null;") || !strings.Contains(source, "activeV8526?.generation === generation") {
+		t.Fatal("events emitted by a reset stale element must not update the active preview")
+	}
+}

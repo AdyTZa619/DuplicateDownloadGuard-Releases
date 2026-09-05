@@ -19,8 +19,11 @@
 
   function removeRemoteMediaV8526(reason) {
     const previous = activeV8526;
+    // Mark the old generation inactive before changing src. Resetting a media
+    // element can synchronously emit abort/error/load events in some browsers;
+    // none of those events belongs to the newly selected row.
+    activeV8526 = null;
     if (previous) {
-      sendEventV8526(previous.generation, 'T11', reason || 'player switch');
       previous.pollAbort?.abort();
     }
     const preview = document.getElementById('remotePreview');
@@ -28,17 +31,26 @@
       for (const media of preview.querySelectorAll('video,audio')) {
         try { media.onerror = null; } catch (_) {}
         try { media.pause(); } catch (_) {}
+        // Removing the DOM node alone does not guarantee that Chromium aborts
+        // the native media request. Clear src + load() to release the HTTP/1.1
+        // origin slot before the next /start request is sent.
+        try { media.preload = 'none'; } catch (_) {}
+        try { media.removeAttribute('src'); } catch (_) {}
+        try { media.load(); } catch (_) {}
         try { media.remove(); } catch (_) {}
       }
       for (const image of preview.querySelectorAll('img')) {
         try { image.onerror = null; } catch (_) {}
+        // A progressive image may already be rendered while its response is
+        // still downloading. Replacing src actively cancels that old request.
+        try { image.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='; } catch (_) {}
         try { image.remove(); } catch (_) {}
       }
     }
     if (previous) {
+      sendEventV8526(previous.generation, 'T11', reason || 'player switch');
       requestAnimationFrame(() => sendEventV8526(previous.generation, 'T12', 'element DOM detached'));
     }
-    activeV8526 = null;
   }
 
   function stageTextV8526(trace) {
@@ -101,6 +113,11 @@
     const ext = (name.split('.').pop() || '').toUpperCase();
     const pollAbort = new AbortController();
     activeV8526 = {generation, row, seq, forceFallback, pollAbort};
+    const sendActiveEvent = (event, detail) => {
+      if (activeV8526?.generation === generation && currentIs(row, seq)) {
+        sendEventV8526(generation, event, detail);
+      }
+    };
 
     preview.innerHTML = '';
     const media = document.createElement(kind === 'image' ? 'img' : kind);
@@ -112,13 +129,13 @@
       media.preload = 'metadata';
       if (kind === 'video') media.id = 'remoteVideo';
     }
-    media.addEventListener('loadstart', () => sendEventV8526(generation, 'T7', `${kind} loadstart`), {once: true});
-    media.addEventListener('loadedmetadata', () => sendEventV8526(generation, 'T9', `${kind} metadata`), {once: true});
+    media.addEventListener('loadstart', () => sendActiveEvent('T7', `${kind} loadstart`), {once: true});
+    media.addEventListener('loadedmetadata', () => sendActiveEvent('T9', `${kind} metadata`), {once: true});
     media.addEventListener('error', () => window.megaPreviewErrorV8526(generation), {once: true});
     if (kind === 'image') {
       media.addEventListener('load', () => {
-        sendEventV8526(generation, 'T9', 'image decoded');
-        sendEventV8526(generation, 'T10', 'image rendered');
+        sendActiveEvent('T9', 'image decoded');
+        sendActiveEvent('T10', 'image rendered');
       }, {once: true});
     } else if (kind === 'video') {
       media.addEventListener('loadeddata', () => {
@@ -126,17 +143,17 @@
           let reported = false;
           media.requestVideoFrameCallback(() => {
             reported = true;
-            sendEventV8526(generation, 'T10', 'video frame callback');
+            sendActiveEvent('T10', 'video frame callback');
           });
           setTimeout(() => {
-            if (!reported) sendEventV8526(generation, 'T10', 'video first frame loaded');
+            if (!reported) sendActiveEvent('T10', 'video first frame loaded');
           }, 250);
         } else {
-          sendEventV8526(generation, 'T10', 'video first frame loaded');
+          sendActiveEvent('T10', 'video first frame loaded');
         }
       }, {once: true});
     } else {
-      media.addEventListener('canplay', () => sendEventV8526(generation, 'T10', 'audio can play'), {once: true});
+      media.addEventListener('canplay', () => sendActiveEvent('T10', 'audio can play'), {once: true});
     }
 
     preview.appendChild(media);
@@ -150,7 +167,7 @@
     stage.textContent = 'Se pregătește previzualizarea…';
     preview.appendChild(stage);
 
-    sendEventV8526(generation, 'T6', `${kind} URL assigned`);
+    sendActiveEvent('T6', `${kind} URL assigned`);
     media.src = data.url;
     try { remotePreviewActive = true; } catch (_) {}
     const stop = document.getElementById('stopRemote');

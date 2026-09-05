@@ -1,4 +1,4 @@
-# MEGA Preview v8.5.29-test.1 — validare Windows
+# MEGA Preview v8.5.30-test.1 — validare Windows
 
 Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Duplicate Detection, Smart Guard sau Download Studio.
 
@@ -10,6 +10,7 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - în 8.5.27, comenzile per-fișier au răspuns normal în aproximativ 160–270 ms până la primul val de cleanup automat.
 - după `webdav -d` cu timeout, MegaClient a început să returneze repetat `Failed to access server: 231`; fiecare comandă a durat aproximativ 9,2 s.
 - în testul 8.5.28, DDG nu a mai produs linii `CLEANUP`, însă serviciul MEGAcmd rămas blocat de rularea veche a continuat să returneze eroarea 231 peste restartul aplicației.
+- în testul 8.5.29, recuperarea a reușit: restartul țintit a durat 1,081 s, repetarea aceluiași handle 111 ms, iar următoarele 27 de comenzi MEGAcmd au răspuns în 97–432 ms (media aritmetică 139 ms). Totuși, 8 din 31 de clickuri au așteptat 1,595–13,087 s înainte să ajungă la backend (`T0→T1`).
 
 ## Arhitectura candidatului
 
@@ -20,18 +21,19 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - schimbarea rapidă A → B → C anulează transferul HTTP/playerul vechi, dar lasă comanda MegaClient deja pornită să termine și aruncă rezultatul dacă nu mai este selecția curentă.
 - comenzile de control MegaClient nu mai folosesc `taskkill /T`; serverul MEGAcmd comun nu este omorât odată cu clientul.
 - numai după răspunsul exact `Failed to access server: 231`, DDG oprește țintit `MEGAcmdServer.exe`, îl pornește din nou ascuns și repetă fișierul curent. Recuperarea este permisă o singură dată pentru sursa curentă, ca să nu poată deveni buclă.
+- înaintea unei selecții noi, elementul video/audio vechi primește `pause → remove src → load → remove`, iar imaginea progresivă primește un `src` local minuscul înainte de eliminare. Astfel browserul închide cererea media veche înainte să trimită noul `/start`, iar evenimentele elementului retras nu mai pot modifica preview-ul curent.
 - Range/206 și T0–T12 rămân instrumentate. Eroarea Windows 231 are clasificare separată în jurnal și interfață.
 
 ## Test minim
 
 1. Pornește aplicația și deschide rezultatele ultimei scanări MEGA. Nu este necesară închiderea manuală a proceselor MEGAcmd rămase din testul vechi.
-2. Deschide un fișier care înainte returna eroarea 231. În jurnal trebuie să apară o singură comandă `MEGAcmdServer recovery`, urmată de `per-file-after-server-restart` și apoi de preview sau, dacă sesiunea publică trebuie refăcută, de `public-folder-resume`.
+2. Deschide un fișier care înainte returna eroarea 231. Dacă serviciul este deja sănătos, nu trebuie să apară o recuperare nouă; dacă eroarea revine, trebuie să apară cel mult o comandă `MEGAcmdServer recovery`, urmată de `per-file-after-server-restart`.
 3. Selectează 20 de imagini/video/audio consecutive, inclusiv o secvență rapidă A → B → C.
 4. Revino la un fișier deja previzualizat.
 5. Fă o scanare MEGA nouă și repetă primele trei preview-uri.
 6. Repornește aplicația și testează primul preview.
 
-În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă.
+În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă. Pentru fiecare click, `T1` trebuie să rămână sub 500 ms; această valoare măsoară strict timpul dintre clickul din UI și primirea cererii de către backend, înaintea comenzii MEGAcmd.
 
 Jurnalul complet se scrie în `data\MEGA_Preview_Diagnostic.log`. Timpii structurați sunt disponibili și la `http://127.0.0.1:PORT/api/remote-preview/timings` cât timp aplicația rulează.
 
