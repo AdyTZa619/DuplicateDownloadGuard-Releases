@@ -7,7 +7,11 @@ on:
       - fix/v8526-mega-preview-controller-v859
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: mega-preview-v8526-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate-and-build:
@@ -23,7 +27,18 @@ jobs:
 
       - name: Format Go sources
         shell: pwsh
-        run: gofmt -w (Get-ChildItem -Path . -Filter *.go -File | ForEach-Object FullName)
+        run: gofmt -w main.go lifecycle.go mega_session.go mega_preview_controller_v8526.go mega_preview_controller_v8526_test.go
+
+      - name: Commit canonical gofmt output
+        shell: pwsh
+        run: |
+          if (git status --porcelain -- '*.go') {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- '*.go'
+            git commit -m "gofmt MEGA Preview v8.5.26 [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          }
 
       - name: Check whitespace
         shell: pwsh
@@ -67,4 +82,3 @@ jobs:
             DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe
             SHA256_v8.5.26-test.1.txt
             MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
-
