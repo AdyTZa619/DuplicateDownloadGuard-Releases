@@ -38,19 +38,19 @@ type megaPreviewCommandV8526 struct {
 }
 
 type megaPreviewTraceV8526 struct {
-	Generation uint64                            `json:"generation"`
-	ItemPath   string                            `json:"itemPath"`
-	Kind       string                            `json:"kind"`
-	Route      string                            `json:"route"`
-	State      string                            `json:"state"`
-	Error      string                            `json:"error,omitempty"`
-	Problem    *MegaProblem                      `json:"problem,omitempty"`
-	Points     map[string]megaPreviewPointV8526  `json:"points"`
-	Commands   []megaPreviewCommandV8526         `json:"commands,omitempty"`
-	HTTPStatus int                               `json:"httpStatus,omitempty"`
-	Range      string                            `json:"range,omitempty"`
-	Bytes      int64                             `json:"bytes,omitempty"`
-	CreatedMS  int64                             `json:"createdMs"`
+	Generation uint64                           `json:"generation"`
+	ItemPath   string                           `json:"itemPath"`
+	Kind       string                           `json:"kind"`
+	Route      string                           `json:"route"`
+	State      string                           `json:"state"`
+	Error      string                           `json:"error,omitempty"`
+	Problem    *MegaProblem                     `json:"problem,omitempty"`
+	Points     map[string]megaPreviewPointV8526 `json:"points"`
+	Commands   []megaPreviewCommandV8526        `json:"commands,omitempty"`
+	HTTPStatus int                              `json:"httpStatus,omitempty"`
+	Range      string                           `json:"range,omitempty"`
+	Bytes      int64                            `json:"bytes,omitempty"`
+	CreatedMS  int64                            `json:"createdMs"`
 }
 
 type megaPreviewSourceV8526 struct {
