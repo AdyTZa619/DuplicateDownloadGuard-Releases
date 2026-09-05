@@ -83,6 +83,17 @@ func TestParseGalleryRemoteItemsCyberdropV86(t *testing.T) {
 	}
 }
 
+func TestKnownGalleryProvidersSkipBlockingHTTPEnrichmentV86(t *testing.T) {
+	for _, source := range []string{"GOFILE", "BUNKR", "CYBERDROP"} {
+		if shouldEnrichGalleryHTTPV86(source) {
+			t.Fatalf("%s should not block initial scan on per-file HTTP probes", source)
+		}
+	}
+	if !shouldEnrichGalleryHTTPV86("GALLERY-DL") {
+		t.Fatal("generic gallery-dl sources should keep legacy enrichment fallback")
+	}
+}
+
 func TestMergeGalleryProbePreservesProviderIdentityV86(t *testing.T) {
 	base := RemoteItem{Name: "clip.mp4", Path: "Album/clip.mp4", Size: -1, Source: "BUNKR", URL: "https://bunkr.si/a/a", DirectURL: "https://cdn.bunkr.si/x", Extractor: "bunkr", ProviderID: "42"}
 	probe := RemoteItem{Size: 777, Hash: "abcd", HashType: "md5", ContentType: "video/mp4", ETag: `"etag"`, AcceptRanges: true, Name: "wrong-name.mp4", Source: "HTTP"}
