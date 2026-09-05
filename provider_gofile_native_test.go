@@ -82,6 +82,9 @@ func TestWalkGofileContentV86BuildsRemoteItems(t *testing.T) {
 	if it.Source != "GOFILE" || it.Extractor != "gofile-native" || it.ProviderID != "F1" || it.Size != 777 || it.HashType != "md5" {
 		t.Fatalf("unexpected remote item: %#v", it)
 	}
+	if it.URL != "https://gofile.io/d/ROOT" || strings.Contains(it.URL, "guest-token") || strings.Contains(it.DirectURL, "guest-token") {
+		t.Fatalf("provider credentials must stay out of RemoteItem: %#v", it)
+	}
 	if ctx, ok := providerContextForURLV86(it.DirectURL); !ok || !strings.Contains(ctx.Headers.Get("Cookie"), "accountToken=") {
 		t.Fatalf("download context was not cached: %#v, %v", ctx, ok)
 	}
