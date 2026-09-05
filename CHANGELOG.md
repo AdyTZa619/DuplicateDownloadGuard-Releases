@@ -2,6 +2,18 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.38] — 2026-09-06
+
+### GoFile / Bunkr / Cyberdrop — scanare fără blocaj înainte de rezultate
+- Scanarea inițială nu mai execută câte un HEAD/Range HTTP pentru fiecare fișier după ce gallery-dl a furnizat deja metadata necesară comparației locale.
+- GoFile, Bunkr și Cyberdrop trimit lista extrasă direct către comparator; detaliile HTTP de transport sunt rezolvate ulterior numai când sunt necesare pentru preview, verificare sau download.
+- Elimină cazul în care un folder cu multe fișiere părea că nu face nimic și nu afișa nici rezultat, nici eroare, din cauza timeout-urilor de până la 25 secunde pe probele CDN.
+- Sursele gallery-dl generice păstrează fallback-ul de îmbogățire HTTP atunci când metadata extractorului nu este suficientă.
+
+### Compatibilitate
+- MEGA Preview și semantica de matching rămân neschimbate.
+- Testele verifică explicit că GoFile/Bunkr/Cyberdrop nu mai intră pe calea de probe HTTP blocante înainte de rezultate.
+
 ## [8.5.37] — 2026-09-06
 
 ### GoFile / Bunkr / Cyberdrop — rezultate compatibile gallery-dl
