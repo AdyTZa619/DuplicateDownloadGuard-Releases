@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +33,83 @@ var megaAsyncPreviewStateV8524 struct {
 }
 
 var megaAsyncPreviewWorkerV8524 sync.Mutex
+
+// tryMegaPreviewUICacheAsyncV8525 is the only cache lookup used by the async
+// browser path. It never waits behind legacy preview teardown/start code.
+func (a *App) tryMegaPreviewUICacheAsyncV8525(item RemoteItem) (string, string, bool) {
+	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
+		return "", "", false
+	}
+	if !a.previewMu.TryLock() {
+		return "", "", false
+	}
+	defer a.previewMu.Unlock()
+
+	st := a.preview
+	if !st.Active || st.SourceURL != item.URL || strings.TrimSpace(st.StreamURL) == "" {
+		return "", "", false
+	}
+	if st.RemotePath == megaWarmRootRefV86 {
+		child, err := megaWebDAVChildURL(st.StreamURL, item.Path)
+		if err == nil && child != "" {
+			a.resetPreviewTTLLocked()
+			return child, "MEGA ASYNC FAST ROOT", true
+		}
+	}
+	remoteRef := megaRemoteRef(item)
+	if remoteRef != "" && st.RemotePath == remoteRef {
+		a.resetPreviewTTLLocked()
+		return st.StreamURL, "MEGA ASYNC FAST CACHE", true
+	}
+	return "", "", false
+}
+
+// tryCommitMegaPreviewStateV8525 makes cache persistence best-effort. A valid
+// WebDAV URL must be returned to the player even if some legacy path currently
+// owns previewMu for cleanup.
+func (a *App) tryCommitMegaPreviewStateV8525(st MegaPreviewState) bool {
+	if a == nil || !a.previewMu.TryLock() {
+		return false
+	}
+	a.preview = st
+	a.resetPreviewTTLLocked()
+	a.previewMu.Unlock()
+	return true
+}
+
+// runMegaTimedAsyncV8525 bounds both process runtime and the inherited-pipe
+// problem seen with MegaClient/MEGAcmdServer on Windows. ErrWaitDelay means the
+// command process already exited successfully but a descendant kept stdout or
+// stderr open; the captured command output is still usable and must not be
+// treated as a failed MEGA operation.
+func runMegaTimedAsyncV8525(parent context.Context, timeout time.Duration, exe string, args ...string) (string, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, exe, args...)
+	hideChildWindow(cmd)
+	cmd.Env = os.Environ()
+	cmd.WaitDelay = 750 * time.Millisecond
+
+	b, err := cmd.CombinedOutput()
+	out := strings.TrimSpace(string(b))
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, fmt.Errorf("timeout preview MEGA după %s", timeout.Round(time.Millisecond))
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return out, context.Canceled
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return out, nil
+	}
+	if err != nil {
+		return out, fmt.Errorf("%w: %s", err, out)
+	}
+	return out, nil
+}
 
 func (a *App) beginMegaAsyncPreviewV8524(item RemoteItem, forceFallback bool) (*megaAsyncPreviewJobV8524, string, error) {
 	if a == nil || !strings.EqualFold(item.Source, "MEGA") {
@@ -58,9 +137,8 @@ func (a *App) beginMegaAsyncPreviewV8524(item RemoteItem, forceFallback bool) (*
 	megaAsyncPreviewStateV8524.current = job
 	megaAsyncPreviewStateV8524.Unlock()
 
-	// Cache hits are intentionally network-free and can be published immediately.
 	if !forceFallback {
-		if u, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
+		if u, mode, ok := a.tryMegaPreviewUICacheAsyncV8525(item); ok {
 			job.upstream = u
 			job.mode = mode
 			close(job.done)
@@ -98,7 +176,7 @@ func (a *App) runMegaAsyncPreviewV8524(job *megaAsyncPreviewJobV8524, forceFallb
 
 func (a *App) prepareMegaPreviewV8524(ctx context.Context, item RemoteItem, forceFallback bool) (string, string, error) {
 	if !forceFallback {
-		if u, mode, ok := a.tryMegaPreviewUICacheV854(item); ok {
+		if u, mode, ok := a.tryMegaPreviewUICacheAsyncV8525(item); ok {
 			return u, mode, nil
 		}
 	}
@@ -117,18 +195,19 @@ func (a *App) prepareMegaPreviewV8524(ctx context.Context, item RemoteItem, forc
 	}
 
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return runMegaTimedAsyncV8525(ctx, timeout, exe, args...)
 	}
 
-	// First try the currently active public session. This is the cheapest and
-	// safest path after a scan or a preserved --resume session.
+	// Cheapest path: current MEGA session already knows the public folder.
 	if out, err := run(4*time.Second, "webdav", remoteRef); err == nil {
 		if u := extractWebDAVURL(out, remoteRef); u != "" {
-			a.previewMu.Lock()
-			a.preview = MegaPreviewState{Active: true, SourceURL: item.URL, RemotePath: remoteRef, StreamURL: u, Exe: exe}
-			a.resetPreviewTTLLocked()
-			a.previewMu.Unlock()
-			a.logf("MEGA ASYNC CURRENT SESSION: %s [%s] -> %s", item.Path, remoteRef, u)
+			_ = a.tryCommitMegaPreviewStateV8525(MegaPreviewState{
+				Active:     true,
+				SourceURL:  item.URL,
+				RemotePath: remoteRef,
+				StreamURL:  u,
+				Exe:        exe,
+			})
 			return u, "MEGA ASYNC CURRENT", nil
 		}
 	}
@@ -168,18 +247,14 @@ func (a *App) prepareMegaPreviewV8524(ctx context.Context, item RemoteItem, forc
 		return "", "", errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
 	}
 
-	a.previewMu.Lock()
-	a.preview = MegaPreviewState{
+	_ = a.tryCommitMegaPreviewStateV8525(MegaPreviewState{
 		Active:          true,
 		SourceURL:       item.URL,
 		RemotePath:      remoteRef,
 		StreamURL:       u,
 		PreviousSession: oldSession,
 		Exe:             exe,
-	}
-	a.resetPreviewTTLLocked()
-	a.previewMu.Unlock()
-	a.logf("MEGA ASYNC RESUME: %s [%s] -> %s", item.Path, remoteRef, u)
+	})
 	return u, "MEGA ASYNC RESUME", nil
 }
 
@@ -261,7 +336,15 @@ func (a *App) handleMegaAsyncPreviewMediaV8524(w http.ResponseWriter, r *http.Re
 			req.Header.Set(h, v)
 		}
 	}
-	resp, err := (&http.Client{Transport: http.DefaultTransport}).Do(req)
+
+	transport := http.RoundTripper(http.DefaultTransport)
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		tr := base.Clone()
+		tr.DisableKeepAlives = true
+		tr.ResponseHeaderTimeout = 8 * time.Second
+		transport = tr
+	}
+	resp, err := (&http.Client{Transport: transport}).Do(req)
 	if err != nil {
 		if proxyCtx.Err() != nil {
 			return
@@ -278,6 +361,7 @@ func (a *App) handleMegaAsyncPreviewMediaV8524(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("X-DDG-Preview-Mode", job.mode)
 	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
 	if r.Method == http.MethodHead {
 		return
