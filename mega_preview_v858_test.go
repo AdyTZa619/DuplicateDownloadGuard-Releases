@@ -51,7 +51,15 @@ func TestTrueFallbackDoesNotRepeatWarmRootURLV858(t *testing.T) {
 }
 
 func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
-	b, err := webFS.ReadFile("web/preview_quick_v86.js")
+	bootstrap, err := webFS.ReadFile("web/preview_quick_v86.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(bootstrap), "/preview_quick_core.js") {
+		t.Fatal("preview bootstrap must load the focused quick-preview core")
+	}
+
+	b, err := webFS.ReadFile("web/preview_quick_core.js")
 	if err != nil {
 		t.Fatal(err)
 	}
