@@ -1,8 +1,8 @@
 {
-  "version": "8.5.35",
+  "version": "8.5.36",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "bb6e37c6a266f8f4e4330274810e23caa20cdd1947804be5226d8fcd4e1d3faf",
-  "notes": "Noutăți 8.5.35: Câmpul de sursă online poate ruta explicit GoFile, Bunkr și Cyberdrop prin motorul universal, fără să modifice traseul MEGA stabil. • `gallery-dl` este folosit în mod metadata/JSON pentru a enumera fișierele fără download integral și păstrează numele reale, mărimile, ID-urile providerului și structura albumelor înainte de comparația locală. • Contextul HTTP sensibil al providerului — cookie-uri, token guest, Referer și Origin — este ținut numai în RAM și nu este serializat în rezultate, coadă, istoric sau loguri. • Scanarea HTTP păstrează capabilitățile reale ale sursei și folosește probe HEAD/Range numai pentru completări precum mărime exactă, Content-Type, ETag, hash headers și suport Range. • Preview-ul GoFile/Bunkr/Cyberdrop trece printr-un proxy local DDG legat de ID-ul rezultatului, în loc să expună direct URL-ul CDN în browser. • Proxy-ul păstrează cererile `Range` și răspunsurile `206 Partial Content`, astfel încât seek-ul și citirea parțială nu transformă preview-ul într-un download integral.",
-  "publishedAt": "2026-09-05T21:23:34.5222676Z",
+  "sha256": "cf00011891d747c5b680c85467175a1ee761faf7343a2930dfc82df9e33856d9",
+  "notes": "Noutăți 8.5.36: Butonul „Analizează fără download” este legat direct de modulul provider, fără dependență de handlerul inline legacy; click-ul GoFile/Bunkr/Cyberdrop nu mai poate rămâne aparent inert. • La pornirea scanării, butonul se dezactivează și afișează imediat providerul analizat; Enter în câmpul URL pornește aceeași rută, iar scanările paralele sunt blocate. • Traseul MEGA dedicat și semantica de matching rămân neschimbate. • Verificarea statusului și a update-ului reîncearcă automat conexiunea locală de până la trei ori, fără cache, înainte să raporteze indisponibilitatea; reduce cazul „Failed to fetch” care dispărea doar după restartul DDG. • După un update confirmat sănătos se păstrează maximum un singur backup EXE pentru rollback; backup-urile mai vechi sunt eliminate înainte de următoarea instalare. • Helper-ele DuplicateDownloadGuard.Updater_*.exe, DuplicateDownloadGuard.pending.exe, apply_update.json și temporarele .download, .copying, .replacing sunt curățate automat după health-check.",
+  "publishedAt": "2026-09-05T22:03:07.3474834Z",
   "channel": "stable"
 }
