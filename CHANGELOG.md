@@ -1,6 +1,8 @@
 # Jurnal actualizări — Duplicate Download Guard PRO
 
-Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [8.5.33] — 2026-09-05
+Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
+
+## [8.5.33] — 2026-09-05
 
 ### MEGA Preview — rută rapidă validată pe Windows
 - Preview-ul folosește un singur controller pe durata aplicației, cu listener separat pentru control și media; operațiile lente MEGAcmd nu mai blochează serverul principal.
@@ -12,8 +14,6 @@ Acest fișier păstrează schimbările importante pentru fiecare versiune public
 - Candidata 8.5.33-test.1 a fost validată pe Windows cu MEGAcmd în 61 schimbări de preview: pregătirea serverului a avut media 107 ms și maxim 158 ms, comenzile per-fișier media 163 ms și maxim 277 ms.
 - Nu au existat erori MEGA, cleanup concurent, `webdav -d` sau degradare după schimbări repetate; utilizatorul a confirmat că preview-ul funcționează bine.
 - Codul publicat este aceeași arhitectură testată și trece verificările Go, JavaScript, vet și build Windows x64.
-
-## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
 ## [8.5.10] — 2026-09-04
 
