@@ -1,8 +1,8 @@
 {
-  "version": "8.5.34",
+  "version": "8.5.35",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "eda174d2aa45e88ee63ad3d3df34e64522b8ccd39fd14c01621fe538f7e224de",
-  "notes": "Noutăți 8.5.34: Compararea versiunilor respectă acum precedența SemVer: pentru același nucleu numeric, versiunea stable este mai nouă decât orice prerelease `-test.N`. • Repară cazul concret în care `8.5.33-test.1` era considerată mai nouă decât `8.5.33` și updaterul afișa greșit „sunt la zi”. • Testele acoperă trecerea test → stable, ordinea între două candidate test, egalitatea stable și intrările invalide. • MEGA Preview rămâne identic cu arhitectura 8.5.33 validată real pe Windows.",
-  "publishedAt": "2026-09-05T19:46:31.6314946Z",
+  "sha256": "bb6e37c6a266f8f4e4330274810e23caa20cdd1947804be5226d8fcd4e1d3faf",
+  "notes": "Noutăți 8.5.35: Câmpul de sursă online poate ruta explicit GoFile, Bunkr și Cyberdrop prin motorul universal, fără să modifice traseul MEGA stabil. • `gallery-dl` este folosit în mod metadata/JSON pentru a enumera fișierele fără download integral și păstrează numele reale, mărimile, ID-urile providerului și structura albumelor înainte de comparația locală. • Contextul HTTP sensibil al providerului — cookie-uri, token guest, Referer și Origin — este ținut numai în RAM și nu este serializat în rezultate, coadă, istoric sau loguri. • Scanarea HTTP păstrează capabilitățile reale ale sursei și folosește probe HEAD/Range numai pentru completări precum mărime exactă, Content-Type, ETag, hash headers și suport Range. • Preview-ul GoFile/Bunkr/Cyberdrop trece printr-un proxy local DDG legat de ID-ul rezultatului, în loc să expună direct URL-ul CDN în browser. • Proxy-ul păstrează cererile `Range` și răspunsurile `206 Partial Content`, astfel încât seek-ul și citirea parțială nu transformă preview-ul într-un download integral.",
+  "publishedAt": "2026-09-05T21:23:34.5222676Z",
   "channel": "stable"
 }
