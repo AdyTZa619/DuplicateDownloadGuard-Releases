@@ -21,6 +21,45 @@ func TestParseGalleryRemoteItemsGoFileV86(t *testing.T) {
 	}
 }
 
+func TestParseGalleryRemoteItemsClassicPrettyJSONV86(t *testing.T) {
+	// gallery-dl builds without output.jsonl emit one pretty-printed JSON array.
+	// DDG must accept that format too, otherwise a valid GoFile extraction becomes
+	// an empty result list on older installations.
+	output := `[
+  [
+    2,
+    "",
+    {"title":"Folder"}
+  ],
+  [
+    3,
+    "https://store1.gofile.io/download/web/abc/file.mp4",
+    {"name":"file.mp4","size":123456,"id":"abc"}
+  ],
+  [
+    3,
+    "https://store2.gofile.io/download/web/def/pic.jpg",
+    {"name":"pic.jpg","size":321,"id":"def"}
+  ]
+]`
+	items := parseGalleryRemoteItemsV86([]byte(output), "https://gofile.io/d/FOLDER")
+	if len(items) != 2 {
+		t.Fatalf("items=%d want=2", len(items))
+	}
+	if items[0].Name != "file.mp4" || items[0].ProviderID != "abc" || items[1].Name != "pic.jpg" || items[1].ProviderID != "def" {
+		t.Fatalf("unexpected classic JSON items: %+v", items)
+	}
+}
+
+func TestParseGalleryRemoteItemsIgnoresQueueMessagesV86(t *testing.T) {
+	output := `[6,"https://gofile.io/d/CHILD",{"id":"folder"}]` + "\n" +
+		`[3,"https://store1.gofile.io/download/web/abc/file.mp4",{"name":"file.mp4","size":10,"id":"abc"}]` + "\n"
+	items := parseGalleryRemoteItemsV86([]byte(output), "https://gofile.io/d/FOLDER")
+	if len(items) != 1 || items[0].Name != "file.mp4" {
+		t.Fatalf("queue/control message became a file: %+v", items)
+	}
+}
+
 func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
 	output := `[3,"https://cdn.bunkr.si/path/clip.mp4?token=x",{"name":"clip","extension":"mp4","size":999,"id_url":"42","album_name":"Album X"}]` + "\n"
 	items := parseGalleryRemoteItemsV86([]byte(output), "https://bunkr.si/a/album")
@@ -74,9 +113,9 @@ func TestLegacyGalleryScannerRoutesToRichProviderV86(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := string(rich)
-	for _, marker := range []string{"output.private=true", "output.jsonl=true", "--cookies-export"} {
+	for _, marker := range []string{"output.private=true", "output.jsonl=true", "--cookies-export", "json.NewDecoder", "walkGalleryJSONV86"} {
 		if !strings.Contains(rs, marker) {
-			t.Fatalf("rich scanner missing gallery-dl option %q", marker)
+			t.Fatalf("rich scanner missing gallery-dl compatibility marker %q", marker)
 		}
 	}
 }
