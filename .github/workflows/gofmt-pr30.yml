@@ -1,0 +1,27 @@
+name: Temporary gofmt PR30
+on:
+  push:
+    branches: ["fix/updater-cleanup-window"]
+jobs:
+  gofmt:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/updater-cleanup-window
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Format
+        run: gofmt -w provider_gofile_native.go
+      - name: Commit and remove helper
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/gofmt-pr30.yml
+          git add provider_gofile_native.go
+          git commit -m "Format native GoFile adapter"
+          git push origin HEAD:fix/updater-cleanup-window
