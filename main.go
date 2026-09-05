@@ -314,6 +314,7 @@ func main() {
 	mux.HandleFunc("/api/open-local-player", a.handleOpenLocalPlayer)
 	mux.HandleFunc("/api/open-remote", a.handleOpenRemote)
 	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
+	mux.HandleFunc("/api/provider-preview/media", a.handleProviderPreviewMediaV86)
 	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
 	mux.HandleFunc("/api/remote-preview/media", a.handleMegaPreviewMediaV8526)
 	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
@@ -402,6 +403,7 @@ func newMegaPreviewControlServerV8532(a *App, uiOrigin string) (net.Listener, *h
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
+	mux.HandleFunc("/api/provider-preview/media", a.handleProviderPreviewMediaV86)
 	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
 	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
 	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
@@ -3354,16 +3356,23 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := remoteMediaKind(res.Remote.Name)
 	if !strings.EqualFold(res.Remote.Source, "MEGA") {
-		previewURL := strings.TrimSpace(res.Remote.DirectURL)
-		if previewURL == "" {
-			previewURL = res.Remote.URL
-		}
-		pu, err := url.Parse(previewURL)
-		if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") {
-			http.Error(w, "Sursa remote nu poate fi previzualizată direct", 400)
+		if kind == "other" {
+			http.Error(w, "Formatul nu are preview media integrat", 415)
 			return
 		}
-		jsonOut(w, map[string]any{"url": previewURL, "kind": kind, "streaming": true, "source": res.Remote.Source})
+		if _, err := providerPreviewTargetV86(res.Remote); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		previewURL := providerPreviewPathV86(req.ID)
+		jsonOut(w, map[string]any{
+			"url":         previewURL,
+			"kind":        kind,
+			"streaming":   true,
+			"source":      res.Remote.Source,
+			"previewMode": "provider-proxy",
+			"note":        "Preview-ul trece prin proxy-ul local DDG pentru a păstra Range și contextul HTTP al providerului fără a expune cookie-uri sau tokenuri în browser.",
+		})
 		return
 	}
 	if kind == "other" {
@@ -3425,6 +3434,16 @@ func (a *App) handleRemotePreviewPlayer(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), 500)
 			return
 		}
+	} else {
+		if remoteMediaKind(res.Remote.Name) == "other" {
+			http.Error(w, "Formatul nu are preview media integrat", 415)
+			return
+		}
+		if _, err := providerPreviewTargetV86(res.Remote); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		target = providerPreviewURLForRequestV86(r, req.ID)
 	}
 	a.mu.RLock()
 	player := strings.TrimSpace(a.cfg.PlayerPath)
