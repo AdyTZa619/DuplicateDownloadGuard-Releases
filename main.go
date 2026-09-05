@@ -226,30 +226,30 @@ type Progress struct {
 }
 
 type App struct {
-	mu               sync.RWMutex
-	guardMu          sync.Mutex
-	persistMu        sync.Mutex
-	previewMu        sync.Mutex
-	preview          MegaPreviewState
-	previewTTL       *time.Timer
-	previewV8526Once sync.Once
-	previewV8526     *megaPreviewControllerV8526
+	mu                 sync.RWMutex
+	guardMu            sync.Mutex
+	persistMu          sync.Mutex
+	previewMu          sync.Mutex
+	preview            MegaPreviewState
+	previewTTL         *time.Timer
+	previewV8526Once   sync.Once
+	previewV8526       *megaPreviewControllerV8526
 	previewControlBase string
-	previewMediaBase string
-	cfg              Config
-	index            map[string]FileEntry
-	bySize           map[int64][]string
-	byName           map[string][]string
-	results          []Result
-	decisions        map[string]Decision
-	undoMarks        []MarkHistory
-	logs             []string
-	progress         Progress
-	appDir           string
-	cancel           context.CancelFunc
-	nextRemote       int
-	opRunning        atomic.Bool
-	revision         atomic.Uint64
+	previewMediaBase   string
+	cfg                Config
+	index              map[string]FileEntry
+	bySize             map[int64][]string
+	byName             map[string][]string
+	results            []Result
+	decisions          map[string]Decision
+	undoMarks          []MarkHistory
+	logs               []string
+	progress           Progress
+	appDir             string
+	cancel             context.CancelFunc
+	nextRemote         int
+	opRunning          atomic.Bool
+	revision           atomic.Uint64
 }
 
 func main() {
