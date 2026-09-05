@@ -12,6 +12,7 @@
 
   let galleryReady = null;
   let galleryCheckAt = 0;
+  let scanInFlight = false;
 
   function parseURL(raw) {
     try {
@@ -61,6 +62,19 @@
     return document.getElementById('universalProviderState');
   }
 
+  function scanButton() {
+    return document.getElementById('universalScanButton');
+  }
+
+  function setScanBusy(busy, provider) {
+    const button = scanButton();
+    if (!button) return;
+    button.disabled = !!busy;
+    button.textContent = busy
+      ? `Analizez ${provider?.name || 'sursa'}…`
+      : 'Analizează fără download';
+  }
+
   function renderProviderState() {
     const input = document.getElementById('directUrl');
     const box = stateBox();
@@ -101,6 +115,8 @@
   }
 
   async function universalScanV2() {
+    if (scanInFlight) return;
+
     const input = document.getElementById('directUrl');
     const select = document.getElementById('sourceAdapter');
     const raw = String(input?.value || '').trim();
@@ -108,6 +124,7 @@
       if (typeof window.toast === 'function') window.toast('Lipește un link');
       return;
     }
+
     const provider = detectProvider(raw);
     if (provider?.id === 'mega') {
       const mega = document.getElementById('megaUrl');
@@ -115,20 +132,23 @@
       if (typeof window.scanMega === 'function') return window.scanMega();
     }
 
-    let adapter = String(select?.value || 'auto').toLowerCase();
-    if (adapter === 'auto' && provider?.adapter && provider.adapter !== 'auto') adapter = provider.adapter;
-    if (adapter === 'gallery-dl') {
-      const ready = await checkGalleryDL();
-      if (ready === false) {
-        renderProviderState();
-        if (typeof window.toast === 'function') window.toast('gallery-dl lipsește. Folosește butonul de instalare/actualizare de sub link.');
-        return;
-      }
-    }
-
+    scanInFlight = true;
+    setScanBusy(true, provider);
     const top = document.getElementById('topStatus');
     if (top) top.textContent = provider ? `Analizez ${provider.name}…` : 'Analizez sursa…';
+
     try {
+      let adapter = String(select?.value || 'auto').toLowerCase();
+      if (adapter === 'auto' && provider?.adapter && provider.adapter !== 'auto') adapter = provider.adapter;
+      if (adapter === 'gallery-dl') {
+        const ready = await checkGalleryDL();
+        if (ready === false) {
+          renderProviderState();
+          if (typeof window.toast === 'function') window.toast('gallery-dl lipsește. Folosește butonul de instalare/actualizare de sub link.');
+          return;
+        }
+      }
+
       const mode = document.getElementById('mode')?.value || 'balanced';
       const data = await jsonFetch('/api/source/scan', {
         method:'POST',
@@ -137,11 +157,28 @@
       });
       const used = provider?.name || data.adapter || adapter;
       if (typeof window.toast === 'function') window.toast(`${used}: ${Number(data.items || 0).toLocaleString('ro-RO')} fișier(e) comparate`);
+      if (top) top.textContent = `${used}: analiză terminată`;
       if (typeof window.goTab === 'function') window.goTab('results');
     } catch (err) {
-      if (typeof window.toast === 'function') window.toast(err.message);
-      else if (top) top.textContent = err.message;
+      const message = String(err?.message || err || 'Eroare necunoscută');
+      if (typeof window.toast === 'function') window.toast(message);
+      if (top) top.textContent = `Eroare sursă: ${message}`;
+    } finally {
+      scanInFlight = false;
+      setScanBusy(false, provider);
     }
+  }
+
+  function bindUniversalScanButton(body) {
+    let button = document.getElementById('universalScanButton');
+    if (!button) button = body?.querySelector('button[onclick="scanUniversal()"]');
+    if (!button) return;
+
+    button.id = 'universalScanButton';
+    button.removeAttribute('onclick');
+    if (button.dataset.ddgProviderBound === '1') return;
+    button.dataset.ddgProviderBound = '1';
+    button.addEventListener('click', universalScanV2);
   }
 
   function installUI() {
@@ -169,8 +206,18 @@
       `;
       document.head.appendChild(style);
     }
+
+    bindUniversalScanButton(body);
     input.addEventListener('input', renderProviderState);
     input.addEventListener('paste', () => setTimeout(renderProviderState, 0));
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        universalScanV2();
+      }
+    });
+
+    // Compatibility for older UI code that still calls scanUniversal().
     window.scanUniversal = universalScanV2;
     renderProviderState();
     checkGalleryDL();

@@ -19,6 +19,11 @@ func TestUniversalProviderSourcesAreEmbeddedAndLoaded(t *testing.T) {
 		"scanUniversal",
 		"/api/source/scan",
 		"/api/tools/manage",
+		"universalScanButton",
+		"removeAttribute('onclick')",
+		"addEventListener('click', universalScanV2)",
+		"scanInFlight",
+		"Analizez ${provider?.name || 'sursa'}",
 	} {
 		if !strings.Contains(s, marker) {
 			t.Fatalf("provider sources module missing marker %q", marker)
