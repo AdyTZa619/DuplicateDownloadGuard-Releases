@@ -60,6 +60,14 @@ func hideChildWindow(cmd *exec.Cmd) {
 	}
 }
 
+// hideControlWindow is for short-lived clients such as MegaClient.exe that
+// communicate with a separate, process-wide server. On context cancellation we
+// may terminate the direct client, but must never taskkill its process tree:
+// that tree can include the shared MEGAcmd server used by the next preview.
+func hideControlWindow(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow | createNewProcessGroup}
+}
+
 func detachUpdaterProcess(cmd *exec.Cmd) {
 	// CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP. The updater must survive the
 	// application process that launched it and must never steal keyboard focus.

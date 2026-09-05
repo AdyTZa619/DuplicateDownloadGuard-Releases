@@ -9,6 +9,8 @@ import (
 
 func hideChildWindow(cmd *exec.Cmd) {}
 
+func hideControlWindow(cmd *exec.Cmd) {}
+
 func detachUpdaterProcess(cmd *exec.Cmd) {}
 
 func waitForProcessExit(pid int, timeout time.Duration) bool { return true }

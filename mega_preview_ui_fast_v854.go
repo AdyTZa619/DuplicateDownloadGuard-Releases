@@ -107,13 +107,13 @@ func (a *App) startMegaPreviewResumeV856(item RemoteItem) (string, error) {
 	}
 	ctx := context.Background()
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaControlTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	_, _ = runMegaControlTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
 
 	loginArgs := megaPublicLoginArgsV856(item.URL)
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, loginArgs...)
+	loginOut, err := runMegaControlTimed(ctx, 45*time.Second, exe, loginArgs...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)

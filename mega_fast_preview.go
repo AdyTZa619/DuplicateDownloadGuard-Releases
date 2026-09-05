@@ -48,13 +48,13 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	if strings.TrimSpace(exe) == "" {
 		return "", errors.New("MEGAcmd lipsă")
 	}
-	out, err := runMegaTimed(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
+	out, err := runMegaControlTimed(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
 	if err != nil {
 		return "", err
 	}
 	rootURL := extractWebDAVURL(out, "")
 	if rootURL == "" {
-		listing, listErr := runMegaTimed(ctx, 4*time.Second, exe, "webdav")
+		listing, listErr := runMegaControlTimed(ctx, 4*time.Second, exe, "webdav")
 		if listErr != nil {
 			return "", listErr
 		}
@@ -67,16 +67,10 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 }
 
 // prepareMegaWarmRootAfterScanV86 pays the WebDAV startup cost while the MEGA
-// scan still owns the public-folder session. v8.5.10 gives root preparation its
-// own short context after the scan work has completed, so a nearly-expired scan
-// context cannot silently force the first user click back to per-file startup.
+// scan still owns the public-folder session. When Results is shown, preview can
+// therefore resolve a child URL locally instead of starting WebDAV per file.
 func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceURL, previousSession string) error {
-	if ctx != nil && ctx.Err() != nil {
-		return ctx.Err()
-	}
-	rootCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	rootURL, err := startMegaWarmRootV86(rootCtx, exe)
+	rootURL, err := startMegaWarmRootV86(ctx, exe)
 	if err != nil {
 		return err
 	}
@@ -91,9 +85,6 @@ func (a *App) prepareMegaWarmRootAfterScanV86(ctx context.Context, exe, sourceUR
 	}
 	a.resetPreviewTTLLocked()
 	a.previewMu.Unlock()
-	if previousSession == "" {
-		a.saveMegaPreviewRestartRootV8510(sourceURL, rootURL)
-	}
 	a.logf("MEGA Fast Preview: WebDAV root pregătit -> %s", rootURL)
 	return nil
 }

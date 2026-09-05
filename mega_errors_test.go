@@ -27,6 +27,7 @@ func TestClassifyMegaProblem(t *testing.T) {
 		{"HTTP 429 too many requests", "MEGA_RATE_LIMIT"},
 		{"No space left on device", "DISK_FULL"},
 		{"ETEMPUNAVAIL, try again later", "MEGA_TEMPORARY"},
+		{"Failed to access server: 231", "MEGA_CONTROL_PIPE"},
 		{"connection timed out", "MEGA_TIMEOUT"},
 		{"dimensiune diferită după download: local 10 bytes, remote 11 bytes", "DOWNLOAD_VERIFY_FAILED"},
 		{"checksum sha256 diferit după download", "DOWNLOAD_VERIFY_FAILED"},

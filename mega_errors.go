@@ -120,22 +120,24 @@ func classifyMegaProblem(output string, err error) MegaProblem {
 		return problem("MEGA_QUOTA", "Cotă MEGA depășită", "MEGA a refuzat transferul deoarece limita de transfer a fost atinsă.", megaActionWithRetryV85("Jobul a fost pus pe pauză. Reia-l după ce MEGA permite din nou transferul.", raw), false)
 	case containsAny(text, "eblocked", "account blocked", "account has been suspended", "link has been blocked", "copyright violation", "api_ebusinesspastdue"):
 		return problem("MEGA_BLOCKED", "Acces MEGA blocat", "Contul sau linkul a fost blocat ori restricționat de MEGA și nu poate fi folosit.", "Verifică linkul/contul în browser sau folosește o sursă validă. Reîncercarea automată nu ajută.", false)
-	case containsAny(text, "not logged in", "not logged", "not logged-in", "please log in", "please login"):
+	case containsAny(text, "not logged in", "not logged", "not logged-in", "please log in", "please login", "http 401", "status 401"):
 		return problem("MEGA_AUTH", "Sesiune MEGA indisponibilă", "MEGAcmd nu are o sesiune valabilă pentru această operație.", "Scanează din nou linkul MEGA, apoi reia jobul.", false)
 	case containsAny(text, "invalid key", "decryption key", "missing key", "ekey", "api_ekey"):
 		return problem("MEGA_KEY", "Cheie MEGA invalidă", "Linkul nu conține o cheie de decriptare validă sau cheia nu corespunde.", "Corectează linkul MEGA și scanează din nou.", false)
 	case containsAny(text, "invalid link", "malformed link", "not a valid mega", "bad arguments", "eargs"):
 		return problem("MEGA_LINK", "Link MEGA invalid", "MEGAcmd nu recunoaște linkul primit ca folder sau fișier public valid.", "Copiază din nou linkul complet din MEGA, inclusiv cheia de după #.", false)
-	case containsAny(text, "enoent", "api_enoent", "not found", "does not exist", "could not find"):
+	case containsAny(text, "enoent", "api_enoent", "not found", "does not exist", "could not find", "http 404", "status 404"):
 		return problem("MEGA_NOT_FOUND", "Fișier MEGA negăsit", "Fișierul sau folderul nu mai există la calea scanată.", "Scanează din nou folderul pentru a actualiza lista.", false)
 	case containsAny(text, "enospc", "no space left", "disk full", "not enough space"):
 		return problem("DISK_FULL", "Spațiu insuficient", "Windows sau MEGAcmd nu poate scrie fișierul deoarece discul nu are spațiu disponibil.", "Eliberează spațiu în folderul de download, apoi reia jobul.", false)
-	case containsAny(text, "eaccess", "api_eaccess", "access denied", "permission denied", "not permitted"):
+	case containsAny(text, "eaccess", "api_eaccess", "access denied", "permission denied", "not permitted", "http 403", "status 403"):
 		return problem("ACCESS_DENIED", "Acces refuzat", "Fișierul nu poate fi scris sau citit cu permisiunile actuale.", "Verifică folderul de download și protecția antivirus, apoi reia jobul.", false)
 	case containsAny(text, "etoomany", "api_etoomany", "too many requests", "rate limit", "too many connections", "http 429", "status 429"):
 		return problem("MEGA_RATE_LIMIT", "Prea multe cereri MEGA", "MEGA limitează temporar numărul de cereri sau conexiuni.", megaActionWithRetryV85("Programul va reîncerca; dacă persistă, pune coada pe pauză câteva minute.", raw), true)
 	case containsAny(text, "etempunavail", "api_etempunavail", "temporarily unavailable", "temporary unavailable", "try again later"):
 		return problem("MEGA_TEMPORARY", "MEGA temporar indisponibil", "Serverul sau fișierul nu este disponibil momentan.", megaActionWithRetryV85("Programul va reîncerca automat.", raw), true)
+	case containsAny(text, "failed to access server: 231", "error 231", "system error 231"):
+		return problem("MEGA_CONTROL_PIPE", "Serviciul MEGAcmd este blocat", "MegaClient nu mai poate comunica prin canalul local cu serviciul MEGAcmd.", "DDG încearcă automat o singură repornire controlată. Dacă mesajul revine, oprește operațiile MEGA externe și repornește aplicația.", false)
 	case errors.Is(err, context.DeadlineExceeded) || containsAny(text, "timeout", "timed out"):
 		return problem("MEGA_TIMEOUT", "MEGA nu a răspuns la timp", "Operația MEGAcmd a depășit timpul maxim de așteptare.", "Programul va reîncerca automat.", true)
 	case containsAny(text, "network", "connection", "couldn't connect", "could not connect", "eagain", "api request failed"):

@@ -1,0 +1,110 @@
+name: MEGA Preview v8.5.33 latest-selection test artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/v8533-mega-preview-latest-selection
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mega-preview-v8533-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: Format Go sources
+        shell: pwsh
+        run: gofmt -w main.go lifecycle.go mega_session.go mega_errors.go mega_errors_test.go mega_fast_preview.go mega_preview_controller_v8526.go mega_preview_controller_v8526_test.go mega_preview_fallback_v858.go mega_preview_resume_direct_v858.go mega_preview_restart_v859.go mega_preview_switch.go mega_preview_switch_test.go mega_preview_ui_fast_v854.go mega_preview_v858_test.go mega_control_recovery_windows.go mega_control_recovery_other.go proc_windows.go proc_other.go proc_control_test.go
+
+      - name: Commit canonical gofmt output
+        shell: pwsh
+        run: |
+          if (git status --porcelain -- '*.go') {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- '*.go'
+            git commit -m "gofmt MEGA Preview v8.5.33 [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          }
+
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff --check
+
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check web/exact_guard.js
+          node --check web/preview_quick_v86.js
+          node --check web/mega_preview_v8526.js
+
+      - name: Run all tests
+        shell: pwsh
+        run: go test ./... -count=1 -timeout=8m
+
+      - name: Run Go vet
+        shell: pwsh
+        run: go vet ./...
+
+      - name: Build Windows amd64 test executable
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags "-s -w" -o DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe .
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe" | Set-Content SHA256_v8.5.33-test.1.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DDG-v8.5.33-test.1-MEGA-PREVIEW
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe
+            SHA256_v8.5.33-test.1.txt
+            MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
+
+      - name: Publish test candidate to in-app updater
+        shell: pwsh
+        run: |
+          git fetch origin main
+          $publishDir = Join-Path $env:RUNNER_TEMP 'ddg-v8533-publish'
+          git worktree add --detach $publishDir origin/main
+          Copy-Item DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe (Join-Path $publishDir 'releases/DuplicateDownloadGuard_PRO_LATEST.exe') -Force
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.33-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content (Join-Path $publishDir 'SHA256SUMS.txt')
+          $manifest = [ordered]@{
+            version = '8.5.33-test.1'
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+            sha256 = $hash
+            notes = 'TEST MEGA Preview 8.5.33-test.1: jurnalul Windows 8.5.32 confirmă că cele trei trasee separate au eliminat pauzele de 20–30 s: 65/65 cereri de control sub 500 ms (media 29,7 ms, maxim 215 ms), 42 comenzi MEGAcmd sub 500 ms (media 227,9 ms, maxim 400 ms), T4→T5 media 22,6 ms și maxim 222 ms, iar toate cele 37 de cadre afișate au apărut sub 3 s. Testul a descoperit însă 27 de selecții într-un val rapid, cu 25 de generații anulate și 31 de linii CANCELLED. Cauza: stabilizatorul vechi era instalat înaintea override-ului final și era ocolit. Acest candidat mută coalescing-ul în proprietarul final MEGA Preview: fereastra de 90 ms păstrează numai ultima selecție, fără să întrerupă o comandă MegaClient pornită. Anulările normale ale unui player depășit devin SUPERSEDED/cancelled, nu erori MEGA. Este numai test, nu stable; necesită validare Windows reală.'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $publishDir 'update.json') -Encoding utf8
+          Push-Location $publishDir
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe SHA256SUMS.txt update.json
+          git commit -m 'Publish MEGA Preview 8.5.33-test.1 [skip ci]'
+          git push origin HEAD:main
+          Pop-Location

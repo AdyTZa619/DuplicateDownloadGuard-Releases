@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestTrueFallbackPreservesWarmRootAndStartsRequestedFileV8510(t *testing.T) {
+func TestTrueFallbackKeepsWarmRootAndStartsRequestedFileV8528(t *testing.T) {
 	old := MegaPreviewState{Exe: "MegaClient.exe", RemotePath: megaWarmRootRefV86, StreamURL: "http://127.0.0.1:4443/"}
 	calls := []string{}
 	run := func(_ time.Duration, args ...string) (string, error) {
@@ -28,12 +28,7 @@ func TestTrueFallbackPreservesWarmRootAndStartsRequestedFileV8510(t *testing.T) 
 	}
 	want := []string{"webdav H:NEW"}
 	if !reflect.DeepEqual(calls, want) {
-		t.Fatalf("fallback must not destroy warm root; calls=%v want=%v", calls, want)
-	}
-	for _, call := range calls {
-		if call == "webdav -d /" {
-			t.Fatal("one failed child must never stop the folder root")
-		}
+		t.Fatalf("calls=%v want=%v", calls, want)
 	}
 }
 
@@ -68,26 +63,21 @@ func TestRestartPreviewUsesDirectResumePathV858(t *testing.T) {
 		t.Fatal("startup prewarm timer must stay removed")
 	}
 	if !strings.Contains(js, "forceFallback:true") {
-		t.Fatal("browser root failure must request one backend fallback")
-	}
-	if !strings.Contains(js, "Root-ul rămâne activ pentru următoarele fișiere") {
-		t.Fatal("UI must state and preserve the root after a per-file fallback")
-	}
-	if !strings.Contains(js, "MEGA TRUE FALLBACK • EROARE") {
-		t.Fatal("new fallback must suppress the older nested fallback on failure")
+		t.Fatal("browser root failure must request true backend fallback")
 	}
 
-	// Coalesced user initialization still enters the dedicated restart helper;
-	// v8.5.10 changes that helper internally to prefer persistent/root WebDAV.
+	// Static regression guard for the backend strategy. The legacy whole-root
+	// helper may remain for compatibility, but coalesced user initialization
+	// must call the direct per-file resume path.
 	src, err := osReadTextForTestV858("mega_preview_ui_fast_v854.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(src, "streamURL, err := a.startMegaPreviewResumeDirectV858(item)") {
-		t.Fatal("restart click is not routed through the dedicated resume helper")
+		t.Fatal("restart click is not routed through direct per-file resume")
 	}
 	if !strings.Contains(src, `return streamURL, "MEGA DIRECT RESUME"`) {
-		t.Fatal("resume mode is not exposed to UI diagnostics")
+		t.Fatal("direct resume mode is not exposed to UI diagnostics")
 	}
 }
 

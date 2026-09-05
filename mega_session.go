@@ -35,6 +35,7 @@ func releaseMegaSession() {
 // Caller already owns megaSessionGate. This ordering (MEGA gate -> previewMu)
 // is used everywhere to avoid deadlocks while restoring/stopping WebDAV.
 func (a *App) stopMegaPreviewWhileSessionOwned(reason string) error {
+	a.invalidateMegaPreviewControllerV8526(reason)
 	a.previewMu.Lock()
 	defer a.previewMu.Unlock()
 	return a.stopMegaPreviewLocked(reason)

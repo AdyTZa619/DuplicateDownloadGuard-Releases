@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.10 Pro Smart Media Guard"
+const appVersion = "8.5.33 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -226,26 +226,30 @@ type Progress struct {
 }
 
 type App struct {
-	mu         sync.RWMutex
-	guardMu    sync.Mutex
-	persistMu  sync.Mutex
-	previewMu  sync.Mutex
-	preview    MegaPreviewState
-	previewTTL *time.Timer
-	cfg        Config
-	index      map[string]FileEntry
-	bySize     map[int64][]string
-	byName     map[string][]string
-	results    []Result
-	decisions  map[string]Decision
-	undoMarks  []MarkHistory
-	logs       []string
-	progress   Progress
-	appDir     string
-	cancel     context.CancelFunc
-	nextRemote int
-	opRunning  atomic.Bool
-	revision   atomic.Uint64
+	mu                 sync.RWMutex
+	guardMu            sync.Mutex
+	persistMu          sync.Mutex
+	previewMu          sync.Mutex
+	preview            MegaPreviewState
+	previewTTL         *time.Timer
+	previewV8526Once   sync.Once
+	previewV8526       *megaPreviewControllerV8526
+	previewControlBase string
+	previewMediaBase   string
+	cfg                Config
+	index              map[string]FileEntry
+	bySize             map[int64][]string
+	byName             map[string][]string
+	results            []Result
+	decisions          map[string]Decision
+	undoMarks          []MarkHistory
+	logs               []string
+	progress           Progress
+	appDir             string
+	cancel             context.CancelFunc
+	nextRemote         int
+	opRunning          atomic.Bool
+	revision           atomic.Uint64
 }
 
 func main() {
@@ -311,6 +315,10 @@ func main() {
 	mux.HandleFunc("/api/open-remote", a.handleOpenRemote)
 	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
 	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
+	mux.HandleFunc("/api/remote-preview/media", a.handleMegaPreviewMediaV8526)
+	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
+	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
+	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
 	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
 	mux.HandleFunc("/api/local-meta", a.handleLocalMeta)
@@ -322,7 +330,22 @@ func main() {
 		log.Fatal(err)
 	}
 	addr := "http://" + ln.Addr().String()
+	controlLn, controlSrv, controlBase, err := newMegaPreviewControlServerV8532(a, addr)
+	if err != nil {
+		_ = ln.Close()
+		log.Fatal(err)
+	}
+	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
+	if err != nil {
+		_ = ln.Close()
+		_ = controlLn.Close()
+		log.Fatal(err)
+	}
+	a.previewControlBase = controlBase
+	a.previewMediaBase = mediaBase
 	a.logf("Pornit %s pe %s", appVersion, addr)
+	a.logf("MEGA Preview control listener dedicat: %s", controlBase)
+	a.logf("MEGA Preview media listener dedicat: %s", mediaBase)
 	go markUpdateHealthyLater(a.appDir)
 	shutdownCh := make(chan struct{}, 1)
 	startUIWatchdog(shutdownCh)
@@ -333,8 +356,20 @@ func main() {
 	}()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
+	controlServeErr := make(chan error, 1)
+	go func() { controlServeErr <- controlSrv.Serve(controlLn) }()
+	mediaServeErr := make(chan error, 1)
+	go func() { mediaServeErr <- mediaSrv.Serve(mediaLn) }()
 	select {
 	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case err := <-mediaServeErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case err := <-controlServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
@@ -343,8 +378,88 @@ func main() {
 		shutdownApp(a)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = srv.Shutdown(ctx)
+		_ = controlSrv.Shutdown(ctx)
+		_ = mediaSrv.Shutdown(ctx)
 		cancel()
 	}
+}
+
+// newMegaPreviewControlServerV8532 keeps every MEGA preview control request
+// away from the main UI origin. Real Windows traces showed /start and event
+// POSTs waiting up to 17 seconds on that shared browser connection pool even
+// after media traffic had been moved to its own port.
+func newMegaPreviewControlServerV8532(a *App, uiOrigin string) (net.Listener, *http.Server, string, error) {
+	if a == nil {
+		return nil, nil, "", errors.New("aplicația lipsește pentru controlul MEGA Preview")
+	}
+	uiOrigin = strings.TrimRight(strings.TrimSpace(uiOrigin), "/")
+	if !loopbackPreviewURLV8526(uiOrigin) {
+		return nil, nil, "", errors.New("originea UI pentru MEGA Preview nu este loopback")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("listener control MEGA Preview: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
+	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
+	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
+	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
+	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
+	srv := &http.Server{
+		Handler:           megaPreviewControlCORSV8532(uiOrigin, mux),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	return ln, srv, "http://" + ln.Addr().String(), nil
+}
+
+func megaPreviewControlCORSV8532(uiOrigin string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+		if origin != "" && !strings.EqualFold(origin, uiOrigin) {
+			http.Error(w, "origine MEGA Preview refuzată", http.StatusForbidden)
+			return
+		}
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", uiOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newMegaPreviewMediaServerV8531 isolates long-lived image/video/audio
+// responses from the UI/API listener. Browsers limit concurrent HTTP/1.1
+// connections per origin; a progressive image or Range video that is still
+// closing must never delay the next selection request or status/error report.
+func newMegaPreviewMediaServerV8531(a *App) (net.Listener, *http.Server, string, error) {
+	if a == nil {
+		return nil, nil, "", errors.New("aplicația lipsește pentru listenerul MEGA Preview")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("listener media MEGA Preview: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/remote-preview/media", a.handleMegaPreviewMediaV8526)
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+			return context.WithValue(ctx, megaPreviewMediaConnKeyV8531{}, conn)
+		},
+	}
+	// Every browser-facing media connection belongs to one preview generation.
+	// Reuse would let an old progressive/Range response delay a newer item.
+	srv.SetKeepAlivesEnabled(false)
+	return ln, srv, "http://" + ln.Addr().String(), nil
 }
 
 func newApp() (*App, error) {
@@ -622,6 +737,13 @@ func (a *App) handleWeb(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if p == "web/mega_preview_v8526.js" {
+		base := strings.TrimRight(strings.TrimSpace(a.previewControlBase), "/")
+		if loopbackPreviewURLV8526(base) {
+			prefix := []byte("window.ddgMegaPreviewControlBaseV8532=" + strconv.Quote(base) + ";\n")
+			b = append(prefix, b...)
+		}
 	}
 	switch filepath.Ext(p) {
 	case ".html":
@@ -999,6 +1121,30 @@ func runMegaTimed(parent context.Context, timeout time.Duration, exe string, arg
 	return out, err
 }
 
+// runMegaControlTimed runs short session/WebDAV control commands without the
+// whole-process-tree cancellation used by download engines. MegaClient.exe is
+// only a client for MEGAcmd's shared server; killing its tree can take down or
+// wedge that server and leave later commands failing with Windows error 231.
+func runMegaControlTimed(parent context.Context, timeout time.Duration, exe string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, args...)
+	hideControlWindow(cmd)
+	cmd.Env = os.Environ()
+	b, runErr := cmd.CombinedOutput()
+	out := strings.TrimSpace(string(b))
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, fmt.Errorf("timeout după %s", timeout.Round(time.Second))
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return out, context.Canceled
+	}
+	if runErr != nil {
+		return out, fmt.Errorf("%w: %s", runErr, out)
+	}
+	return out, nil
+}
+
 var sessionRE = regexp.MustCompile(`(?m)^([A-Za-z0-9_-]{40,})\s*$`)
 
 func extractSession(s string) string {
@@ -1079,7 +1225,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 1/6 — verific sesiunea MEGAcmd"
 		p.Detail = "Timeout maxim: 10 secunde. Nu se descarcă fișiere."
 	})
-	if s, e := runMegaTimed(ctx, 10*time.Second, exe, "session"); e == nil {
+	if s, e := runMegaControlTimed(ctx, 10*time.Second, exe, "session"); e == nil {
 		oldSession = extractSession(s)
 	} else {
 		a.logf("MEGA: verificarea sesiunii nu a răspuns normal (%v); continui", e)
@@ -1096,11 +1242,11 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 	})
 	if oldSession != "" {
 		a.logf("MEGA: sesiune existentă detectată; va fi restaurată")
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
+		if _, e := runMegaControlTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
 			a.logf("MEGA: logout keep-session: %v", e)
 		}
 	} else {
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
+		if _, e := runMegaControlTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
 			a.logf("MEGA: logout inițial: %v", e)
 		}
 	}
@@ -1114,7 +1260,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 3/6 — deschid folderul public"
 		p.Detail = "Autentific folderul public din link. Timeout maxim: 45 secunde."
 	})
-	out, e := runMegaTimed(ctx, 45*time.Second, exe, "login", link)
+	out, e := runMegaControlTimed(ctx, 45*time.Second, exe, "login", link)
 	if e != nil {
 		a.logf("MEGA login eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
@@ -1128,7 +1274,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 4/6 — citesc lista de fișiere"
 		p.Detail = "Se citesc doar nume, căi și dimensiuni; conținutul video/foto NU este descărcat. Timeout maxim: 5 minute."
 	})
-	out, e = runMegaTimed(ctx, 5*time.Minute, exe, "find", "/", "-l", "--type=f", "--show-handles", "--time-format=ISO6081_WITH_TIME")
+	out, e = runMegaControlTimed(ctx, 5*time.Minute, exe, "find", "/", "-l", "--type=f", "--show-handles", "--time-format=ISO6081_WITH_TIME")
 	if e != nil {
 		a.logf("MEGA find eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
@@ -1141,7 +1287,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		a.updateProgress(func(p *Progress) {
 			p.Detail = "Formatul principal nu a produs fișiere; încerc listarea recursivă alternativă (maxim 5 minute)."
 		})
-		out2, e2 := runMegaTimed(ctx, 5*time.Minute, exe, "ls", "-lR", "--show-handles", "--time-format=ISO6081_WITH_TIME", "/")
+		out2, e2 := runMegaControlTimed(ctx, 5*time.Minute, exe, "ls", "-lR", "--show-handles", "--time-format=ISO6081_WITH_TIME", "/")
 		if e2 == nil {
 			items = parseMegaLong(out2, "MEGA", link)
 		} else {
@@ -1191,10 +1337,10 @@ func sanitizeMega(s string) string {
 func (a *App) restoreMega(exe, old string) {
 	ctx, c := context.WithTimeout(context.Background(), 30*time.Second)
 	defer c()
-	_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+	_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	if old != "" {
 		a.updateProgress(func(p *Progress) { p.Message = "MEGA: restaurez sesiunea anterioară..." })
-		if _, e := runMegaTimed(ctx, 30*time.Second, exe, "login", old); e != nil {
+		if _, e := runMegaControlTimed(ctx, 30*time.Second, exe, "login", old); e != nil {
 			a.logf("Atenție: sesiunea MEGAcmd anterioară nu a putut fi restaurată automat")
 		} else {
 			a.logf("MEGA: sesiunea anterioară restaurată")
@@ -3048,9 +3194,9 @@ func (a *App) resetPreviewTTLLocked() {
 
 func (a *App) restoreMegaSessionSilent(exe, oldSession string) {
 	ctx := context.Background()
-	_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+	_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	if oldSession != "" {
-		if _, err := runMegaTimed(ctx, 30*time.Second, exe, "login", oldSession); err != nil {
+		if _, err := runMegaControlTimed(ctx, 30*time.Second, exe, "login", oldSession); err != nil {
 			a.logf("MEGA preview: sesiunea anterioară nu a putut fi restaurată: %v", err)
 		} else {
 			a.logf("MEGA preview: sesiunea anterioară restaurată")
@@ -3067,23 +3213,19 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 		a.previewTTL.Stop()
 		a.previewTTL = nil
 	}
-	var firstErr error
-	ctx := context.Background()
-	if st.Exe != "" && st.RemotePath != "" {
-		if out, err := runMegaTimed(ctx, 12*time.Second, st.Exe, "webdav", "-d", st.RemotePath); err != nil {
-			a.logf("MEGA preview: oprire WebDAV (%s): %v • %s", reason, err, sanitizeMega(out))
-			firstErr = err
-		}
-	}
+	// Do not remove individual WebDAV routes here. A session transition below
+	// retires them safely; per-route `webdav -d` is the operation that wedged the
+	// MEGAcmd command pipe in the real Windows preview trace.
 	if st.Exe != "" {
 		a.restoreMegaSessionSilent(st.Exe, st.PreviousSession)
 	}
 	a.preview = MegaPreviewState{}
 	a.logf("MEGA preview oprit (%s)", reason)
-	return firstErr
+	return nil
 }
 
 func (a *App) stopMegaPreview(reason string) error {
+	a.invalidateMegaPreviewControllerV8526(reason)
 	// Fast path: most Stop calls arrive after another MEGA operation has already
 	// cleaned the preview. Do not wait for a long download when there is nothing
 	// left to stop.
@@ -3160,21 +3302,21 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	}
 	ctx := context.Background()
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 10*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaControlTimed(ctx, 10*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
 	if oldSession != "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session")
+		_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout", "--keep-session")
 	} else {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+		_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	}
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, "login", item.URL)
+	loginOut, err := runMegaControlTimed(ctx, 45*time.Second, exe, "login", item.URL)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
 		return "", newMegaProblemError(problem, loginOut)
 	}
-	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
+	out, err := runMegaControlTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(out, err)
@@ -3182,11 +3324,10 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	}
 	streamURL := extractWebDAVURL(out, remoteRef)
 	if streamURL == "" {
-		listing, _ := runMegaTimed(ctx, 10*time.Second, exe, "webdav")
+		listing, _ := runMegaControlTimed(ctx, 10*time.Second, exe, "webdav")
 		streamURL = extractWebDAVURL(listing, remoteRef)
 	}
 	if streamURL == "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "webdav", "-d", remoteRef)
 		a.restoreMegaSessionSilent(exe, oldSession)
 		return "", errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
 	}
@@ -3198,8 +3339,9 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 
 func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID            int  `json:"id"`
-		ForceFallback bool `json:"forceFallback,omitempty"`
+		ID            int   `json:"id"`
+		ForceFallback bool  `json:"forceFallback,omitempty"`
+		ClientT0      int64 `json:"clientT0,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.ID <= 0 {
 		http.Error(w, "ID rezultat invalid", 400)
@@ -3228,10 +3370,15 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formatul nu are preview media integrat", 415)
 		return
 	}
-	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote, req.ForceFallback)
+	generation, streamURL, previewMode, err := a.beginMegaPreviewV8526(res.Remote, kind, req.ForceFallback, req.ClientT0)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	statusURL := fmt.Sprintf("/api/remote-preview/status?generation=%d", generation)
+	controlBase := strings.TrimRight(strings.TrimSpace(a.previewControlBase), "/")
+	if loopbackPreviewURLV8526(controlBase) {
+		statusURL = controlBase + statusURL
 	}
 	jsonOut(w, map[string]any{
 		"url":         streamURL,
@@ -3239,17 +3386,18 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		"streaming":   true,
 		"source":      previewMode,
 		"previewMode": previewMode,
-		"prepareMs":   prepareDuration.Milliseconds(),
-		"note":        "Fast-path-ul UI reutilizează WebDAV-ul pregătit la scanare fără comandă MEGAcmd suplimentară. Fallback-ul per-fișier rămâne disponibil dacă nu există cache.",
+		"prepareMs":   0,
+		"generation":  generation,
+		"statusUrl":   statusURL,
+		"note":        "URL-ul local este returnat imediat. Preview-ul folosește WebDAV per-fișier pe handle-ul MEGA confirmat, păstrează sesiunea publică și anulează numai transferul HTTP precedent.",
 	})
 }
 
 func (a *App) handleRemotePreviewStop(w http.ResponseWriter, r *http.Request) {
-	err := a.stopMegaPreview("cerere UI")
-	if err != nil {
-		jsonOut(w, map[string]any{"ok": true, "warning": err.Error()})
-		return
-	}
+	// Stop din UI anulează numai transferul/playerul curent. Sesiunea și rutele
+	// WebDAV per-fișier rămân calde pentru următorul click și sunt închise de lifecycle-ul
+	// aplicației ori de o operație MEGA incompatibilă.
+	a.cancelCurrentMegaPreviewV8526("cerere UI")
 	jsonOut(w, map[string]bool{"ok": true})
 }
 
