@@ -1,8 +1,8 @@
 {
-  "version": "8.5.38",
+  "version": "8.5.39",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "4ddecfe9189852eebd9acb48b5bed992413fe4a30b168d67ab7c1d06999a41a1",
-  "notes": "Noutăți 8.5.38: Scanarea inițială nu mai execută câte un HEAD/Range HTTP pentru fiecare fișier după ce gallery-dl a furnizat deja metadata necesară comparației locale. • GoFile, Bunkr și Cyberdrop trimit lista extrasă direct către comparator; detaliile HTTP de transport sunt rezolvate ulterior numai când sunt necesare pentru preview, verificare sau download. • Elimină cazul în care un folder cu multe fișiere părea că nu face nimic și nu afișa nici rezultat, nici eroare, din cauza timeout-urilor de până la 25 secunde pe probele CDN. • Sursele gallery-dl generice păstrează fallback-ul de îmbogățire HTTP atunci când metadata extractorului nu este suficientă. • MEGA Preview și semantica de matching rămân neschimbate. • Testele verifică explicit că GoFile/Bunkr/Cyberdrop nu mai intră pe calea de probe HTTP blocante înainte de rezultate.",
-  "publishedAt": "2026-09-05T23:01:35.0678268Z",
+  "sha256": "13750cbd1dc139220d755b1a4a12a4c33a7465941d3956a11d73a0103ef9ae8e",
+  "notes": "Noutăți 8.5.39: GoFile folosește acum un adapter nativ pe API-ul curent pentru listarea folderelor, cu token web dinamic și metadata directă; `gallery-dl` rămâne fallback, nu dependență principală. • Scanarea GoFile are timeout controlat și jurnal explicit pe etape, astfel încât un eșec nu mai poate rămâne fără rezultat și fără eroare. • Contextul de autentificare GoFile rămâne numai în memorie; tokenurile/cookie-urile nu sunt salvate în `RemoteItem` sau în istoricul persistent. • Repară oprirea noii versiuni la câteva secunde după update: procesul `--ddg-native-updater-cleanup` nu mai poate închide fereastra DDG proaspăt pornită. • Păstrează cleanup-ul automat al update-urilor vechi și un singur backup pentru rollback. • MEGA Preview și semantica de matching nu sunt modificate.",
+  "publishedAt": "2026-09-05T23:23:24.4497569Z",
   "channel": "stable"
 }
