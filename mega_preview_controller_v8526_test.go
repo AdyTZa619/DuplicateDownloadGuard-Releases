@@ -509,15 +509,24 @@ func TestMegaPreviewDiagnosticRedactsSessionTokenV8527(t *testing.T) {
 	}
 }
 
-func TestMegaPreviewUIOwnsT0ToT12AndNoAutomaticFallbackV8526(t *testing.T) {
+func TestMegaPreviewTimingOwnershipAndNoAutomaticFallbackV8532(t *testing.T) {
 	b, err := os.ReadFile("web/mega_preview_v8526.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(b)
-	for _, marker := range []string{"'T6'", "'T7'", "'T9'", "'T10'", "'T11'", "'T12'", "clientT0", "requestVideoFrameCallback", "megaPreviewFallbackV8526"} {
+	for _, marker := range []string{"'T6'", "'T7'", "'T9'", "'T10'", "clientT0", "requestVideoFrameCallback", "megaPreviewFallbackV8526"} {
 		if !strings.Contains(source, marker) {
-			t.Fatalf("UI timing/control marker missing: %s", marker)
+			t.Fatalf("client timing/control marker missing: %s", marker)
+		}
+	}
+	controller, err := os.ReadFile("mega_preview_controller_v8526.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`"T11"`, `"T12"`, "closeMediaConnectionsLockedV8531"} {
+		if !strings.Contains(string(controller), marker) {
+			t.Fatalf("backend cancellation marker missing: %s", marker)
 		}
 	}
 	if strings.Contains(source, "forceFallback:true") || strings.Contains(source, "forceFallback: true") {
