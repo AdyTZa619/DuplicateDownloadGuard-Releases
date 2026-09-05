@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// v8.5.32 keeps one public-folder MEGAcmd session but exposes media by the
+// v8.5.33 keeps one public-folder MEGAcmd session but exposes media by the
 // exact node handle. Real Windows diagnostics proved that MEGAcmd normalizes
 // `webdav /` to the public folder name, while `webdav H:HANDLE` is ready in
 // roughly 130-170 ms. A -> B -> C cancels only obsolete HTTP transfers; it does
@@ -270,6 +270,11 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 		c.markLocked(old.generation, "T11", "selecție nouă; anulez numai HTTP/playerul vechi, nu MegaClient")
 		c.closeMediaConnectionsLockedV8531(old, "selecție nouă")
 		old.cancel()
+		if tr := c.traces[old.generation]; tr != nil && tr.State != "error" {
+			tr.State = "cancelled"
+			tr.Error = ""
+			tr.Problem = nil
+		}
 		if old.streams == 0 {
 			c.markLocked(old.generation, "T12", "cererea veche nu ajunsese la upstream")
 		}
@@ -687,6 +692,11 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 	gateCtx, gateCancel := context.WithTimeout(job.ctx, 20*time.Second)
 	defer gateCancel()
 	if err := c.ops.acquire(gateCtx); err != nil {
+		if job.ctx.Err() != nil {
+			job.err = context.Canceled
+			c.diagf("GEN=%d SUPERSEDED stage=gate-wait", job.generation)
+			return
+		}
 		job.err = fmt.Errorf("MEGA este ocupat: %w", err)
 		c.mu.Lock()
 		c.failLocked(job.generation, job.err)
@@ -1019,6 +1029,14 @@ func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.R
 
 	target, err := c.targetFor(r.Context(), job)
 	if err != nil {
+		if job.ctx.Err() != nil {
+			c.diagf("GEN=%d SUPERSEDED stage=media-wait", generation)
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			c.diagf("GEN=%d MEDIA-CANCELLED stage=media-wait reason=request-context", generation)
+			return
+		}
 		c.mu.Lock()
 		c.failLocked(generation, err)
 		c.mu.Unlock()
@@ -1201,6 +1219,11 @@ func (c *megaPreviewControllerV8526) cancelCurrent(reason string) {
 		c.markLocked(job.generation, "T11", reason)
 		c.closeMediaConnectionsLockedV8531(job, reason)
 		job.cancel()
+		if tr := c.traces[job.generation]; tr != nil && tr.State != "error" {
+			tr.State = "cancelled"
+			tr.Error = ""
+			tr.Problem = nil
+		}
 		if job.streams == 0 {
 			c.markLocked(job.generation, "T12", "transfer inactiv")
 		}

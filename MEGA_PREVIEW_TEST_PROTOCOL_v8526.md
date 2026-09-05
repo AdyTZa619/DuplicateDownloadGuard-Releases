@@ -1,4 +1,4 @@
-# MEGA Preview v8.5.32-test.1 — validare Windows
+# MEGA Preview v8.5.33-test.1 — validare Windows
 
 Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Duplicate Detection, Smart Guard sau Download Studio.
 
@@ -13,6 +13,7 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - în testul 8.5.29, recuperarea a reușit: restartul țintit a durat 1,081 s, repetarea aceluiași handle 111 ms, iar următoarele 27 de comenzi MEGAcmd au răspuns în 97–432 ms (media aritmetică 139 ms). Totuși, 8 din 31 de clickuri au așteptat 1,595–13,087 s înainte să ajungă la backend (`T0→T1`).
 - în testul 8.5.30, toate cele 32 de comenzi MEGAcmd au rămas rapide: media 159 ms și maximul 493 ms. Nu a reapărut eroarea 231 și nu a existat cleanup MEGAcmd. Cu toate acestea, 8 clickuri au depășit 500 ms înainte să ajungă la backend, cu `T0→T1` maxim 16,364 s; 12 cereri media au depășit 500 ms după pregătirea WebDAV, cu `T4→T5` maxim 9,524 s. Prin urmare, întârzierea rămasă este pe originea HTTP comună UI/media, nu în comanda MEGAcmd.
 - în testul 8.5.31, separarea media a rezolvat partea vizată: toate cele 26 de cereri care au ajuns la player au avut `T4→T5` sub 500 ms, media 25,4 ms și maximul 389 ms. Comenzile MEGAcmd au avut media 158,8 ms și maximul 450 ms. Totuși, `T0→T1` a rămas blocat pe originea principală: 16 din 32 de clickuri au depășit 500 ms, maxim 17,077 s. Șase generații au devenit vechi înainte să instaleze media, confirmând că blocajul rămas precedă backendul și playerul.
+- în testul 8.5.32, listenerul de control dedicat a eliminat ultimul blocaj de zeci de secunde: 65/65 valori `T0→T1` au rămas sub 500 ms (media 29,7 ms, maximul 215 ms), toate cele 42 de comenzi MEGAcmd au rămas sub 500 ms (media 227,9 ms, maximul 400 ms), iar `T4→T5` a avut media 22,6 ms și maximul 222 ms. Toate cele 37 de preview-uri ajunse la primul cadru au rămas sub 3 s. Un val de 27 de schimbări foarte rapide a expus însă o problemă separată: stabilizatorul din `exact_guard.js` era instalat înaintea override-ului final MEGA și era ocolit, ceea ce a creat 25 de generații anulate și 31 de linii `CANCELLED` inutile.
 
 ## Arhitectura candidatului
 
@@ -28,18 +29,20 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - `/start`, status, event, stop și timings rulează pe un al treilea listener `127.0.0.1`, dedicat controlului MEGA Preview. CORS permite numai originea exactă a interfeței DDG; celelalte API-uri nu sunt expuse acolo.
 - evenimentele normale nu mai folosesc `fetch keepalive`, iar T11/T12 nu mai sunt trimise din browser înainte de următorul `/start`. Backendul înregistrează aceste două etape când anulează generația veche și închide conexiunea.
 - o selecție nouă anulează cererea `/start` precedentă dacă răspunsul ei nu a sosit încă; astfel clickurile rapide nu pot umple listenerul de control cu selecții deja depășite.
+- proprietarul final din `mega_preview_v8526.js` stabilizează acum schimbările timp de 90 ms și trimite către backend numai ultima selecție dintr-un val de scroll/key-repeat. Fallback-ul explicit și playerul extern nu așteaptă această fereastră. O comandă MegaClient deja pornită este lăsată să termine în siguranță.
+- anularea normală a unei generații depășite are starea `cancelled` și jurnal `SUPERSEDED`; nu mai este clasificată sau afișată ca eroare MEGA.
 - Range/206 și T0–T12 rămân instrumentate. Eroarea Windows 231 are clasificare separată în jurnal și interfață.
 
 ## Test minim
 
 1. Pornește aplicația și deschide rezultatele ultimei scanări MEGA. Nu este necesară închiderea manuală a proceselor MEGAcmd rămase din testul vechi.
 2. Deschide un fișier care înainte returna eroarea 231. Dacă serviciul este deja sănătos, nu trebuie să apară o recuperare nouă; dacă eroarea revine, trebuie să apară cel mult o comandă `MEGAcmdServer recovery`, urmată de `per-file-after-server-restart`.
-3. Selectează 20 de imagini/video/audio consecutive, inclusiv o secvență rapidă A → B → C.
+3. Selectează 20 de imagini/video/audio consecutive, apoi ține apăsată săgeata ori derulează rapid peste cel puțin 20 de rânduri și oprește-te pe unul singur.
 4. Revino la un fișier deja previzualizat.
 5. Fă o scanare MEGA nouă și repetă primele trei preview-uri.
 6. Repornește aplicația și testează primul preview.
 
-Prima generație din jurnal trebuie să conțină `ARCH control=http://127.0.0.1:PORT media=http://127.0.0.1:PORT separated=true`, cu două porturi diferite. În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă. Pentru fiecare click, `T1` trebuie să rămână sub 500 ms; această valoare măsoară strict timpul dintre clickul din UI și primirea cererii de către backend, înaintea comenzii MEGAcmd. După `T4`, prima cerere media `T5` trebuie de asemenea să pornească fără pauzele periodice de mai multe secunde.
+Prima generație din jurnal trebuie să conțină `ARCH control=http://127.0.0.1:PORT media=http://127.0.0.1:PORT separated=true`, cu două porturi diferite. În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă. Pentru fiecare selecție transmisă, `T1` trebuie să rămână sub 500 ms; include și fereastra controlată de 90 ms. După `T4`, prima cerere media `T5` trebuie să pornească fără pauzele periodice de mai multe secunde. În valul rapid trebuie să apară numai ultima generație stabilizată, nu zeci de `ERROR code=CANCELLED`.
 
 Jurnalul complet se scrie în `data\MEGA_Preview_Diagnostic.log`. Timpii structurați sunt disponibili și la `http://127.0.0.1:PORT/api/remote-preview/timings` cât timp aplicația rulează.
 

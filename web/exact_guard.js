@@ -555,90 +555,6 @@
   });
 })();
 
-// MEGA preview stabilizer. The legacy UI starts a WebDAV switch for every row
-// selection. When a user arrows/clicks through several results quickly this can
-// queue expensive stop/start cycles. v8.5 waits briefly for the selection to
-// settle, but an explicit external-player click bypasses the delay immediately.
-(() => {
-  'use strict';
-  if (typeof loadRemotePreview !== 'function' || typeof playRemote !== 'function') return;
-
-  const originalLoadRemotePreview = loadRemotePreview;
-  const originalPlayRemote = playRemote;
-  let timer = null;
-  let scheduled = null;
-  let pendingId = 0;
-  let pendingPromise = null;
-  let scheduledResolve = null;
-
-  function isMegaPreviewRow(row) {
-    const remote = row && row.remote;
-    if (!remote || String(remote.source || '').toUpperCase() !== 'MEGA') return false;
-    const name = String(remote.name || remote.path || '');
-    return /\.(jpg|jpeg|png|gif|webp|bmp|avif|mp4|webm|ogv|mov|m4v|mkv|avi|flv|ts|mts|m2ts|mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(name);
-  }
-
-  function clearScheduled(resolve = true) {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    scheduled = null;
-    if (resolve && scheduledResolve) scheduledResolve();
-    scheduledResolve = null;
-  }
-
-  async function startNow(row, seq) {
-    const id = Number(row?.id || 0);
-    if (!id) return;
-    if (pendingId === id && pendingPromise) return pendingPromise;
-    pendingId = id;
-    pendingPromise = Promise.resolve(originalLoadRemotePreview(row, seq));
-    try {
-      await pendingPromise;
-    } finally {
-      if (pendingId === id) {
-        pendingId = 0;
-        pendingPromise = null;
-      }
-    }
-  }
-
-  loadRemotePreview = function (row, seq) {
-    if (!isMegaPreviewRow(row)) return originalLoadRemotePreview(row, seq);
-    clearScheduled();
-    scheduled = { row, seq };
-    const preview = document.getElementById('remotePreview');
-    if (preview) {
-      preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Pregătesc preview-ul REMOTE…</b><span class="small">Stabilizez selecția pentru a evita comutări WebDAV inutile. Playerul extern pornește imediat dacă îl apeși.</span></div>';
-    }
-    return new Promise(resolve => {
-      scheduledResolve = resolve;
-      timer = setTimeout(async () => {
-        const job = scheduled;
-        timer = null;
-        scheduled = null;
-        scheduledResolve = null;
-        if (job) await startNow(job.row, job.seq);
-        resolve();
-      }, 140);
-    });
-  };
-
-  playRemote = async function () {
-    if (currentRow && isMegaPreviewRow(currentRow)) {
-      if (scheduled && Number(scheduled.row?.id || 0) === Number(currentRow.id || 0)) {
-        const job = scheduled;
-        const resolve = scheduledResolve;
-        clearScheduled(false);
-        await startNow(job.row, job.seq);
-        if (resolve) resolve();
-      } else if (pendingId === Number(currentRow.id || 0) && pendingPromise) {
-        try { await pendingPromise; } catch (_) {}
-      }
-    }
-    return originalPlayRemote();
-  };
-})();
-
 // MEGA fast-root recovery v8.5.4. Root URLs are returned optimistically for
 // speed. If the browser reports a real media error, retry once through the
 // proven per-file WebDAV path instead of leaving the user at a dead preview.
@@ -971,4 +887,3 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
   else boot();
 })();
-

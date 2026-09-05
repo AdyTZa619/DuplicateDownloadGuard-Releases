@@ -2,8 +2,11 @@
   'use strict';
 
   const baseLoadRemotePreviewV8526 = window.loadRemotePreview;
+  const basePlayRemoteV8533 = window.playRemote;
   let activeV8526 = null;
   let pendingStartV8532 = null;
+  let scheduledStartV8533 = null;
+  const selectionSettleMSV8533 = 90;
 
   const nowMS = () => Date.now();
   const currentIs = (row, seq) => seq === detailSeq && currentRow && Number(currentRow.id) === Number(row.id);
@@ -50,6 +53,14 @@
     }
     // The backend records T11/T12 authoritatively when /start or /stop arrives.
     // Do not put two diagnostic POSTs in front of the next user selection.
+  }
+
+  function cancelScheduledStartV8533() {
+    const scheduled = scheduledStartV8533;
+    scheduledStartV8533 = null;
+    if (!scheduled) return;
+    clearTimeout(scheduled.timer);
+    scheduled.resolve();
   }
 
   function stageTextV8526(trace) {
@@ -179,16 +190,11 @@
     pollStatusV8526(row, seq, generation, forceFallback, pollAbort);
   }
 
-  async function requestPreviewV8526(row, seq, forceFallback) {
-    pendingStartV8532?.abort();
-    pendingStartV8532 = null;
-    removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection');
+  async function startPreviewNowV8533(row, seq, forceFallback, clientT0) {
     if (!currentIs(row, seq)) return;
     const startAbort = new AbortController();
     pendingStartV8532 = startAbort;
     const preview = document.getElementById('remotePreview');
-    if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Se pregătește previzualizarea…</b><span class="small">WebDAV per-fișier • sesiune MEGA păstrată • timpi T0–T12</span></div>';
-    const clientT0 = nowMS();
     try {
       const data = await api(controlURLV8532('/api/remote-preview/start'), {
         method: 'POST',
@@ -204,6 +210,36 @@
     } finally {
       if (pendingStartV8532 === startAbort) pendingStartV8532 = null;
     }
+  }
+
+  function requestPreviewV8526(row, seq, forceFallback) {
+    pendingStartV8532?.abort();
+    pendingStartV8532 = null;
+    cancelScheduledStartV8533();
+    removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection');
+    if (!currentIs(row, seq)) return Promise.resolve();
+    const preview = document.getElementById('remotePreview');
+    if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Se pregătește previzualizarea…</b><span class="small">WebDAV per-fișier • ultima selecție are prioritate • timpi T0–T12</span></div>';
+    const clientT0 = nowMS();
+    if (forceFallback) return startPreviewNowV8533(row, seq, true, clientT0);
+
+    // The final MEGA override must own selection stabilization. The older
+    // wrapper in exact_guard.js was installed before this file and was therefore
+    // bypassed for MEGA rows. A short trailing edge coalesces scroll/key-repeat
+    // storms into exactly the last requested row without interrupting a running
+    // MegaClient command (which can wedge its shared Windows pipe).
+    return new Promise(resolve => {
+      const entry = {row, seq, clientT0, resolve, timer: 0};
+      entry.timer = setTimeout(() => {
+        if (scheduledStartV8533 !== entry) {
+          resolve();
+          return;
+        }
+        scheduledStartV8533 = null;
+        Promise.resolve(startPreviewNowV8533(row, seq, false, clientT0)).then(resolve, resolve);
+      }, selectionSettleMSV8533);
+      scheduledStartV8533 = entry;
+    });
   }
 
   window.loadRemotePreview = function (row, seq) {
@@ -237,7 +273,15 @@
     window.remotePreviewError = function () {
       if (activeV8526) window.megaPreviewErrorV8526(activeV8526.generation);
     };
+    window.playRemote = async function () {
+      cancelScheduledStartV8533();
+      pendingStartV8532?.abort();
+      pendingStartV8532 = null;
+      removeRemoteMediaV8526('external player');
+      return basePlayRemoteV8533();
+    };
     window.stopRemotePreview = async function () {
+      cancelScheduledStartV8533();
       pendingStartV8532?.abort();
       pendingStartV8532 = null;
       removeRemoteMediaV8526('user stop');
@@ -249,6 +293,7 @@
       if (preview) preview.innerHTML = '<div class="previewEmpty">Preview remote oprit. Sesiunea MEGA rămâne pregătită pentru următorul fișier.</div>';
     };
     window.addEventListener('pagehide', () => {
+      cancelScheduledStartV8533();
       pendingStartV8532?.abort();
       pendingStartV8532 = null;
       removeRemoteMediaV8526('pagehide');

@@ -153,6 +153,63 @@ func TestMegaPreviewABCDoesNotCancelMegaControlAndLatestWinsV8528(t *testing.T) 
 	}
 }
 
+func TestMegaPreviewSupersededMediaWaitIsNotAnErrorV8533(t *testing.T) {
+	a := &App{}
+	c := testPreviewControllerV8526(a, func(context.Context, time.Duration, string, ...string) (string, error) {
+		return "", errors.New("command should not run")
+	})
+	defer c.close("test")
+
+	jobCtx, jobCancel := context.WithCancel(context.Background())
+	job := &megaPreviewJobV8526{
+		generation: 1,
+		ctx:        jobCtx,
+		cancel:     jobCancel,
+		ready:      make(chan struct{}),
+		mediaConns: make(map[net.Conn]struct{}),
+	}
+	c.generation = 1
+	c.selection = job
+	c.traces[1] = &megaPreviewTraceV8526{
+		Generation: 1,
+		State:      "preparing",
+		Points:     make(map[string]megaPreviewPointV8526),
+	}
+	c.traceOrder = append(c.traceOrder, 1)
+
+	done := make(chan struct{})
+	go func() {
+		c.serveMedia(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/remote-preview/media?generation=1", nil), 1)
+		close(done)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		c.mu.Lock()
+		streams := job.streams
+		c.mu.Unlock()
+		if streams == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("media request did not enter route wait")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	c.cancelCurrent("superseded test selection")
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("superseded media wait did not exit")
+	}
+	trace, ok := c.trace(1)
+	if !ok {
+		t.Fatal("missing trace")
+	}
+	if trace.State != "cancelled" || trace.Error != "" || trace.Problem != nil {
+		t.Fatalf("expected benign cancelled trace, got %#v", trace)
+	}
+}
+
 func TestMegaPreviewControllerContainsNoRuntimeWebDAVDeleteV8528(t *testing.T) {
 	b, err := os.ReadFile("mega_preview_controller_v8526.go")
 	if err != nil {
@@ -726,5 +783,30 @@ func TestMegaPreviewJSUsesDedicatedControlOriginWithoutCriticalTelemetryV8532(t 
 	startFetch := strings.Index(source, "const data = await api(controlURLV8532('/api/remote-preview/start')")
 	if startAbort < 0 || startFetch < startAbort || !strings.Contains(source, "signal: startAbort.signal") {
 		t.Fatal("a newer selection must abort the pending /start fetch before opening another one")
+	}
+}
+
+func TestMegaPreviewFinalOwnerCoalescesRapidSelectionsV8533(t *testing.T) {
+	b, err := os.ReadFile("web/mega_preview_v8526.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(b)
+	for _, marker := range []string{
+		"selectionSettleMSV8533 = 90",
+		"cancelScheduledStartV8533()",
+		"scheduledStartV8533 = entry",
+		"startPreviewNowV8533(row, seq, false, clientT0)",
+	} {
+		if !strings.Contains(source, marker) {
+			t.Fatalf("final MEGA preview owner is missing rapid-selection coalescing: %s", marker)
+		}
+	}
+	legacy, err := os.ReadFile("web/exact_guard.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(legacy), "MEGA preview stabilizer") {
+		t.Fatal("obsolete pre-override MEGA stabilizer still exists")
 	}
 }
