@@ -217,6 +217,19 @@ func mergeGalleryProbeV86(item RemoteItem, probe RemoteItem) RemoteItem {
 	return item
 }
 
+func shouldEnrichGalleryHTTPV86(source string) bool {
+	switch strings.ToUpper(strings.TrimSpace(source)) {
+	case "GOFILE", "BUNKR", "CYBERDROP":
+		// These extractors already provide the metadata needed for the initial
+		// local comparison. Probing every signed/authenticated CDN URL here can
+		// block the whole scan for tens of seconds per file. Transport details
+		// are resolved lazily by preview/verify/download instead.
+		return false
+	default:
+		return true
+	}
+}
+
 func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]RemoteItem, error) {
 	exe := a.detectGalleryDL()
 	if exe == "" {
@@ -247,9 +260,13 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 		return nil, errors.New("gallery-dl a răspuns, dar DDG nu a găsit niciun fișier în metadata")
 	}
 
-	// Metadata from the extractor is primary. Small parallel HEAD/range probes
-	// enrich only transport details (exact size where missing, hash headers,
-	// content type, ETag, Range support). Provider auth is already cached above.
+	if !shouldEnrichGalleryHTTPV86(providerSourceLabelV86(sourceURL)) {
+		return items, nil
+	}
+
+	// Generic gallery-dl sources may not expose a reliable size. Keep the older
+	// HTTP enrichment only there; known provider scans must return immediately
+	// after extraction instead of waiting on one network request per file.
 	workers := 8
 	if len(items) < workers {
 		workers = len(items)
