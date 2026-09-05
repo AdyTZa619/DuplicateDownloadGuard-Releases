@@ -148,6 +148,7 @@ func shutdownApp(a *App) {
 	if cancel != nil {
 		cancel()
 	}
+	a.closeMegaPreviewControllerV8526("închiderea aplicației")
 
 	// Persist the queue in a restart-safe state and cancel every active worker.
 	if raw, ok := queueRegistry.Load(a); ok {

@@ -1,0 +1,110 @@
+name: MEGA Preview v8.5.27 per-file test artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/v8527-mega-preview-per-file
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mega-preview-v8527-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: Format Go sources
+        shell: pwsh
+        run: gofmt -w main.go lifecycle.go mega_session.go mega_preview_controller_v8526.go mega_preview_controller_v8526_test.go
+
+      - name: Commit canonical gofmt output
+        shell: pwsh
+        run: |
+          if (git status --porcelain -- '*.go') {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- '*.go'
+            git commit -m "gofmt MEGA Preview v8.5.27 [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          }
+
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff --check
+
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check web/exact_guard.js
+          node --check web/preview_quick_v86.js
+          node --check web/mega_preview_v8526.js
+
+      - name: Run all tests
+        shell: pwsh
+        run: go test ./... -count=1 -timeout=8m
+
+      - name: Run Go vet
+        shell: pwsh
+        run: go vet ./...
+
+      - name: Build Windows amd64 test executable
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags "-s -w" -o DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe .
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe" | Set-Content SHA256_v8.5.27-test.1.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DDG-v8.5.27-test.1-MEGA-PREVIEW
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe
+            SHA256_v8.5.27-test.1.txt
+            MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
+
+      - name: Publish test candidate to in-app updater
+        shell: pwsh
+        run: |
+          git fetch origin main
+          $publishDir = Join-Path $env:RUNNER_TEMP 'ddg-v8527-publish'
+          git worktree add --detach $publishDir origin/main
+          Copy-Item DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe (Join-Path $publishDir 'releases/DuplicateDownloadGuard_PRO_LATEST.exe') -Force
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.27-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content (Join-Path $publishDir 'SHA256SUMS.txt')
+          $manifest = [ordered]@{
+            version = '8.5.27-test.1'
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+            sha256 = $hash
+            notes = 'TEST MEGA Preview 8.5.27-test.1: bază exactă 8.5.9; testul Windows 8.5.26 a demonstrat că fallback-ul H:HANDLE pornește instant, iar ruta root era declarată greșit. Această versiune elimină WebDAV root din traseul principal, păstrează o singură sesiune publică, pornește WebDAV per-fișier pe handle, face login cel mult o dată când sesiunea nu corespunde, limitează rutele vechi după repaus, păstrează ownership ultimului click, Range/206 și T0-T12. Nu este stable înainte de validarea reală.'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $publishDir 'update.json') -Encoding utf8
+          Push-Location $publishDir
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe SHA256SUMS.txt update.json
+          git commit -m 'Publish MEGA Preview 8.5.27-test.1 [skip ci]'
+          git push origin HEAD:main
+          Pop-Location
