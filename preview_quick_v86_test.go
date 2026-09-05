@@ -6,9 +6,17 @@ import (
 )
 
 func TestPreviewQuickV86IsEmbeddedAndLoaded(t *testing.T) {
-	js, err := webFS.ReadFile("web/preview_quick_v86.js")
+	bootstrap, err := webFS.ReadFile("web/preview_quick_v86.js")
 	if err != nil {
-		t.Fatalf("read preview quick script: %v", err)
+		t.Fatalf("read preview quick bootstrap: %v", err)
+	}
+	if !strings.Contains(string(bootstrap), "/preview_quick_core.js") {
+		t.Fatal("preview quick compatibility bootstrap does not load preview_quick_core.js")
+	}
+
+	js, err := webFS.ReadFile("web/preview_quick_core.js")
+	if err != nil {
+		t.Fatalf("read preview quick core: %v", err)
 	}
 	s := string(js)
 	for _, required := range []string{
@@ -30,6 +38,6 @@ func TestPreviewQuickV86IsEmbeddedAndLoaded(t *testing.T) {
 		t.Fatalf("read embedded index: %v", err)
 	}
 	if !strings.Contains(string(page), `src="/preview_quick_v86.js"`) {
-		t.Fatal("preview_quick_v86.js is not loaded by index.html")
+		t.Fatal("preview_quick_v86.js compatibility bootstrap is not loaded by index.html")
 	}
 }
