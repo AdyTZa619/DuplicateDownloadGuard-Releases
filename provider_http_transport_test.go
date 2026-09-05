@@ -50,21 +50,44 @@ func TestProviderContextIsMemoryOnlyAndExpiresV86(t *testing.T) {
 	}
 }
 
-func TestNetscapeCookiesMatchDomainPathAndSecureV86(t *testing.T) {
+func TestNetscapeCookiesMatchDomainPathSecureAndHttpOnlyV86(t *testing.T) {
 	data := strings.Join([]string{
 		"# Netscape HTTP Cookie File",
 		".gofile.io\tTRUE\t/\tTRUE\t4102444800\taccountToken\ttoken123",
+		"#HttpOnly_.bunkr.si\tTRUE\t/\tTRUE\t4102444800\tsession\tsecret456",
 		"example.com\tFALSE\t/private\tFALSE\t4102444800\tprivate\tvalue",
 	}, "\n")
 	cookies := parseNetscapeCookiesV86([]byte(data))
 	if got := cookiesForURLV86("https://store1.gofile.io/path/file", cookies); got != "accountToken=token123" {
 		t.Fatalf("GoFile cookie mismatch: %q", got)
 	}
+	if got := cookiesForURLV86("https://cdn.bunkr.si/file", cookies); got != "session=secret456" {
+		t.Fatalf("HttpOnly cookie mismatch: %q", got)
+	}
 	if got := cookiesForURLV86("http://store1.gofile.io/path/file", cookies); got != "" {
 		t.Fatalf("secure cookie leaked to HTTP: %q", got)
 	}
 	if got := cookiesForURLV86("https://example.com/public", cookies); got != "" {
 		t.Fatalf("path-scoped cookie leaked: %q", got)
+	}
+}
+
+func TestGalleryPrivateJSONLContextV86(t *testing.T) {
+	direct := "https://cdn.bunkr.si/media/video.mp4?token=abc"
+	source := "https://bunkr.si/a/album"
+	jsonl := `[3,"` + direct + `",{"_http_headers":{"Referer":"https://get.bunkrr.su/file/987","Origin":"https://get.bunkrr.su"},"id_url":"987"}]` + "\n"
+	if n := parseGalleryResolvedContextV86([]byte(jsonl), source, nil); n != 1 {
+		t.Fatalf("resolved context count=%d", n)
+	}
+	ctx, ok := providerContextForURLV86(direct)
+	if !ok {
+		t.Fatal("private gallery context was not cached")
+	}
+	if got := ctx.Headers.Get("Referer"); got != "https://get.bunkrr.su/file/987" {
+		t.Fatalf("private Referer mismatch: %q", got)
+	}
+	if got := ctx.Headers.Get("Origin"); got != "https://get.bunkrr.su" {
+		t.Fatalf("private Origin mismatch: %q", got)
 	}
 }
 
