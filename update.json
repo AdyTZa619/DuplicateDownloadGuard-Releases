@@ -1,8 +1,8 @@
 {
-  "version": "8.5.37",
+  "version": "8.5.38",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "714f2265a2c406d98dbddb8a719c2680aaaffedab27f4a13a414030c979f9932",
-  "notes": "Noutăți 8.5.37: Parserul provider acceptă acum atât JSON Lines (`output.jsonl`) cât și documentul JSON clasic/pretty-print folosit de versiuni mai vechi de gallery-dl; o extracție validă nu mai poate ajunge la 0 rezultate doar din cauza formatului de ieșire. • Sunt transformate în fișiere numai mesajele gallery-dl de tip URL (`Message.Url == 3`); mesajele Directory/Queue rămân control/metadata și nu generează rezultate false. • Sunt păstrate numele reale, mărimile, ProviderID-ul și URL-ul direct înainte de comparația locală; mesajul de eroare diferențiază acum extractorul fără fișiere de un parser incompatibil. • Testele acoperă GoFile în JSONL, JSON clasic pretty-printed și ignorarea mesajelor Queue. • După pornirea normală, DDG așteaptă health marker-ul versiunii curente înainte să curețe fișierele updaterului; nu șterge nimic înainte ca noua versiune să fie confirmată sănătoasă. • Cleanup-ul funcționează și când update-ul a fost executat de helperul versiunii anterioare, astfel încât resturile deja existente pot fi eliminate la prima pornire a versiunii noi.",
-  "publishedAt": "2026-09-05T22:40:01.4975758Z",
+  "sha256": "4ddecfe9189852eebd9acb48b5bed992413fe4a30b168d67ab7c1d06999a41a1",
+  "notes": "Noutăți 8.5.38: Scanarea inițială nu mai execută câte un HEAD/Range HTTP pentru fiecare fișier după ce gallery-dl a furnizat deja metadata necesară comparației locale. • GoFile, Bunkr și Cyberdrop trimit lista extrasă direct către comparator; detaliile HTTP de transport sunt rezolvate ulterior numai când sunt necesare pentru preview, verificare sau download. • Elimină cazul în care un folder cu multe fișiere părea că nu face nimic și nu afișa nici rezultat, nici eroare, din cauza timeout-urilor de până la 25 secunde pe probele CDN. • Sursele gallery-dl generice păstrează fallback-ul de îmbogățire HTTP atunci când metadata extractorului nu este suficientă. • MEGA Preview și semantica de matching rămân neschimbate. • Testele verifică explicit că GoFile/Bunkr/Cyberdrop nu mai intră pe calea de probe HTTP blocante înainte de rezultate.",
+  "publishedAt": "2026-09-05T23:01:35.0678268Z",
   "channel": "stable"
 }
