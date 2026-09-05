@@ -261,13 +261,13 @@ func parseNetscapeCookiesV86(data []byte) []netscapeCookieV86 {
 		}
 		expires, _ := strconv.ParseInt(parts[4], 10, 64)
 		out = append(out, netscapeCookieV86{
-			Domain: strings.TrimPrefix(strings.ToLower(strings.TrimSpace(parts[0])), "."),
+			Domain:            strings.TrimPrefix(strings.ToLower(strings.TrimSpace(parts[0])), "."),
 			IncludeSubdomains: strings.EqualFold(strings.TrimSpace(parts[1]), "TRUE"),
-			Path: strings.TrimSpace(parts[2]),
-			Secure: strings.EqualFold(strings.TrimSpace(parts[3]), "TRUE"),
-			Expires: expires,
-			Name: strings.TrimSpace(parts[5]),
-			Value: strings.TrimSpace(parts[6]),
+			Path:              strings.TrimSpace(parts[2]),
+			Secure:            strings.EqualFold(strings.TrimSpace(parts[3]), "TRUE"),
+			Expires:           expires,
+			Name:              strings.TrimSpace(parts[5]),
+			Value:             strings.TrimSpace(parts[6]),
 		})
 	}
 	return out
