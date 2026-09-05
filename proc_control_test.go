@@ -25,3 +25,17 @@ func TestMegaControlWindowNeverKillsProcessTreeV8528(t *testing.T) {
 		t.Fatal("comanda de control MegaClient încă poate omorî arborele serverului MEGAcmd")
 	}
 }
+
+func TestPipeRecoveryTargetsOnlyMEGAcmdServerV8529(t *testing.T) {
+	b, err := os.ReadFile("mega_control_recovery_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(b)
+	if !strings.Contains(source, `"taskkill.exe", "/F", "/IM", "MEGAcmdServer.exe"`) {
+		t.Fatal("recuperarea nu țintește explicit serviciul MEGAcmdServer")
+	}
+	if strings.Contains(source, `"/IM", "MegaClient.exe"`) || strings.Contains(source, `"/T"`) {
+		t.Fatal("recuperarea nu trebuie să omoare MegaClient sau un arbore de procese")
+	}
+}

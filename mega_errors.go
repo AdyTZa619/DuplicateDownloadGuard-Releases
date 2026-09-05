@@ -137,7 +137,7 @@ func classifyMegaProblem(output string, err error) MegaProblem {
 	case containsAny(text, "etempunavail", "api_etempunavail", "temporarily unavailable", "temporary unavailable", "try again later"):
 		return problem("MEGA_TEMPORARY", "MEGA temporar indisponibil", "Serverul sau fișierul nu este disponibil momentan.", megaActionWithRetryV85("Programul va reîncerca automat.", raw), true)
 	case containsAny(text, "failed to access server: 231", "error 231", "system error 231"):
-		return problem("MEGA_CONTROL_PIPE", "Serviciul MEGAcmd este blocat", "MegaClient nu mai poate comunica prin canalul local cu serviciul MEGAcmd.", "Oprește preview-ul și repornește aplicația. DDG nu va relansa automat comenzi care pot agrava blocajul.", false)
+		return problem("MEGA_CONTROL_PIPE", "Serviciul MEGAcmd este blocat", "MegaClient nu mai poate comunica prin canalul local cu serviciul MEGAcmd.", "DDG încearcă automat o singură repornire controlată. Dacă mesajul revine, oprește operațiile MEGA externe și repornește aplicația.", false)
 	case errors.Is(err, context.DeadlineExceeded) || containsAny(text, "timeout", "timed out"):
 		return problem("MEGA_TIMEOUT", "MEGA nu a răspuns la timp", "Operația MEGAcmd a depășit timpul maxim de așteptare.", "Programul va reîncerca automat.", true)
 	case containsAny(text, "network", "connection", "couldn't connect", "could not connect", "eagain", "api request failed"):

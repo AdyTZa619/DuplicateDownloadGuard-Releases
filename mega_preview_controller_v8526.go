@@ -18,14 +18,16 @@ import (
 	"time"
 )
 
-// v8.5.28 keeps one public-folder MEGAcmd session but exposes media by the
+// v8.5.29 keeps one public-folder MEGAcmd session but exposes media by the
 // exact node handle. Real Windows diagnostics proved that MEGAcmd normalizes
 // `webdav /` to the public folder name, while `webdav H:HANDLE` is ready in
 // roughly 130-170 ms. A -> B -> C cancels only obsolete HTTP transfers; it does
 // not cancel an in-flight MegaClient control command, logout/login, or tear
 // down WebDAV routes between files. Per-route `webdav -d` is intentionally
 // forbidden while the source session is active: Windows diagnostics showed it
-// can wedge MEGAcmd's shared command pipe with system error 231.
+// can wedge MEGAcmd's shared command pipe with system error 231. If that exact
+// error is observed, DDG restarts only MEGAcmdServer once for the current
+// source and retries the selected handle. It never turns recovery into a loop.
 
 type megaPreviewPointV8526 struct {
 	AtMS   int64  `json:"atMs"`
@@ -68,6 +70,7 @@ type megaPreviewSourceV8526 struct {
 	err             error
 	started         time.Time
 	sessionProven   bool
+	pipeRecoveries  int
 }
 
 type megaPreviewRouteV8527 struct {
@@ -97,6 +100,7 @@ type megaPreviewOpsV8526 struct {
 	run       func(context.Context, time.Duration, string, ...string) (string, error)
 	acquire   func(context.Context) error
 	release   func()
+	recover   func(string) (string, error)
 }
 
 type megaPreviewControllerV8526 struct {
@@ -167,6 +171,9 @@ func newMegaPreviewControllerV8526(a *App, ops megaPreviewOpsV8526) *megaPreview
 	}
 	if ops.release == nil {
 		ops.release = releaseMegaSession
+	}
+	if ops.recover == nil {
+		ops.recover = recoverMegaControlServerV8529
 	}
 	return &megaPreviewControllerV8526{
 		a:      a,
@@ -674,6 +681,28 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 	// shared MEGAcmd server is what produced the error-231 failure cascade in the
 	// real Windows trace.
 	target, out, err := c.startPerFileV8527(svc.ctx, job, exe, "per-file-direct")
+	if err != nil && classifyMegaProblem(out, err).Code == "MEGA_CONTROL_PIPE" && c.claimPipeRecoveryV8529(svc) {
+		c.mark(job.generation, "T3", "eroare 231; repornesc o singură dată serviciul MEGAcmd")
+		started := time.Now()
+		recoveryOut, recoveryErr := c.ops.recover(exe)
+		c.recordJobCommandV8527(job, "MEGAcmdServer recovery", started, recoveryOut, recoveryErr)
+		if recoveryErr != nil {
+			err = fmt.Errorf("recuperarea serviciului MEGAcmd a eșuat: %w", recoveryErr)
+			out = strings.TrimSpace(out + "\n" + recoveryOut)
+		} else {
+			c.mu.Lock()
+			if c.source == svc {
+				svc.sessionProven = false
+			}
+			c.mu.Unlock()
+			if job.ctx.Err() == nil && svc.ctx.Err() == nil {
+				target, out, err = c.startPerFileV8527(svc.ctx, job, exe, "per-file-after-server-restart")
+			} else {
+				job.err = context.Canceled
+				return
+			}
+		}
+	}
 	if err != nil && job.ctx.Err() == nil && c.shouldResumeSourceV8527(svc, out, err) {
 		c.mark(job.generation, "T3", "sesiunea curentă nu conține nodul; reiau sursa o singură dată")
 		if loginErr := c.resumeSourceV8527(job, svc, exe); loginErr != nil {
@@ -722,6 +751,16 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 	c.mu.Unlock()
 	c.diagf("GEN=%d ROUTE cached=%d sessionProven=true", job.generation, routeCount)
 	c.commitPerFileV8527(job, svc, exe, target)
+}
+
+func (c *megaPreviewControllerV8526) claimPipeRecoveryV8529(svc *megaPreviewSourceV8526) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || svc == nil || c.source != svc || svc.ctx.Err() != nil || svc.pipeRecoveries >= 1 {
+		return false
+	}
+	svc.pipeRecoveries++
+	return true
 }
 
 func (c *megaPreviewControllerV8526) recordJobCommandV8527(job *megaPreviewJobV8526, name string, started time.Time, out string, err error) {
@@ -792,6 +831,8 @@ func (c *megaPreviewControllerV8526) resumeSourceV8527(job *megaPreviewJobV8526,
 		c.mu.Unlock()
 		return nil
 	}
+	preservePreviousSession := svc.pipeRecoveries > 0
+	previousSession := svc.previousSession
 	c.mu.Unlock()
 
 	runSource := func(label string, timeout time.Duration, args ...string) (string, error) {
@@ -800,9 +841,12 @@ func (c *megaPreviewControllerV8526) resumeSourceV8527(job *megaPreviewJobV8526,
 		c.recordJobCommandV8527(job, label+" "+safeMegaArgsV8526(args), started, out, err)
 		return out, err
 	}
-	oldSession := ""
-	if out, err := runSource("session-snapshot", 15*time.Second, "session"); err == nil {
-		oldSession = extractSession(out)
+	oldSession := previousSession
+	if !preservePreviousSession {
+		oldSession = ""
+		if out, err := runSource("session-snapshot", 15*time.Second, "session"); err == nil {
+			oldSession = extractSession(out)
+		}
 	}
 	if oldSession != "" {
 		_, _ = runSource("session-detach", 15*time.Second, "logout", "--keep-session")

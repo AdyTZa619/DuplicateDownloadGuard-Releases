@@ -163,6 +163,95 @@ func TestMegaPreviewControllerContainsNoRuntimeWebDAVDeleteV8528(t *testing.T) {
 	}
 }
 
+func TestMegaPreviewRecoversWindowsPipeOnceAndRetriesCurrentFileV8529(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+	var commandCalls atomic.Int32
+	var recoveryCalls atomic.Int32
+	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"}}
+	c := newMegaPreviewControllerV8526(a, megaPreviewOpsV8526{
+		detectExe: func() string { return "MegaClient.exe" },
+		run: func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
+			n := commandCalls.Add(1)
+			if n == 1 {
+				return "Failed to access server: 231", errors.New("exit status 0xfffffffe")
+			}
+			return "Serving via webdav " + args[1] + ": " + server.URL + "/file", nil
+		},
+		acquire: func(context.Context) error { return nil },
+		release: func() {},
+		recover: func(string) (string, error) {
+			recoveryCalls.Add(1)
+			return "MEGAcmdServer restarted", nil
+		},
+	})
+	defer c.close("test")
+	generation, _, _, err := c.begin(RemoteItem{Source: "MEGA", URL: "source", Path: "clip.mp4", Handle: "HANDLE-PIPE"}, "video", false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, _ := c.currentJob(generation)
+	select {
+	case <-job.ready:
+	case <-time.After(time.Second):
+		t.Fatal("recuperarea pipe-ului nu s-a terminat")
+	}
+	if job.err != nil {
+		t.Fatal(job.err)
+	}
+	if recoveryCalls.Load() != 1 || commandCalls.Load() != 2 {
+		t.Fatalf("recovery=%d commands=%d, vreau o recuperare și o singură repetare", recoveryCalls.Load(), commandCalls.Load())
+	}
+	trace, _ := c.trace(generation)
+	foundRecovery := false
+	for _, command := range trace.Commands {
+		if command.Name == "MEGAcmdServer recovery" {
+			foundRecovery = true
+		}
+	}
+	if !foundRecovery {
+		t.Fatal("recuperarea serviciului nu apare în diagnosticul preview-ului")
+	}
+}
+
+func TestMegaPreviewDoesNotLoopPipeRecoveryV8529(t *testing.T) {
+	var recoveryCalls atomic.Int32
+	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"}}
+	c := newMegaPreviewControllerV8526(a, megaPreviewOpsV8526{
+		detectExe: func() string { return "MegaClient.exe" },
+		run: func(_ context.Context, _ time.Duration, _ string, _ ...string) (string, error) {
+			return "Failed to access server: 231", errors.New("exit status 0xfffffffe")
+		},
+		acquire: func(context.Context) error { return nil },
+		release: func() {},
+		recover: func(string) (string, error) {
+			recoveryCalls.Add(1)
+			return "MEGAcmdServer restarted", nil
+		},
+	})
+	defer c.close("test")
+	for i := 0; i < 2; i++ {
+		generation, _, _, err := c.begin(RemoteItem{Source: "MEGA", URL: "source", Path: fmt.Sprintf("clip-%d.mp4", i), Handle: fmt.Sprintf("HANDLE-PIPE-%d", i)}, "video", false, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		job, _ := c.currentJob(generation)
+		select {
+		case <-job.ready:
+		case <-time.After(time.Second):
+			t.Fatal("preview-ul cu pipe blocat nu s-a încheiat")
+		}
+		if job.err == nil {
+			t.Fatal("pipe-ul rămas blocat trebuia raportat")
+		}
+	}
+	if recoveryCalls.Load() != 1 {
+		t.Fatalf("recuperarea a intrat în buclă: %d încercări", recoveryCalls.Load())
+	}
+}
+
 func TestMegaPreviewRange206AndFirstByteTimingV8526(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Range"); got != "bytes=5-9" {
