@@ -1,8 +1,8 @@
 {
-  "version": "8.5.27-test.1",
+  "version": "8.5.28-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "fe1b1fec3b42915f37d6b41b9593d299d202a99a72bd88b57383989f0eccbda9",
-  "notes": "TEST MEGA Preview 8.5.27-test.1: bază exactă 8.5.9; testul Windows 8.5.26 a demonstrat că fallback-ul H:HANDLE pornește instant, iar ruta root era declarată greșit. Această versiune elimină WebDAV root din traseul principal, păstrează o singură sesiune publică, pornește WebDAV per-fișier pe handle, face login cel mult o dată când sesiunea nu corespunde, limitează rutele vechi după repaus, păstrează ownership ultimului click, Range/206 și T0-T12. Nu este stable înainte de validarea reală.",
-  "publishedAt": "2026-09-05T07:31:56.1356693Z",
+  "sha256": "e674da1512340561c4208fae8b04f8277cddcea33edf92c7a06a8189bd40c08b",
+  "notes": "TEST MEGA Preview 8.5.28-test.1: bază 8.5.9 plus ruta per-fișier validată. Jurnalul Windows 8.5.27 a demonstrat cauza exactă: cleanup-ul automat webdav -d începea după mai multe preview-uri, expira, apoi MegaClient repeta Failed to access server: 231 în aproximativ 9 secunde. Candidatul elimină complet cleanup-ul per-rută în timpul sesiunii, nu mai anulează comanda MegaClient deja pornită când se schimbă selecția și nu mai folosește taskkill /T pentru comenzile de control. Păstrează Range/206, cache per-fișier și T0-T12. Este numai test, nu stable.",
+  "publishedAt": "2026-09-05T07:50:56.6184363Z",
   "channel": "test"
 }
