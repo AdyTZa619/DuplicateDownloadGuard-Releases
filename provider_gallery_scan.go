@@ -16,10 +16,6 @@ import (
 	"time"
 )
 
-type galleryRemoteEntryV86 struct {
-	Item RemoteItem
-}
-
 func providerSourceLabelV86(raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
