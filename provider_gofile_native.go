@@ -30,8 +30,8 @@ type gofileContentV86 struct {
 }
 
 type gofileContentEnvelopeV86 struct {
-	Status string             `json:"status"`
-	Data   gofileContentV86   `json:"data"`
+	Status string           `json:"status"`
+	Data   gofileContentV86 `json:"data"`
 }
 
 func gofileFolderCodeV86(raw string) (string, error) {
