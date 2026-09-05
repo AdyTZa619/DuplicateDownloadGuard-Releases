@@ -1,8 +1,8 @@
 {
-  "version": "8.5.24-test.1",
+  "version": "8.5.25-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "2a62e053ea6fa6e23358f9c36cb10d486c615bb3cea4e23b4298959cf1fb2922",
-  "notes": "TEST 8.5.24-test.1: baza exacta 8.5.9. /api/remote-preview/start raspunde imediat cu URL local; MEGAcmd ruleaza intr-un worker serializat, anulabil, cu timeout total 25s. Selectia noua anuleaza jobul si streamul anterior. Proxy-ul local transmite HTTP Range/206, Content-Range si metadatele necesare Direct Play.",
-  "publishedAt": "2026-09-04T23:53:27.0794599Z",
+  "sha256": "123426a6a40f15c35e8c42300d26760d82fe06e26e7e1bf79b2879bf5561d9d2",
+  "notes": "TEST 8.5.25-test.1: baza exacta 8.5.9. Calea async nu mai asteapta previewMu nici la cache, nici la commitul starii. Comenzile MEGAcmd folosesc WaitDelay pentru pipe-urile mostenite de MEGAcmdServer, iar ErrWaitDelay este tratat ca succes al procesului. Proxy-ul foloseste conexiuni fara keep-alive si timeout de header, pastrand HTTP Range/206.",
+  "publishedAt": "2026-09-05T00:13:38.3163731Z",
   "channel": "test"
 }
