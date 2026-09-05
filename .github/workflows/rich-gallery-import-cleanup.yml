@@ -1,0 +1,38 @@
+name: Rich gallery legacy import cleanup
+
+on:
+  push:
+    branches:
+      - 'feature/rich-gallery-scan'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/rich-gallery-scan
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Remove imports made obsolete by scanner extraction
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'v7_extra.go'
+          $text = Get-Content -Raw $path
+          foreach ($needle in @("`t`"bufio`"`r`n", "`t`"sync`"`r`n", "`t`"bufio`"`n", "`t`"sync`"`n")) {
+            $text = $text.Replace($needle, '')
+          }
+          [System.IO.File]::WriteAllText((Resolve-Path $path), $text, [System.Text.UTF8Encoding]::new($false))
+          gofmt -w v7_extra.go provider_gallery_scan.go provider_gallery_scan_test.go
+          git rm .github/workflows/rich-gallery-import-cleanup.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v7_extra.go provider_gallery_scan.go provider_gallery_scan_test.go
+          git commit -m 'Clean legacy imports after rich gallery extraction'
+          git push origin HEAD:feature/rich-gallery-scan
