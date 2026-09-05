@@ -82,3 +82,29 @@ jobs:
             DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe
             SHA256_v8.5.26-test.1.txt
             MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
+
+      - name: Publish test candidate to in-app updater
+        shell: pwsh
+        run: |
+          git fetch origin main
+          $publishDir = Join-Path $env:RUNNER_TEMP 'ddg-v8526-publish'
+          git worktree add --detach $publishDir origin/main
+          Copy-Item DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe (Join-Path $publishDir 'releases/DuplicateDownloadGuard_PRO_LATEST.exe') -Force
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.26-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content (Join-Path $publishDir 'SHA256SUMS.txt')
+          $manifest = [ordered]@{
+            version = '8.5.26-test.1'
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
+            sha256 = $hash
+            notes = 'TEST MEGA Preview 8.5.26-test.1: bază exactă 8.5.9; separă serviciul MEGA/WebDAV de transferul playerului, reutilizează un singur root per sursă, elimină cache miss-ul produs de mutex ocupat, aplică ownership ultimului click, anulează independent streamurile vechi, transmite Range/206 și înregistrează T0-T12. Nu este declarat stable înainte de validarea reală Windows/MEGAcmd.'
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $publishDir 'update.json') -Encoding utf8
+          Push-Location $publishDir
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/DuplicateDownloadGuard_PRO_LATEST.exe SHA256SUMS.txt update.json
+          git commit -m 'Publish MEGA Preview 8.5.26-test.1 [skip ci]'
+          git push origin HEAD:main
+          Pop-Location
