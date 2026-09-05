@@ -1,8 +1,8 @@
 {
-  "version": "8.5.25-test.1",
+  "version": "8.5.26-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "123426a6a40f15c35e8c42300d26760d82fe06e26e7e1bf79b2879bf5561d9d2",
-  "notes": "TEST 8.5.25-test.1: baza exacta 8.5.9. Calea async nu mai asteapta previewMu nici la cache, nici la commitul starii. Comenzile MEGAcmd folosesc WaitDelay pentru pipe-urile mostenite de MEGAcmdServer, iar ErrWaitDelay este tratat ca succes al procesului. Proxy-ul foloseste conexiuni fara keep-alive si timeout de header, pastrand HTTP Range/206.",
-  "publishedAt": "2026-09-05T00:13:38.3163731Z",
+  "sha256": "818ba6ffbc1d0ea3c34fc56dca49840217bf41e89dbe864ff601fac1677e5968",
+  "notes": "TEST MEGA Preview 8.5.26-test.1: bază exactă 8.5.9; separă serviciul MEGA/WebDAV de transferul playerului, reutilizează un singur root per sursă, elimină cache miss-ul produs de mutex ocupat, aplică ownership ultimului click, anulează independent streamurile vechi, transmite Range/206 și înregistrează T0-T12. Nu este declarat stable înainte de validarea reală Windows/MEGAcmd.",
+  "publishedAt": "2026-09-05T00:47:05.5398306Z",
   "channel": "test"
 }
