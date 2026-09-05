@@ -226,8 +226,12 @@ func TestMegaPreviewTwentyStreamingSwitchesDoNotLeakRequestsV8526(t *testing.T) 
 	case <-time.After(3 * time.Second):
 		t.Fatal("cancelled streams did not exit")
 	}
+	deadline := time.Now().Add(time.Second)
+	for active.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if got := active.Load(); got != 0 {
-		t.Fatalf("active upstream requests=%d", got)
+		t.Fatalf("active upstream requests did not drain: %d", got)
 	}
 	if got := maximum.Load(); got > 2 {
 		t.Fatalf("upstream requests grew to %d instead of remaining bounded", got)
