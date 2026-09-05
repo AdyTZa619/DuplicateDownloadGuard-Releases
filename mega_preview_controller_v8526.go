@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// v8.5.29 keeps one public-folder MEGAcmd session but exposes media by the
+// v8.5.31 keeps one public-folder MEGAcmd session but exposes media by the
 // exact node handle. Real Windows diagnostics proved that MEGAcmd normalizes
 // `webdav /` to the public folder name, while `webdav H:HANDLE` is ready in
 // roughly 130-170 ms. A -> B -> C cancels only obsolete HTTP transfers; it does
@@ -28,6 +28,9 @@ import (
 // can wedge MEGAcmd's shared command pipe with system error 231. If that exact
 // error is observed, DDG restarts only MEGAcmdServer once for the current
 // source and retries the selected handle. It never turns recovery into a loop.
+// The media proxy runs on a dedicated loopback listener so long-lived browser
+// Range requests cannot consume the UI/API origin's connection pool and delay
+// the next /start request, status update, or diagnostic event.
 
 type megaPreviewPointV8526 struct {
 	AtMS   int64  `json:"atMs"`
@@ -79,6 +82,8 @@ type megaPreviewRouteV8527 struct {
 	lastUsed  time.Time
 }
 
+type megaPreviewMediaConnKeyV8531 struct{}
+
 type megaPreviewJobV8526 struct {
 	generation uint64
 	item       RemoteItem
@@ -92,7 +97,8 @@ type megaPreviewJobV8526 struct {
 	target     string
 	mode       string
 	err        error
-	streaming  bool
+	streams    int
+	mediaConns map[net.Conn]struct{}
 }
 
 type megaPreviewOpsV8526 struct {
@@ -261,8 +267,9 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 	}
 	if old := c.selection; old != nil {
 		c.markLocked(old.generation, "T11", "selecție nouă; anulez numai HTTP/playerul vechi, nu MegaClient")
+		c.closeMediaConnectionsLockedV8531(old, "selecție nouă")
 		old.cancel()
-		if !old.streaming {
+		if old.streams == 0 {
 			c.markLocked(old.generation, "T12", "cererea veche nu ajunsese la upstream")
 		}
 	}
@@ -278,6 +285,7 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 		ctx:        ctx,
 		cancel:     cancel,
 		ready:      make(chan struct{}),
+		mediaConns: make(map[net.Conn]struct{}),
 	}
 	t0 := time.Now().UnixMilli()
 	if clientT0 > 0 && clientT0 <= t0+5000 && clientT0 >= t0-60000 {
@@ -351,7 +359,19 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 	if generation == 1 || generation == 10 || generation == 20 {
 		go c.resourceSnapshot(generation)
 	}
-	return generation, fmt.Sprintf("/api/remote-preview/media?generation=%d", generation), "MEGA PER-FILE SERVICE", nil
+	return generation, c.mediaURLV8531(generation), "MEGA PER-FILE SERVICE", nil
+}
+
+func (c *megaPreviewControllerV8526) mediaURLV8531(generation uint64) string {
+	path := fmt.Sprintf("/api/remote-preview/media?generation=%d", generation)
+	if c == nil || c.a == nil {
+		return path
+	}
+	base := strings.TrimRight(strings.TrimSpace(c.a.previewMediaBase), "/")
+	if base == "" || !loopbackPreviewURLV8526(base) {
+		return path
+	}
+	return base + path
 }
 
 func megaPreviewRouteKeyV8527(sourceURL, remoteRef string) string {
@@ -961,8 +981,19 @@ func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusGone)
 		return
 	}
+	mediaConn, _ := r.Context().Value(megaPreviewMediaConnKeyV8531{}).(net.Conn)
 	c.mu.Lock()
-	job.streaming = true
+	if job.ctx.Err() != nil {
+		c.mu.Unlock()
+		if mediaConn != nil {
+			_ = mediaConn.Close()
+		}
+		return
+	}
+	job.streams++
+	if mediaConn != nil {
+		job.mediaConns[mediaConn] = struct{}{}
+	}
 	if tr := c.traces[generation]; tr != nil {
 		tr.State = "streaming"
 		tr.Range = r.Header.Get("Range")
@@ -970,7 +1001,12 @@ func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.R
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
-		job.streaming = false
+		if job.streams > 0 {
+			job.streams--
+		}
+		if mediaConn != nil {
+			delete(job.mediaConns, mediaConn)
+		}
 		if job.ctx.Err() != nil {
 			c.markLocked(generation, "T12", "transfer upstream închis după anulare")
 		}
@@ -1078,6 +1114,23 @@ func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.R
 	c.mu.Unlock()
 }
 
+// closeMediaConnectionsLockedV8531 releases browser connection slots
+// synchronously. Cancelling only the upstream context is insufficient when
+// Chromium keeps an old progressive or Range response attached to its origin.
+// c.mu must be held by the caller.
+func (c *megaPreviewControllerV8526) closeMediaConnectionsLockedV8531(job *megaPreviewJobV8526, reason string) {
+	if job == nil || len(job.mediaConns) == 0 {
+		return
+	}
+	closed := 0
+	for conn := range job.mediaConns {
+		_ = conn.Close()
+		delete(job.mediaConns, conn)
+		closed++
+	}
+	c.diagf("GEN=%d MEDIA-CONNECTIONS closed=%d reason=%s", job.generation, closed, reason)
+}
+
 func (c *megaPreviewControllerV8526) event(generation uint64, label, detail string, clientAt int64) {
 	allowed := map[string]bool{"T6": true, "T7": true, "T9": true, "T10": true, "T11": true, "T12": true}
 	if !allowed[label] {
@@ -1142,8 +1195,9 @@ func (c *megaPreviewControllerV8526) cancelCurrent(reason string) {
 	c.mu.Lock()
 	if job := c.selection; job != nil {
 		c.markLocked(job.generation, "T11", reason)
+		c.closeMediaConnectionsLockedV8531(job, reason)
 		job.cancel()
-		if !job.streaming {
+		if job.streams == 0 {
 			c.markLocked(job.generation, "T12", "transfer inactiv")
 		}
 	}
@@ -1154,6 +1208,7 @@ func (c *megaPreviewControllerV8526) invalidate(reason string) {
 	c.mu.Lock()
 	if job := c.selection; job != nil {
 		c.markLocked(job.generation, "T11", reason)
+		c.closeMediaConnectionsLockedV8531(job, reason)
 		job.cancel()
 		c.selection = nil
 	}

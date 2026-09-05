@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.30-test.1 Pro Smart Media Guard"
+const appVersion = "8.5.31-test.1 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -234,6 +234,7 @@ type App struct {
 	previewTTL       *time.Timer
 	previewV8526Once sync.Once
 	previewV8526     *megaPreviewControllerV8526
+	previewMediaBase string
 	cfg              Config
 	index            map[string]FileEntry
 	bySize           map[int64][]string
@@ -327,8 +328,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
+	if err != nil {
+		_ = ln.Close()
+		log.Fatal(err)
+	}
+	a.previewMediaBase = mediaBase
 	addr := "http://" + ln.Addr().String()
 	a.logf("Pornit %s pe %s", appVersion, addr)
+	a.logf("MEGA Preview media listener dedicat: %s", mediaBase)
 	go markUpdateHealthyLater(a.appDir)
 	shutdownCh := make(chan struct{}, 1)
 	startUIWatchdog(shutdownCh)
@@ -339,8 +347,14 @@ func main() {
 	}()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
+	mediaServeErr := make(chan error, 1)
+	go func() { mediaServeErr <- mediaSrv.Serve(mediaLn) }()
 	select {
 	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case err := <-mediaServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
@@ -349,8 +363,36 @@ func main() {
 		shutdownApp(a)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = srv.Shutdown(ctx)
+		_ = mediaSrv.Shutdown(ctx)
 		cancel()
 	}
+}
+
+// newMegaPreviewMediaServerV8531 isolates long-lived image/video/audio
+// responses from the UI/API listener. Browsers limit concurrent HTTP/1.1
+// connections per origin; a progressive image or Range video that is still
+// closing must never delay the next selection request or status/error report.
+func newMegaPreviewMediaServerV8531(a *App) (net.Listener, *http.Server, string, error) {
+	if a == nil {
+		return nil, nil, "", errors.New("aplicația lipsește pentru listenerul MEGA Preview")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("listener media MEGA Preview: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/remote-preview/media", a.handleMegaPreviewMediaV8526)
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+			return context.WithValue(ctx, megaPreviewMediaConnKeyV8531{}, conn)
+		},
+	}
+	// Every browser-facing media connection belongs to one preview generation.
+	// Reuse would let an old progressive/Range response delay a newer item.
+	srv.SetKeepAlivesEnabled(false)
+	return ln, srv, "http://" + ln.Addr().String(), nil
 }
 
 func newApp() (*App, error) {

@@ -1,4 +1,4 @@
-# MEGA Preview v8.5.30-test.1 — validare Windows
+# MEGA Preview v8.5.31-test.1 — validare Windows
 
 Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Duplicate Detection, Smart Guard sau Download Studio.
 
@@ -11,6 +11,7 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - după `webdav -d` cu timeout, MegaClient a început să returneze repetat `Failed to access server: 231`; fiecare comandă a durat aproximativ 9,2 s.
 - în testul 8.5.28, DDG nu a mai produs linii `CLEANUP`, însă serviciul MEGAcmd rămas blocat de rularea veche a continuat să returneze eroarea 231 peste restartul aplicației.
 - în testul 8.5.29, recuperarea a reușit: restartul țintit a durat 1,081 s, repetarea aceluiași handle 111 ms, iar următoarele 27 de comenzi MEGAcmd au răspuns în 97–432 ms (media aritmetică 139 ms). Totuși, 8 din 31 de clickuri au așteptat 1,595–13,087 s înainte să ajungă la backend (`T0→T1`).
+- în testul 8.5.30, toate cele 32 de comenzi MEGAcmd au rămas rapide: media 159 ms și maximul 493 ms. Nu a reapărut eroarea 231 și nu a existat cleanup MEGAcmd. Cu toate acestea, 8 clickuri au depășit 500 ms înainte să ajungă la backend, cu `T0→T1` maxim 16,364 s; 12 cereri media au depășit 500 ms după pregătirea WebDAV, cu `T4→T5` maxim 9,524 s. Prin urmare, întârzierea rămasă este pe originea HTTP comună UI/media, nu în comanda MEGAcmd.
 
 ## Arhitectura candidatului
 
@@ -22,6 +23,7 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 - comenzile de control MegaClient nu mai folosesc `taskkill /T`; serverul MEGAcmd comun nu este omorât odată cu clientul.
 - numai după răspunsul exact `Failed to access server: 231`, DDG oprește țintit `MEGAcmdServer.exe`, îl pornește din nou ascuns și repetă fișierul curent. Recuperarea este permisă o singură dată pentru sursa curentă, ca să nu poată deveni buclă.
 - înaintea unei selecții noi, elementul video/audio vechi primește `pause → remove src → load → remove`, iar imaginea progresivă primește un `src` local minuscul înainte de eliminare. Astfel browserul închide cererea media veche înainte să trimită noul `/start`, iar evenimentele elementului retras nu mai pot modifica preview-ul curent.
+- proxy-ul media rulează pe un al doilea listener `127.0.0.1` cu port dinamic, separat de listenerul UI/API. Doar `/api/remote-preview/media` este expus pe acel port. Astfel streamurile lungi și cererile Range nu mai pot ocupa conexiunile originii pe care circulă selecția următoare, statusul și jurnalul. La schimbarea fișierului, DDG închide explicit conexiunile media ale generației vechi; conexiunile browserului nu sunt reutilizate între preview-uri.
 - Range/206 și T0–T12 rămân instrumentate. Eroarea Windows 231 are clasificare separată în jurnal și interfață.
 
 ## Test minim
@@ -33,7 +35,7 @@ Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Dupl
 5. Fă o scanare MEGA nouă și repetă primele trei preview-uri.
 6. Repornește aplicația și testează primul preview.
 
-În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă. Pentru fiecare click, `T1` trebuie să rămână sub 500 ms; această valoare măsoară strict timpul dintre clickul din UI și primirea cererii de către backend, înaintea comenzii MEGAcmd.
+La pornire trebuie să apară linia `MEGA Preview media listener dedicat: http://127.0.0.1:PORT`, cu un port diferit de cel al interfeței. În jurnal nu trebuie să apară nicio linie `CLEANUP`, nicio comandă `webdav -d` și mai mult de o linie `MEGAcmdServer recovery` pentru aceeași sursă. Pentru fiecare click, `T1` trebuie să rămână sub 500 ms; această valoare măsoară strict timpul dintre clickul din UI și primirea cererii de către backend, înaintea comenzii MEGAcmd. După `T4`, prima cerere media `T5` trebuie de asemenea să pornească fără pauzele periodice de mai multe secunde.
 
 Jurnalul complet se scrie în `data\MEGA_Preview_Diagnostic.log`. Timpii structurați sunt disponibili și la `http://127.0.0.1:PORT/api/remote-preview/timings` cât timp aplicația rulează.
 

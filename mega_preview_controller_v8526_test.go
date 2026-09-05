@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -555,5 +556,92 @@ func TestMegaPreviewUIDisconnectsOldNativeMediaBeforeNextStartV8530(t *testing.T
 	}
 	if !strings.Contains(source, "activeV8526 = null;") || !strings.Contains(source, "activeV8526?.generation === generation") {
 		t.Fatal("events emitted by a reset stale element must not update the active preview")
+	}
+}
+
+func TestMegaPreviewReturnsDedicatedMediaOriginV8531(t *testing.T) {
+	a := &App{
+		previewMediaBase: "http://127.0.0.1:54321",
+		preview:          MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"},
+	}
+	c := testPreviewControllerV8526(a, func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
+		return "Serving via webdav " + args[1] + ": http://127.0.0.1:4443/file", nil
+	})
+	defer c.close("test")
+	generation, mediaURL, _, err := c.begin(RemoteItem{Source: "MEGA", URL: "source", Path: "clip.mp4", Handle: "HANDLE-PORT"}, "video", false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("http://127.0.0.1:54321/api/remote-preview/media?generation=%d", generation)
+	if mediaURL != want {
+		t.Fatalf("media URL=%q, want dedicated origin %q", mediaURL, want)
+	}
+}
+
+func TestMegaPreviewMediaOriginRejectsNonLoopbackV8531(t *testing.T) {
+	a := &App{previewMediaBase: "https://example.com"}
+	c := &megaPreviewControllerV8526{a: a}
+	if got := c.mediaURLV8531(7); got != "/api/remote-preview/media?generation=7" {
+		t.Fatalf("unsafe media base was accepted: %s", got)
+	}
+}
+
+func TestDedicatedMegaPreviewServerExposesOnlyMediaRouteV8531(t *testing.T) {
+	a := &App{}
+	ln, srv, base, err := newMegaPreviewMediaServerV8531(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if !loopbackPreviewURLV8526(base) {
+		t.Fatalf("media listener is not loopback: %s", base)
+	}
+	mux := srv.Handler.(*http.ServeMux)
+	if _, pattern := mux.Handler(httptest.NewRequest(http.MethodGet, base+"/api/remote-preview/status", nil)); pattern != "" {
+		t.Fatalf("dedicated media server unexpectedly exposes control route %q", pattern)
+	}
+	if _, pattern := mux.Handler(httptest.NewRequest(http.MethodGet, base+"/api/remote-preview/media?generation=1", nil)); pattern != "/api/remote-preview/media" {
+		t.Fatalf("media route is missing, pattern=%q", pattern)
+	}
+}
+
+func TestNewPreviewClosesOldBrowserMediaConnectionV8531(t *testing.T) {
+	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"}}
+	c := testPreviewControllerV8526(a, func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
+		return "Serving via webdav " + args[1] + ": http://127.0.0.1:4443/file", nil
+	})
+	defer c.close("test")
+
+	oldCtx, oldCancel := context.WithCancel(context.Background())
+	serverConn, browserConn := net.Pipe()
+	defer browserConn.Close()
+	c.generation = 1
+	c.selection = &megaPreviewJobV8526{
+		generation: 1,
+		ctx:        oldCtx,
+		cancel:     oldCancel,
+		ready:      make(chan struct{}),
+		mediaConns: map[net.Conn]struct{}{serverConn: {}},
+		streams:    1,
+	}
+	c.traces[1] = &megaPreviewTraceV8526{Generation: 1, Points: make(map[string]megaPreviewPointV8526)}
+	c.traceOrder = append(c.traceOrder, 1)
+
+	readDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := browserConn.Read(buf)
+		readDone <- err
+	}()
+	if _, _, _, err := c.begin(RemoteItem{Source: "MEGA", URL: "source", Path: "next.mp4", Handle: "NEXT-HANDLE"}, "video", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-readDone:
+		if err == nil {
+			t.Fatal("old browser media connection remained readable")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("new preview did not close the old browser media connection")
 	}
 }
