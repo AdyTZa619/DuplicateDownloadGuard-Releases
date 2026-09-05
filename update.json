@@ -1,8 +1,8 @@
 {
-  "version": "8.5.31-test.1",
+  "version": "8.5.32-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "220799299226480e32026e847785af503a9335ae5d1f3611ac1be8034d24ff84",
-  "notes": "TEST MEGA Preview 8.5.31-test.1: jurnalul real 8.5.30 cu 32 de preview-uri confirmă că MEGAcmd este sănătos (media 159 ms, maxim 493 ms), dar portul HTTP comun rămânea congestionat: T0→T1 a ajuns la 16,364 s, iar T4→T5 la 9,524 s. Playerul media folosește acum un al doilea listener 127.0.0.1 cu port dinamic, dedicat exclusiv proxy-ului image/video/audio. UI, /start, status și diagnosticul rămân pe portul principal și nu mai împart pool-ul de conexiuni al browserului cu streamurile Range. La fiecare schimbare sunt închise explicit socketurile browser-facing ale generației vechi, iar keep-alive este dezactivat pe listenerul media. Păstrează recuperarea unică a erorii 231. Este numai test, nu stable; rezolvarea necesită confirmare Windows reală.",
-  "publishedAt": "2026-09-05T12:41:03.9038017Z",
+  "sha256": "043fb4a554f8fb8798d9c5a54c4a40e5ff3f20e314d6f111f7745a1a6da48738",
+  "notes": "TEST MEGA Preview 8.5.32-test.1: jurnalul real 8.5.31 confirmă că portul media separat a eliminat întârzierea dintre WebDAV gata și prima cerere media: 26/26 sub 500 ms, media 25,4 ms, maxim 389 ms. A rămas congestia click→backend pe portul principal: 16/32 peste 500 ms, maxim 17,077 s; generațiile depășite nu mai ajungeau la player. Acest candidat mută /start, status, event, stop și timings pe un al treilea listener loopback dedicat controlului MEGA Preview, cu CORS limitat exact la originea UI. Elimină keepalive din evenimentele normale, nu mai trimite T11/T12 înaintea următorului /start și anulează cererea /start precedentă la un click nou. Media rămâne pe propriul port, cu închiderea socketurilor vechi. Este numai test, nu stable; necesită validare Windows reală.",
+  "publishedAt": "2026-09-05T13:03:40.8103965Z",
   "channel": "test"
 }
