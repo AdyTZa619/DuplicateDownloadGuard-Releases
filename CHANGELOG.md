@@ -2,6 +2,23 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.37] — 2026-09-06
+
+### GoFile / Bunkr / Cyberdrop — rezultate compatibile gallery-dl
+- Parserul provider acceptă acum atât JSON Lines (`output.jsonl`) cât și documentul JSON clasic/pretty-print folosit de versiuni mai vechi de gallery-dl; o extracție validă nu mai poate ajunge la 0 rezultate doar din cauza formatului de ieșire.
+- Sunt transformate în fișiere numai mesajele gallery-dl de tip URL (`Message.Url == 3`); mesajele Directory/Queue rămân control/metadata și nu generează rezultate false.
+- Sunt păstrate numele reale, mărimile, ProviderID-ul și URL-ul direct înainte de comparația locală; mesajul de eroare diferențiază acum extractorul fără fișiere de un parser incompatibil.
+- Testele acoperă GoFile în JSONL, JSON clasic pretty-printed și ignorarea mesajelor Queue.
+
+### Updater — cleanup retroactiv după pornire sănătoasă
+- După pornirea normală, DDG așteaptă health marker-ul versiunii curente înainte să curețe fișierele updaterului; nu șterge nimic înainte ca noua versiune să fie confirmată sănătoasă.
+- Cleanup-ul funcționează și când update-ul a fost executat de helperul versiunii anterioare, astfel încât resturile deja existente pot fi eliminate la prima pornire a versiunii noi.
+- Se păstrează cel mai nou backup EXE pentru rollback; backup-urile mai vechi, helper-ele, pending/request și temporarele updaterului sunt eliminate automat.
+- Pe Windows, cleanup-ul se repetă după câteva secunde pentru helperul care putea fi încă blocat la prima încercare.
+
+### Compatibilitate
+- MEGA Preview și semantica de matching nu sunt modificate în această versiune.
+
 ## [8.5.36] — 2026-09-06
 
 ### Sursă online — buton și feedback imediat
