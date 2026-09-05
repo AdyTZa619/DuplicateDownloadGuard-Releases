@@ -82,5 +82,5 @@ func TestLegacyGalleryScannerRoutesToRichProviderV86(t *testing.T) {
 }
 
 func filepathSlashForTestV86(s string) string {
-	return strings.ReplaceAll(s, `\\`, "/")
+	return strings.ReplaceAll(s, "\\", "/")
 }
