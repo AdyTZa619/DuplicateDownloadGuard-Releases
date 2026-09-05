@@ -27,11 +27,13 @@ func TestBuildProviderPreviewRequestPreservesRangeV86(t *testing.T) {
 func TestProviderPreviewProxyStreamsRangeV86(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Range"); got != "bytes=2-5" {
-			t.Fatalf("upstream Range=%q", got)
+			http.Error(w, "bad range: "+got, http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "video/mp4")
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Range", "bytes 2-5/10")
+		w.Header().Set("Content-Disposition", `attachment; filename="clip.mp4"`)
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = io.WriteString(w, "2345")
 	}))
@@ -46,10 +48,14 @@ func TestProviderPreviewProxyStreamsRangeV86(t *testing.T) {
 	resp := rr.Result()
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusPartialContent {
-		t.Fatalf("status=%d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(body))
 	}
 	if got := resp.Header.Get("Content-Range"); got != "bytes 2-5/10" {
 		t.Fatalf("Content-Range=%q", got)
+	}
+	if got := resp.Header.Get("Content-Disposition"); got != "" {
+		t.Fatalf("preview propagated attachment header: %q", got)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "2345" {
@@ -75,5 +81,18 @@ func TestProviderPreviewURLForRequestV86(t *testing.T) {
 	}
 	if !strings.HasPrefix(providerPreviewPathV86(42), "/api/provider-preview/media?") {
 		t.Fatalf("path=%q", providerPreviewPathV86(42))
+	}
+}
+
+func TestProviderRemoteMatchRankV86(t *testing.T) {
+	old := RemoteItem{Name: "clip.mp4", Path: "Album/clip.mp4", ProviderID: "abc"}
+	if got := providerRemoteMatchRankV86(old, RemoteItem{Name: "other.mp4", Path: "Else/other.mp4", ProviderID: "abc"}); got != 3 {
+		t.Fatalf("provider ID rank=%d", got)
+	}
+	if got := providerRemoteMatchRankV86(old, RemoteItem{Name: "other.mp4", Path: "Album/clip.mp4"}); got != 2 {
+		t.Fatalf("path rank=%d", got)
+	}
+	if got := providerRemoteMatchRankV86(old, RemoteItem{Name: "clip.mp4", Path: "Else/clip.mp4"}); got != 1 {
+		t.Fatalf("name rank=%d", got)
 	}
 }
