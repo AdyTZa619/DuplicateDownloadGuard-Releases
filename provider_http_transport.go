@@ -193,8 +193,7 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	body := bytes.NewBuffer(nil)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.gofile.io/accounts", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.gofile.io/accounts", bytes.NewBuffer(nil))
 	if err != nil {
 		return "", err
 	}
@@ -251,7 +250,9 @@ func parseNetscapeCookiesV86(data []byte) []netscapeCookieV86 {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		if strings.HasPrefix(line, "#HttpOnly_") {
+			line = strings.TrimPrefix(line, "#HttpOnly_")
+		} else if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		parts := strings.Split(line, "\t")
@@ -329,7 +330,11 @@ func ensureGalleryProviderContextV86(parent context.Context, sourceURL string) e
 	_ = cookieFile.Close()
 	defer os.Remove(cookiePath)
 
-	args := []string{"-J", "--no-colors", "-o", "output.private=true", "--cookies-export", cookiePath, sourceURL}
+	// -J resolves intermediary URLs. JSONL is explicitly enabled so each URL
+	// message can be parsed incrementally even for albums with thousands of files.
+	// output.private exposes extractor-provided _http_headers such as Bunkr's
+	// required per-file Referer. Cookies are exported to a temporary file only.
+	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true", "--cookies-export", cookiePath, sourceURL}
 	cmd := exec.CommandContext(ctx, exe, args...)
 	hideChildWindow(cmd)
 	output, err := cmd.Output()
