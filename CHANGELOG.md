@@ -1,3 +1,11 @@
+## [8.5.39] - 2026-09-06
+- GoFile folosește acum un adapter nativ pe API-ul curent pentru listarea folderelor, cu token web dinamic și metadata directă; `gallery-dl` rămâne fallback, nu dependență principală.
+- Scanarea GoFile are timeout controlat și jurnal explicit pe etape, astfel încât un eșec nu mai poate rămâne fără rezultat și fără eroare.
+- Contextul de autentificare GoFile rămâne numai în memorie; tokenurile/cookie-urile nu sunt salvate în `RemoteItem` sau în istoricul persistent.
+- Repară oprirea noii versiuni la câteva secunde după update: procesul `--ddg-native-updater-cleanup` nu mai poate închide fereastra DDG proaspăt pornită.
+- Păstrează cleanup-ul automat al update-urilor vechi și un singur backup pentru rollback.
+- MEGA Preview și semantica de matching nu sunt modificate.
+
 # Jurnal actualizări — Duplicate Download Guard PRO
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
