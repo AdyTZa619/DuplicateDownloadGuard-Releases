@@ -231,8 +231,26 @@ func shouldEnrichGalleryHTTPV86(source string) bool {
 }
 
 func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]RemoteItem, error) {
+	source := providerSourceLabelV86(sourceURL)
+	var nativeErr error
+	if source == "GOFILE" {
+		nativeCtx, nativeCancel := context.WithTimeout(ctx, 45*time.Second)
+		items, err := a.probeGofileNativeV86(nativeCtx, sourceURL)
+		nativeCancel()
+		if err == nil && len(items) > 0 {
+			return items, nil
+		}
+		nativeErr = err
+		if err != nil {
+			a.logf("GoFile: adapterul nativ a eșuat; încerc fallback gallery-dl: %v", err)
+		}
+	}
+
 	exe := a.detectGalleryDL()
 	if exe == "" {
+		if nativeErr != nil {
+			return nil, errors.New("GoFile API: " + nativeErr.Error() + " | gallery-dl nu este instalat/configurat")
+		}
 		return nil, errors.New("gallery-dl nu este instalat/configurat")
 	}
 	cookieFile, err := os.CreateTemp("", "ddg-gallery-scan-cookies-*.txt")
@@ -243,24 +261,40 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 	_ = cookieFile.Close()
 	defer os.Remove(cookiePath)
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	timeout := 3 * time.Minute
+	if source == "GOFILE" {
+		// Native GoFile is the primary path. The fallback must fail visibly rather
+		// than keeping the UI apparently idle for several minutes.
+		timeout = 45 * time.Second
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true", "--cookies-export", cookiePath, sourceURL}
 	cmd := exec.CommandContext(cmdCtx, exe, args...)
 	hideChildWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, errors.New("gallery-dl nu a putut extrage sursa")
+		detail := "gallery-dl nu a putut extrage sursa"
+		if cmdCtx.Err() != nil {
+			detail = "gallery-dl a depășit limita de timp"
+		}
+		if nativeErr != nil {
+			return nil, errors.New("GoFile API: " + nativeErr.Error() + " | " + detail)
+		}
+		return nil, errors.New(detail)
 	}
 	cookieData, _ := os.ReadFile(cookiePath)
 	cookies := parseNetscapeCookiesV86(cookieData)
 	_ = parseGalleryResolvedContextV86(output, sourceURL, cookies)
 	items := parseGalleryRemoteItemsV86(output, sourceURL)
 	if len(items) == 0 {
+		if nativeErr != nil {
+			return nil, errors.New("GoFile API: " + nativeErr.Error() + " | gallery-dl a răspuns, dar DDG nu a găsit fișiere în metadata")
+		}
 		return nil, errors.New("gallery-dl a răspuns, dar DDG nu a găsit niciun fișier în metadata")
 	}
 
-	if !shouldEnrichGalleryHTTPV86(providerSourceLabelV86(sourceURL)) {
+	if !shouldEnrichGalleryHTTPV86(source) {
 		return items, nil
 	}
 

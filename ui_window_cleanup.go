@@ -39,7 +39,9 @@ func postUpdateHandoffPending() bool {
 // this point, but its Edge --app window may still be visible. Close that stale
 // window before main() opens the new UI.
 func init() {
-	if len(os.Args) >= 2 && os.Args[1] == nativeUpdaterModeArg {
+	// Both updater helper modes run from the same freshly installed EXE. The
+	// cleanup helper must never close the normal post-update UI window.
+	if runningNativeUpdaterMode(os.Args) {
 		return
 	}
 	if !postUpdateHandoffPending() {
