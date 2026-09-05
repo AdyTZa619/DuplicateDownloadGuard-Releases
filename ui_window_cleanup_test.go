@@ -25,6 +25,20 @@ func TestIsDDGAppWindowTitleStrict(t *testing.T) {
 	}
 }
 
+func TestCleanupModeIsExcludedFromWindowHandoffCleanup(t *testing.T) {
+	for _, args := range [][]string{
+		{"ddg.exe", nativeUpdaterModeArg, "request.json"},
+		{"ddg.exe", nativeUpdaterCleanupModeArg, "123", `C:\data\updates`, `C:\data\updates\backup\old.exe`, `C:\data\updates\helper.exe`},
+	} {
+		if !runningNativeUpdaterMode(args) {
+			t.Fatalf("updater helper args must be excluded from UI window cleanup: %v", args)
+		}
+	}
+	if runningNativeUpdaterMode([]string{"ddg.exe"}) {
+		t.Fatal("normal DDG launch must not be treated as updater helper mode")
+	}
+}
+
 func TestUpdateHandoffPendingAtRoot(t *testing.T) {
 	root := t.TempDir()
 	if updateHandoffPendingAtRoot(root) {
