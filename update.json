@@ -1,8 +1,8 @@
 {
-  "version": "8.5.28-test.1",
+  "version": "8.5.29-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "e674da1512340561c4208fae8b04f8277cddcea33edf92c7a06a8189bd40c08b",
-  "notes": "TEST MEGA Preview 8.5.28-test.1: bază 8.5.9 plus ruta per-fișier validată. Jurnalul Windows 8.5.27 a demonstrat cauza exactă: cleanup-ul automat webdav -d începea după mai multe preview-uri, expira, apoi MegaClient repeta Failed to access server: 231 în aproximativ 9 secunde. Candidatul elimină complet cleanup-ul per-rută în timpul sesiunii, nu mai anulează comanda MegaClient deja pornită când se schimbă selecția și nu mai folosește taskkill /T pentru comenzile de control. Păstrează Range/206, cache per-fișier și T0-T12. Este numai test, nu stable.",
-  "publishedAt": "2026-09-05T07:50:56.6184363Z",
+  "sha256": "df3840589b3d1a9c91cd6d63933a4eb5817bdad185fc67ff0a14a15607b9a629",
+  "notes": "TEST MEGA Preview 8.5.29-test.1: bază 8.5.9 și ruta per-fișier validată. Păstrează eliminarea completă a cleanup-ului webdav -d și nu anulează comanda MegaClient când se schimbă rapid selecția. Jurnalul Windows 8.5.28 a confirmat că serviciul extern MEGAcmd poate rămâne deja blocat cu Failed to access server: 231 peste restartul DDG. Numai la această eroare, candidatul oprește țintit MEGAcmdServer.exe, îl repornește ascuns o singură dată per sursă și repetă automat fișierul curent. Nu omoară MegaClient și nu intră în buclă. Păstrează Range/206, cache per-fișier și diagnosticul T0-T12. Este numai test, nu stable.",
+  "publishedAt": "2026-09-05T08:03:10.8914922Z",
   "channel": "test"
 }
