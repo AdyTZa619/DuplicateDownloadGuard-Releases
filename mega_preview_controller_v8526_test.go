@@ -83,7 +83,7 @@ func TestMegaPreviewTwentyPerFileSwitchesNeverUseRootOrReloginV8527(t *testing.T
 	}
 }
 
-func TestMegaPreviewABCCancelsObsoleteCommandsAndLatestWinsV8527(t *testing.T) {
+func TestMegaPreviewABCDoesNotCancelMegaControlAndLatestWinsV8528(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		_, _ = io.WriteString(w, "stream")
@@ -91,6 +91,7 @@ func TestMegaPreviewABCCancelsObsoleteCommandsAndLatestWinsV8527(t *testing.T) {
 	defer server.Close()
 	started := make(chan struct{})
 	release := make(chan struct{})
+	commandContexts := make(chan context.Context, 3)
 	var once sync.Once
 	var calls atomic.Int32
 	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "same-source", Exe: "MegaClient.exe"}}
@@ -99,6 +100,7 @@ func TestMegaPreviewABCCancelsObsoleteCommandsAndLatestWinsV8527(t *testing.T) {
 		if len(args) != 2 || args[0] != "webdav" || !strings.HasPrefix(args[1], "H:") {
 			t.Fatalf("unexpected command: %v", args)
 		}
+		commandContexts <- ctx
 		once.Do(func() { close(started) })
 		select {
 		case <-ctx.Done():
@@ -122,6 +124,12 @@ func TestMegaPreviewABCCancelsObsoleteCommandsAndLatestWinsV8527(t *testing.T) {
 	if genA != 1 || genB != 2 || genC != 3 {
 		t.Fatalf("unexpected generations: %d %d %d", genA, genB, genC)
 	}
+	firstCommandCtx := <-commandContexts
+	select {
+	case <-firstCommandCtx.Done():
+		t.Fatal("schimbarea selecției a anulat procesul de control MegaClient deja pornit")
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(release)
 	job, err := c.currentJob(genC)
 	if err != nil {
@@ -141,6 +149,17 @@ func TestMegaPreviewABCCancelsObsoleteCommandsAndLatestWinsV8527(t *testing.T) {
 	}
 	if _, err := c.currentJob(genA); err == nil {
 		t.Fatal("obsolete A still owns the player")
+	}
+}
+
+func TestMegaPreviewControllerContainsNoRuntimeWebDAVDeleteV8528(t *testing.T) {
+	b, err := os.ReadFile("mega_preview_controller_v8526.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(b)
+	if strings.Contains(source, `"webdav", "-d"`) || strings.Contains(source, "cleanupIdleRoutes") || strings.Contains(source, "cleanupTTL") {
+		t.Fatal("controllerul de preview încă poate porni cleanup WebDAV în timpul utilizării")
 	}
 }
 

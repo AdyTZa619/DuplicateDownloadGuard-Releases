@@ -4,7 +4,6 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -35,45 +34,6 @@ func TestSwitchSameSourceWebDAVReturnsNewURLWithoutCleanup(t *testing.T) {
 	}
 }
 
-func TestSchedulePreviousMegaPreviewCleanupRunsInBackground(t *testing.T) {
-	old := MegaPreviewState{Exe: "MegaClient.exe", RemotePath: "H:OLD"}
-	var mu sync.Mutex
-	calls := []string{}
-	started := make(chan struct{}, 1)
-	release := make(chan struct{})
-	run := func(_ time.Duration, args ...string) (string, error) {
-		call := strings.Join(args, " ")
-		mu.Lock()
-		calls = append(calls, call)
-		mu.Unlock()
-		if call == "webdav -d H:OLD" {
-			started <- struct{}{}
-			<-release
-		}
-		return "", nil
-	}
-	start := time.Now()
-	if !schedulePreviousMegaPreviewCleanupV86(old, "H:NEW", 0, run) {
-		t.Fatal("cleanup should be scheduled")
-	}
-	if time.Since(start) > 100*time.Millisecond {
-		t.Fatal("cleanup scheduling blocked caller")
-	}
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("background cleanup did not start")
-	}
-	close(release)
-	time.Sleep(20 * time.Millisecond)
-	mu.Lock()
-	got := append([]string(nil), calls...)
-	mu.Unlock()
-	if !reflect.DeepEqual(got, []string{"webdav -d H:OLD"}) {
-		t.Fatalf("calls=%v", got)
-	}
-}
-
 func TestSwitchSameSourceWebDAVKeepsOldWhenNewStartFails(t *testing.T) {
 	old := MegaPreviewState{RemotePath: "H:OLD"}
 	calls := []string{}
@@ -90,7 +50,7 @@ func TestSwitchSameSourceWebDAVKeepsOldWhenNewStartFails(t *testing.T) {
 	}
 }
 
-func TestSwitchSameSourceWebDAVRemovesOnlyUnusableNewNode(t *testing.T) {
+func TestSwitchSameSourceWebDAVNeverDeletesRouteWhenURLIsMissingV8528(t *testing.T) {
 	old := MegaPreviewState{RemotePath: "H:OLD"}
 	calls := []string{}
 	run := func(_ time.Duration, args ...string) (string, error) {
@@ -101,7 +61,7 @@ func TestSwitchSameSourceWebDAVRemovesOnlyUnusableNewNode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing URL error")
 	}
-	want := []string{"webdav H:NEW", "webdav", "webdav -d H:NEW"}
+	want := []string{"webdav H:NEW", "webdav"}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls=%v want=%v", calls, want)
 	}

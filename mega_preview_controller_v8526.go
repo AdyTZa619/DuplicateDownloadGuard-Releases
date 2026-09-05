@@ -18,11 +18,14 @@ import (
 	"time"
 )
 
-// v8.5.27 keeps one public-folder MEGAcmd session but exposes media by the
+// v8.5.28 keeps one public-folder MEGAcmd session but exposes media by the
 // exact node handle. Real Windows diagnostics proved that MEGAcmd normalizes
 // `webdav /` to the public folder name, while `webdav H:HANDLE` is ready in
 // roughly 130-170 ms. A -> B -> C cancels only obsolete HTTP transfers; it does
-// not logout/login or tear down the source session between files.
+// not cancel an in-flight MegaClient control command, logout/login, or tear
+// down WebDAV routes between files. Per-route `webdav -d` is intentionally
+// forbidden while the source session is active: Windows diagnostics showed it
+// can wedge MEGAcmd's shared command pipe with system error 231.
 
 type megaPreviewPointV8526 struct {
 	AtMS   int64  `json:"atMs"`
@@ -108,7 +111,6 @@ type megaPreviewControllerV8526 struct {
 	closed     bool
 	transport  *http.Transport
 	routes     map[string]megaPreviewRouteV8527
-	cleanupTTL *time.Timer
 }
 
 type megaPreviewDiagLineV8526 struct {
@@ -158,7 +160,7 @@ func newMegaPreviewControllerV8526(a *App, ops megaPreviewOpsV8526) *megaPreview
 		ops.detectExe = a.detectMegaClient
 	}
 	if ops.run == nil {
-		ops.run = runMegaTimed
+		ops.run = runMegaControlTimed
 	}
 	if ops.acquire == nil {
 		ops.acquire = acquireMegaSession
@@ -250,12 +252,8 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 		c.mu.Unlock()
 		return 0, "", "", errors.New("serviciul de preview este oprit")
 	}
-	if c.cleanupTTL != nil {
-		c.cleanupTTL.Stop()
-		c.cleanupTTL = nil
-	}
 	if old := c.selection; old != nil {
-		c.markLocked(old.generation, "T11", "selecție nouă; anulare transfer vechi")
+		c.markLocked(old.generation, "T11", "selecție nouă; anulez numai HTTP/playerul vechi, nu MegaClient")
 		old.cancel()
 		if !old.streaming {
 			c.markLocked(old.generation, "T12", "cererea veche nu ajunsese la upstream")
@@ -654,6 +652,7 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 		svc.exe = exe
 	}
 	c.mu.Unlock()
+	gateStarted := time.Now()
 	gateCtx, gateCancel := context.WithTimeout(job.ctx, 20*time.Second)
 	defer gateCancel()
 	if err := c.ops.acquire(gateCtx); err != nil {
@@ -664,11 +663,17 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 		return
 	}
 	defer c.ops.release()
+	c.diagf("GEN=%d GATE acquired wait=%s policy=no-runtime-webdav-delete", job.generation, time.Since(gateStarted).Round(time.Millisecond))
 
 	// First try the exact node in the current MEGAcmd session. This is both the
 	// cheapest session probe and the route proven reliable by the user's Windows
 	// trace. A successful handle lookup is stronger evidence than a saved port.
-	target, out, err := c.startPerFileV8527(job.ctx, job, exe, "per-file-direct")
+	// Once a MegaClient control command owns the global session gate, let that
+	// short command finish even if the user selects another row. The obsolete
+	// job will be discarded below. Cancelling the process while it talks to the
+	// shared MEGAcmd server is what produced the error-231 failure cascade in the
+	// real Windows trace.
+	target, out, err := c.startPerFileV8527(svc.ctx, job, exe, "per-file-direct")
 	if err != nil && job.ctx.Err() == nil && c.shouldResumeSourceV8527(svc, out, err) {
 		c.mark(job.generation, "T3", "sesiunea curentă nu conține nodul; reiau sursa o singură dată")
 		if loginErr := c.resumeSourceV8527(job, svc, exe); loginErr != nil {
@@ -682,7 +687,7 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 			job.err = context.Canceled
 			return
 		}
-		target, out, err = c.startPerFileV8527(job.ctx, job, exe, "per-file-after-resume")
+		target, out, err = c.startPerFileV8527(svc.ctx, job, exe, "per-file-after-resume")
 	}
 	if err != nil {
 		job.err = newMegaProblemError(classifyMegaProblem(out, err), out)
@@ -704,17 +709,18 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 		svc.sessionProven = true
 		svc.err = nil
 	}
-	c.routes[megaPreviewRouteKeyV8527(job.item.URL, job.remoteRef)] = megaPreviewRouteV8527{
+	c.rememberRouteLockedV8528(megaPreviewRouteKeyV8527(job.item.URL, job.remoteRef), megaPreviewRouteV8527{
 		remoteRef: job.remoteRef,
 		target:    target,
 		lastUsed:  time.Now(),
-	}
-	c.scheduleRouteCleanupLockedV8527()
+	})
+	routeCount := len(c.routes)
 	if tr := c.traces[job.generation]; tr != nil {
 		tr.State = "ready"
 	}
 	c.markLocked(job.generation, "T4", "WebDAV per-fișier gata: "+safePreviewHostV8526(target))
 	c.mu.Unlock()
+	c.diagf("GEN=%d ROUTE cached=%d sessionProven=true", job.generation, routeCount)
 	c.commitPerFileV8527(job, svc, exe, target)
 }
 
@@ -842,81 +848,29 @@ func (c *megaPreviewControllerV8526) commitPerFileV8527(job *megaPreviewJobV8526
 	c.diagf("GEN=%d COMMIT route=managed-per-file node=%s target=%s", job.generation, redactMegaRefV8526(job.remoteRef), safePreviewHostV8526(target))
 }
 
-func (c *megaPreviewControllerV8526) scheduleRouteCleanupLockedV8527() {
-	if len(c.routes) <= 6 || c.closed {
-		return
-	}
-	if c.cleanupTTL != nil {
-		c.cleanupTTL.Stop()
-	}
-	// Cleanup happens only after the user has stopped changing rows. It cannot
-	// enter the MEGA command gate ahead of a rapid A -> B -> C selection.
-	c.cleanupTTL = time.AfterFunc(5*time.Second, c.cleanupIdleRoutesV8527)
-}
-
-func (c *megaPreviewControllerV8526) cleanupIdleRoutesV8527() {
-	type staleRoute struct {
-		ref string
-	}
-	c.mu.Lock()
-	if c.closed || len(c.routes) <= 4 {
-		c.cleanupTTL = nil
-		c.mu.Unlock()
-		return
-	}
-	currentKey := ""
-	if c.selection != nil {
-		currentKey = megaPreviewRouteKeyV8527(c.selection.item.URL, c.selection.remoteRef)
-	}
-	stale := make([]staleRoute, 0, len(c.routes)-4)
-	for len(c.routes) > 4 {
+// rememberRouteLockedV8528 limits only DDG's small URL lookup map. It never
+// asks MEGAcmd to remove an individual WebDAV route while the public-folder
+// session is active. Session transitions (logout/login) are the only safe route
+// lifecycle boundary observed in the real Windows tests.
+func (c *megaPreviewControllerV8526) rememberRouteLockedV8528(key string, route megaPreviewRouteV8527) {
+	c.routes[key] = route
+	const maxLocalRoutes = 256
+	for len(c.routes) > maxLocalRoutes {
 		oldestKey := ""
 		var oldest megaPreviewRouteV8527
-		for key, route := range c.routes {
-			if key == currentKey {
+		for candidateKey, candidate := range c.routes {
+			if candidateKey == key {
 				continue
 			}
-			alreadySelected := false
-			for _, selected := range stale {
-				if selected.ref == route.remoteRef {
-					alreadySelected = true
-					break
-				}
-			}
-			if alreadySelected {
-				continue
-			}
-			if oldestKey == "" || route.lastUsed.Before(oldest.lastUsed) {
-				oldestKey = key
-				oldest = route
+			if oldestKey == "" || candidate.lastUsed.Before(oldest.lastUsed) {
+				oldestKey = candidateKey
+				oldest = candidate
 			}
 		}
 		if oldestKey == "" {
 			break
 		}
 		delete(c.routes, oldestKey)
-		stale = append(stale, staleRoute{ref: oldest.remoteRef})
-	}
-	c.cleanupTTL = nil
-	svc := c.source
-	exe := ""
-	if svc != nil {
-		exe = svc.exe
-	}
-	c.mu.Unlock()
-
-	if exe == "" || len(stale) == 0 {
-		return
-	}
-	for _, route := range stale {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		if err := c.ops.acquire(ctx); err == nil {
-			started := time.Now()
-			out, runErr := c.ops.run(ctx, 800*time.Millisecond, exe, "webdav", "-d", route.ref)
-			c.ops.release()
-			c.diagf("CLEANUP node=%s duration=%s result=%s output=%s", redactMegaRefV8526(route.ref), time.Since(started).Round(time.Millisecond), errorTextV8526(runErr), shortMegaOutputV8526(out))
-		}
-		cancel()
 	}
 }
 
@@ -1162,10 +1116,6 @@ func (c *megaPreviewControllerV8526) invalidate(reason string) {
 	if svc := c.source; svc != nil {
 		svc.cancel()
 		c.source = nil
-	}
-	if c.cleanupTTL != nil {
-		c.cleanupTTL.Stop()
-		c.cleanupTTL = nil
 	}
 	c.routes = make(map[string]megaPreviewRouteV8527)
 	c.mu.Unlock()

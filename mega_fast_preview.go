@@ -48,13 +48,13 @@ func startMegaWarmRootV86(ctx context.Context, exe string) (string, error) {
 	if strings.TrimSpace(exe) == "" {
 		return "", errors.New("MEGAcmd lipsă")
 	}
-	out, err := runMegaTimed(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
+	out, err := runMegaControlTimed(ctx, 15*time.Second, exe, "webdav", megaWarmRootRefV86)
 	if err != nil {
 		return "", err
 	}
 	rootURL := extractWebDAVURL(out, "")
 	if rootURL == "" {
-		listing, listErr := runMegaTimed(ctx, 4*time.Second, exe, "webdav")
+		listing, listErr := runMegaControlTimed(ctx, 4*time.Second, exe, "webdav")
 		if listErr != nil {
 			return "", listErr
 		}

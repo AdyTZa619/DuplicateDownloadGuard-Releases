@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestTrueFallbackStopsWarmRootThenStartsRequestedFileV858(t *testing.T) {
+func TestTrueFallbackKeepsWarmRootAndStartsRequestedFileV8528(t *testing.T) {
 	old := MegaPreviewState{Exe: "MegaClient.exe", RemotePath: megaWarmRootRefV86, StreamURL: "http://127.0.0.1:4443/"}
 	calls := []string{}
 	run := func(_ time.Duration, args ...string) (string, error) {
@@ -26,7 +26,7 @@ func TestTrueFallbackStopsWarmRootThenStartsRequestedFileV858(t *testing.T) {
 	if got.StreamURL != "http://127.0.0.1:4443/new.mp4" {
 		t.Fatalf("stream URL=%q", got.StreamURL)
 	}
-	want := []string{"webdav -d /", "webdav H:NEW"}
+	want := []string{"webdav H:NEW"}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls=%v want=%v", calls, want)
 	}

@@ -11,8 +11,9 @@ import (
 // switchWarmRootToPerFileV858 is the true browser-error fallback. The previous
 // implementation called startMegaPreview(), which could immediately return the
 // same warm-root child URL that had just failed in the browser. This helper
-// explicitly stops the root WebDAV endpoint first, then starts the requested
-// node by handle/path, so the fallback cannot loop back to the same URL.
+// starts the requested node by handle/path without deleting the root. MEGAcmd
+// supports multiple WebDAV routes, while per-route deletion proved unsafe for
+// its shared Windows command service.
 func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run megaWebDAVRunnerV85) (megaWebDAVSwitchResultV85, error) {
 	if run == nil {
 		return megaWebDAVSwitchResultV85{}, errors.New("MEGA WebDAV runner lipsă")
@@ -20,11 +21,6 @@ func switchWarmRootToPerFileV858(old MegaPreviewState, remoteRef string, run meg
 	remoteRef = strings.TrimSpace(remoteRef)
 	if remoteRef == "" {
 		return megaWebDAVSwitchResultV85{}, errors.New("referință MEGA remote lipsă")
-	}
-	if old.RemotePath == megaWarmRootRefV86 {
-		// Best effort: even if cleanup reports a transient error, continue with
-		// the per-file start. MEGAcmd can usually replace/add the specific node.
-		_, _ = run(5*time.Second, "webdav", "-d", megaWarmRootRefV86)
 	}
 	return switchSameSourceWebDAVV85(old, remoteRef, run)
 }
@@ -55,7 +51,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	if a.preview.Active && a.preview.SourceURL == item.URL && a.preview.Exe != "" {
 		old := a.preview
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return runMegaControlTimed(ctx, timeout, old.Exe, args...)
 		}
 		result, err := switchWarmRootToPerFileV858(old, remoteRef, run)
 		if err != nil {
@@ -89,11 +85,11 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 		return "", errors.New("MEGAcmd nu a fost găsit")
 	}
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaControlTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	_, _ = runMegaControlTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	loginOut, err := runMegaControlTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
@@ -101,7 +97,7 @@ func (a *App) startMegaPreviewPerFileFallbackV858(item RemoteItem) (string, erro
 	}
 
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return runMegaControlTimed(ctx, timeout, exe, args...)
 	}
 	result, err := switchSameSourceWebDAVV85(MegaPreviewState{Exe: exe}, remoteRef, run)
 	if err != nil {

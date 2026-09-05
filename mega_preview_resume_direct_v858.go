@@ -51,7 +51,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 		old := a.preview
 		ctx := context.Background()
 		run := func(timeout time.Duration, args ...string) (string, error) {
-			return runMegaTimed(ctx, timeout, old.Exe, args...)
+			return runMegaControlTimed(ctx, timeout, old.Exe, args...)
 		}
 		result, err := switchSameSourceWebDAVV85(old, remoteRef, run)
 		if err != nil {
@@ -61,7 +61,6 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 			problem := classifyMegaProblem(result.StartOutput, err)
 			return "", newMegaProblemError(problem, result.StartOutput)
 		}
-		a.cleanupPreviousMegaPreviewAsyncV86(old, remoteRef)
 		a.preview = MegaPreviewState{
 			Active:          true,
 			SourceURL:       item.URL,
@@ -84,7 +83,7 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 	ctx := context.Background()
 	run := func(timeout time.Duration, args ...string) (string, error) {
-		return runMegaTimed(ctx, timeout, exe, args...)
+		return runMegaControlTimed(ctx, timeout, exe, args...)
 	}
 
 	// v8.5.9 cold-start fast path. A graceful DDG shutdown can leave the public
@@ -111,11 +110,11 @@ func (a *App) startMegaPreviewResumeDirectV858(item RemoteItem) (string, error) 
 	}
 
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 8*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaControlTimed(ctx, 8*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
-	_, _ = runMegaTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
+	_, _ = runMegaControlTimed(ctx, 8*time.Second, exe, "logout", "--keep-session")
+	loginOut, err := runMegaControlTimed(ctx, 45*time.Second, exe, megaPublicLoginArgsV856(item.URL)...)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)

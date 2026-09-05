@@ -89,7 +89,6 @@ func tryMegaCurrentSessionWebDAVV859(remoteRef string, run megaWebDAVRunnerV85) 
 		result.StreamURL = extractWebDAVURL(listing, remoteRef)
 	}
 	if result.StreamURL == "" {
-		_, _ = run(1500*time.Millisecond, "webdav", "-d", remoteRef)
 		return result, errors.New(megaWebDAVURLMissingV85)
 	}
 	return result, nil

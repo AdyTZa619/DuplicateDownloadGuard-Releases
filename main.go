@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.27-test.1 Pro Smart Media Guard"
+const appVersion = "8.5.28-test.1 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -1005,6 +1005,30 @@ func runMegaTimed(parent context.Context, timeout time.Duration, exe string, arg
 	return out, err
 }
 
+// runMegaControlTimed runs short session/WebDAV control commands without the
+// whole-process-tree cancellation used by download engines. MegaClient.exe is
+// only a client for MEGAcmd's shared server; killing its tree can take down or
+// wedge that server and leave later commands failing with Windows error 231.
+func runMegaControlTimed(parent context.Context, timeout time.Duration, exe string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, args...)
+	hideControlWindow(cmd)
+	cmd.Env = os.Environ()
+	b, runErr := cmd.CombinedOutput()
+	out := strings.TrimSpace(string(b))
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, fmt.Errorf("timeout după %s", timeout.Round(time.Second))
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return out, context.Canceled
+	}
+	if runErr != nil {
+		return out, fmt.Errorf("%w: %s", runErr, out)
+	}
+	return out, nil
+}
+
 var sessionRE = regexp.MustCompile(`(?m)^([A-Za-z0-9_-]{40,})\s*$`)
 
 func extractSession(s string) string {
@@ -1085,7 +1109,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 1/6 — verific sesiunea MEGAcmd"
 		p.Detail = "Timeout maxim: 10 secunde. Nu se descarcă fișiere."
 	})
-	if s, e := runMegaTimed(ctx, 10*time.Second, exe, "session"); e == nil {
+	if s, e := runMegaControlTimed(ctx, 10*time.Second, exe, "session"); e == nil {
 		oldSession = extractSession(s)
 	} else {
 		a.logf("MEGA: verificarea sesiunii nu a răspuns normal (%v); continui", e)
@@ -1102,11 +1126,11 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 	})
 	if oldSession != "" {
 		a.logf("MEGA: sesiune existentă detectată; va fi restaurată")
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
+		if _, e := runMegaControlTimed(ctx, 10*time.Second, exe, "logout", "--keep-session"); e != nil {
 			a.logf("MEGA: logout keep-session: %v", e)
 		}
 	} else {
-		if _, e := runMegaTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
+		if _, e := runMegaControlTimed(ctx, 10*time.Second, exe, "logout"); e != nil {
 			a.logf("MEGA: logout inițial: %v", e)
 		}
 	}
@@ -1120,7 +1144,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 3/6 — deschid folderul public"
 		p.Detail = "Autentific folderul public din link. Timeout maxim: 45 secunde."
 	})
-	out, e := runMegaTimed(ctx, 45*time.Second, exe, "login", link)
+	out, e := runMegaControlTimed(ctx, 45*time.Second, exe, "login", link)
 	if e != nil {
 		a.logf("MEGA login eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
@@ -1134,7 +1158,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		p.Message = "MEGA • Pas 4/6 — citesc lista de fișiere"
 		p.Detail = "Se citesc doar nume, căi și dimensiuni; conținutul video/foto NU este descărcat. Timeout maxim: 5 minute."
 	})
-	out, e = runMegaTimed(ctx, 5*time.Minute, exe, "find", "/", "-l", "--type=f", "--show-handles", "--time-format=ISO6081_WITH_TIME")
+	out, e = runMegaControlTimed(ctx, 5*time.Minute, exe, "find", "/", "-l", "--type=f", "--show-handles", "--time-format=ISO6081_WITH_TIME")
 	if e != nil {
 		a.logf("MEGA find eșuat: %s", sanitizeMega(out))
 		a.restoreMega(exe, oldSession)
@@ -1147,7 +1171,7 @@ func (a *App) runMegaScan(ctx context.Context, exe, link, mode string) {
 		a.updateProgress(func(p *Progress) {
 			p.Detail = "Formatul principal nu a produs fișiere; încerc listarea recursivă alternativă (maxim 5 minute)."
 		})
-		out2, e2 := runMegaTimed(ctx, 5*time.Minute, exe, "ls", "-lR", "--show-handles", "--time-format=ISO6081_WITH_TIME", "/")
+		out2, e2 := runMegaControlTimed(ctx, 5*time.Minute, exe, "ls", "-lR", "--show-handles", "--time-format=ISO6081_WITH_TIME", "/")
 		if e2 == nil {
 			items = parseMegaLong(out2, "MEGA", link)
 		} else {
@@ -1197,10 +1221,10 @@ func sanitizeMega(s string) string {
 func (a *App) restoreMega(exe, old string) {
 	ctx, c := context.WithTimeout(context.Background(), 30*time.Second)
 	defer c()
-	_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+	_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	if old != "" {
 		a.updateProgress(func(p *Progress) { p.Message = "MEGA: restaurez sesiunea anterioară..." })
-		if _, e := runMegaTimed(ctx, 30*time.Second, exe, "login", old); e != nil {
+		if _, e := runMegaControlTimed(ctx, 30*time.Second, exe, "login", old); e != nil {
 			a.logf("Atenție: sesiunea MEGAcmd anterioară nu a putut fi restaurată automat")
 		} else {
 			a.logf("MEGA: sesiunea anterioară restaurată")
@@ -3054,9 +3078,9 @@ func (a *App) resetPreviewTTLLocked() {
 
 func (a *App) restoreMegaSessionSilent(exe, oldSession string) {
 	ctx := context.Background()
-	_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+	_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	if oldSession != "" {
-		if _, err := runMegaTimed(ctx, 30*time.Second, exe, "login", oldSession); err != nil {
+		if _, err := runMegaControlTimed(ctx, 30*time.Second, exe, "login", oldSession); err != nil {
 			a.logf("MEGA preview: sesiunea anterioară nu a putut fi restaurată: %v", err)
 		} else {
 			a.logf("MEGA preview: sesiunea anterioară restaurată")
@@ -3073,20 +3097,15 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 		a.previewTTL.Stop()
 		a.previewTTL = nil
 	}
-	var firstErr error
-	ctx := context.Background()
-	if st.Exe != "" && st.RemotePath != "" {
-		if out, err := runMegaTimed(ctx, 12*time.Second, st.Exe, "webdav", "-d", st.RemotePath); err != nil {
-			a.logf("MEGA preview: oprire WebDAV (%s): %v • %s", reason, err, sanitizeMega(out))
-			firstErr = err
-		}
-	}
+	// Do not remove individual WebDAV routes here. A session transition below
+	// retires them safely; per-route `webdav -d` is the operation that wedged the
+	// MEGAcmd command pipe in the real Windows preview trace.
 	if st.Exe != "" {
 		a.restoreMegaSessionSilent(st.Exe, st.PreviousSession)
 	}
 	a.preview = MegaPreviewState{}
 	a.logf("MEGA preview oprit (%s)", reason)
-	return firstErr
+	return nil
 }
 
 func (a *App) stopMegaPreview(reason string) error {
@@ -3167,21 +3186,21 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	}
 	ctx := context.Background()
 	oldSession := ""
-	if out, err := runMegaTimed(ctx, 10*time.Second, exe, "session"); err == nil {
+	if out, err := runMegaControlTimed(ctx, 10*time.Second, exe, "session"); err == nil {
 		oldSession = extractSession(out)
 	}
 	if oldSession != "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout", "--keep-session")
+		_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout", "--keep-session")
 	} else {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "logout")
+		_, _ = runMegaControlTimed(ctx, 10*time.Second, exe, "logout")
 	}
-	loginOut, err := runMegaTimed(ctx, 45*time.Second, exe, "login", item.URL)
+	loginOut, err := runMegaControlTimed(ctx, 45*time.Second, exe, "login", item.URL)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(loginOut, err)
 		return "", newMegaProblemError(problem, loginOut)
 	}
-	out, err := runMegaTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
+	out, err := runMegaControlTimed(ctx, 30*time.Second, exe, "webdav", remoteRef)
 	if err != nil {
 		a.restoreMegaSessionSilent(exe, oldSession)
 		problem := classifyMegaProblem(out, err)
@@ -3189,11 +3208,10 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 	}
 	streamURL := extractWebDAVURL(out, remoteRef)
 	if streamURL == "" {
-		listing, _ := runMegaTimed(ctx, 10*time.Second, exe, "webdav")
+		listing, _ := runMegaControlTimed(ctx, 10*time.Second, exe, "webdav")
 		streamURL = extractWebDAVURL(listing, remoteRef)
 	}
 	if streamURL == "" {
-		_, _ = runMegaTimed(ctx, 10*time.Second, exe, "webdav", "-d", remoteRef)
 		a.restoreMegaSessionSilent(exe, oldSession)
 		return "", errors.New("MEGAcmd a activat WebDAV, dar nu a returnat URL-ul de streaming")
 	}

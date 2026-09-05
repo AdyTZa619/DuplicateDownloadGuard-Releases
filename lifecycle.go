@@ -74,8 +74,9 @@ func startUIWatchdog(stop chan<- struct{}) {
 	}()
 }
 
-// settleMegaOnShutdown waits for any cancelled MEGA worker to finish its own
-// deferred session restoration and always tears down the active WebDAV node.
+// settleMegaOnShutdown waits for any MEGA control command already owning the
+// shared session gate. It deliberately does not execute per-route `webdav -d`:
+// real Windows diagnostics showed that command can wedge MEGAcmd's shared pipe.
 // v8.5.9 deliberately keeps the public-folder MEGAcmd session active when DDG
 // did not replace a previous account/session. That lets the next DDG start try
 // WebDAV directly instead of paying another long login --resume cycle. If DDG
@@ -102,16 +103,6 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
-	if st.RemotePath != "" {
-		out, err := runMegaTimed(ctx, 4*time.Second, st.Exe, "webdav", "-d", st.RemotePath)
-		if err != nil && ctx.Err() == nil {
-			a.logf("MEGA shutdown: WebDAV nu s-a oprit curat: %v • %s", err, sanitizeMega(out))
-		}
-	}
-	if ctx.Err() != nil {
-		return
-	}
-
 	// No previous MEGA account/session existed when DDG opened this public
 	// folder. Do not log out the folder just to log it back in on the next run.
 	// The hint contains only the public URL, never a MEGA session token.
@@ -124,9 +115,9 @@ func settleMegaOnShutdown(a *App) {
 	// A real previous session existed. Preserve the public-folder cache but put
 	// MEGAcmd back exactly where the user had it before DDG opened the folder.
 	a.clearMegaPreviewRestartHintV859()
-	_, _ = runMegaTimed(ctx, 4*time.Second, st.Exe, "logout", "--keep-session")
+	_, _ = runMegaControlTimed(ctx, 4*time.Second, st.Exe, "logout", "--keep-session")
 	if st.PreviousSession != "" && ctx.Err() == nil {
-		out, err := runMegaTimed(ctx, 10*time.Second, st.Exe, "login", st.PreviousSession)
+		out, err := runMegaControlTimed(ctx, 10*time.Second, st.Exe, "login", st.PreviousSession)
 		if err != nil {
 			a.logf("MEGA shutdown: sesiunea anterioară nu a putut fi restaurată: %v • %s", err, sanitizeMega(out))
 		} else {
