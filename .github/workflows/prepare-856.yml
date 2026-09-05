@@ -1,0 +1,21 @@
+name: Prepare DDG 8.5.36
+
+on:
+  push:
+    branches:
+      - release/8.5.36
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: ${{ !contains(github.event.head_commit.message, 'Prepare 8.5.36 release') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/8.5.36
+      - name: Prepare release files
+        shell: pwsh
+        run: ./prepare_856.ps1
