@@ -2,6 +2,19 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.36] — 2026-09-06
+
+### Sursă online — buton și feedback imediat
+- Butonul „Analizează fără download” este legat direct de modulul provider, fără dependență de handlerul inline legacy; click-ul GoFile/Bunkr/Cyberdrop nu mai poate rămâne aparent inert.
+- La pornirea scanării, butonul se dezactivează și afișează imediat providerul analizat; Enter în câmpul URL pornește aceeași rută, iar scanările paralele sunt blocate.
+- Traseul MEGA dedicat și semantica de matching rămân neschimbate.
+
+### Updater — reconectare și curățare automată
+- Verificarea statusului și a update-ului reîncearcă automat conexiunea locală de până la trei ori, fără cache, înainte să raporteze indisponibilitatea; reduce cazul „Failed to fetch” care dispărea doar după restartul DDG.
+- După un update confirmat sănătos se păstrează maximum un singur backup EXE pentru rollback; backup-urile mai vechi sunt eliminate înainte de următoarea instalare.
+- Helper-ele DuplicateDownloadGuard.Updater_*.exe, DuplicateDownloadGuard.pending.exe, pply_update.json și temporarele .download, .copying, .replacing sunt curățate automat după health-check.
+- Curățarea finală a helperului rulează numai după ce procesul updaterului s-a închis, evitând blocarea executabilului de către Windows; path guard-ul împiedică ștergerea în afara folderului de update.
+- Testele de regresie acoperă reconnect-ul updaterului, retenția unui singur backup, protejarea fișierelor active și curățarea artefactelor vechi.
 ## [8.5.35] — 2026-09-06
 
 ### Surse online universale — GoFile, Bunkr și Cyberdrop
