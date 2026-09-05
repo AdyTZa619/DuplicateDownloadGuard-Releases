@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.9 Pro Smart Media Guard"
+const appVersion = "8.5.26-test.1 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -232,6 +232,8 @@ type App struct {
 	previewMu  sync.Mutex
 	preview    MegaPreviewState
 	previewTTL *time.Timer
+	previewV8526Once sync.Once
+	previewV8526     *megaPreviewControllerV8526
 	cfg        Config
 	index      map[string]FileEntry
 	bySize     map[int64][]string
@@ -311,6 +313,10 @@ func main() {
 	mux.HandleFunc("/api/open-remote", a.handleOpenRemote)
 	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
 	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
+	mux.HandleFunc("/api/remote-preview/media", a.handleMegaPreviewMediaV8526)
+	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
+	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
+	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
 	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
 	mux.HandleFunc("/api/local-meta", a.handleLocalMeta)
@@ -3084,6 +3090,7 @@ func (a *App) stopMegaPreviewLocked(reason string) error {
 }
 
 func (a *App) stopMegaPreview(reason string) error {
+	a.invalidateMegaPreviewControllerV8526(reason)
 	// Fast path: most Stop calls arrive after another MEGA operation has already
 	// cleaned the preview. Do not wait for a long download when there is nothing
 	// left to stop.
@@ -3200,6 +3207,7 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID            int  `json:"id"`
 		ForceFallback bool `json:"forceFallback,omitempty"`
+		ClientT0      int64 `json:"clientT0,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.ID <= 0 {
 		http.Error(w, "ID rezultat invalid", 400)
@@ -3228,7 +3236,7 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formatul nu are preview media integrat", 415)
 		return
 	}
-	streamURL, previewMode, prepareDuration, err := a.startMegaPreviewForUIV854(res.Remote, req.ForceFallback)
+	generation, streamURL, previewMode, err := a.beginMegaPreviewV8526(res.Remote, kind, req.ForceFallback, req.ClientT0)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -3239,17 +3247,18 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		"streaming":   true,
 		"source":      previewMode,
 		"previewMode": previewMode,
-		"prepareMs":   prepareDuration.Milliseconds(),
-		"note":        "Fast-path-ul UI reutilizează WebDAV-ul pregătit la scanare fără comandă MEGAcmd suplimentară. Fallback-ul per-fișier rămâne disponibil dacă nu există cache.",
+		"prepareMs":   0,
+		"generation":  generation,
+		"statusUrl":   fmt.Sprintf("/api/remote-preview/status?generation=%d", generation),
+		"note":        "URL-ul local este returnat imediat. Un singur serviciu MEGA/WebDAV este pregătit per sursă; schimbarea playerului nu așteaptă cleanup-ul streamului anterior.",
 	})
 }
 
 func (a *App) handleRemotePreviewStop(w http.ResponseWriter, r *http.Request) {
-	err := a.stopMegaPreview("cerere UI")
-	if err != nil {
-		jsonOut(w, map[string]any{"ok": true, "warning": err.Error()})
-		return
-	}
+	// Stop din UI anulează numai transferul/playerul curent. Sesiunea și root-ul
+	// WebDAV rămân calde pentru următorul click și sunt închise de lifecycle-ul
+	// aplicației ori de o operație MEGA incompatibilă.
+	a.cancelCurrentMegaPreviewV8526("cerere UI")
 	jsonOut(w, map[string]bool{"ok": true})
 }
 
