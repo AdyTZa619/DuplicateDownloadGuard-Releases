@@ -16,30 +16,30 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
           version = '8.5.39'
           Path('VERSION').write_text(version + '\n', encoding='utf-8')
-
           main = Path('main.go')
           s = main.read_text(encoding='utf-8')
-          import re
           s2, n = re.subn(r'const appVersion = "[^"]+"', f'const appVersion = "{version} Pro Smart Media Guard"', s, count=1)
           if n != 1:
               raise SystemExit('appVersion not found')
           main.write_text(s2, encoding='utf-8')
-
           ch = Path('CHANGELOG.md')
           old = ch.read_text(encoding='utf-8')
-          section = '''## [8.5.39] - 2026-09-06
-- GoFile folosește acum un adapter nativ pe API-ul curent pentru listarea folderelor, cu token web dinamic și metadata directă; `gallery-dl` rămâne fallback, nu dependență principală.
-- Scanarea GoFile are timeout controlat și jurnal explicit pe etape, astfel încât un eșec nu mai poate rămâne fără rezultat și fără eroare.
-- Contextul de autentificare GoFile rămâne numai în memorie; tokenurile/cookie-urile nu sunt salvate în `RemoteItem` sau în istoricul persistent.
-- Repară oprirea noii versiuni la câteva secunde după update: procesul `--ddg-native-updater-cleanup` nu mai poate închide fereastra DDG proaspăt pornită.
-- Păstrează cleanup-ul automat al update-urilor vechi și un singur backup pentru rollback.
-- MEGA Preview și semantica de matching nu sunt modificate.
-
-'''
+          lines = [
+              '## [8.5.39] - 2026-09-06',
+              '- GoFile folosește acum un adapter nativ pe API-ul curent pentru listarea folderelor, cu token web dinamic și metadata directă; `gallery-dl` rămâne fallback, nu dependență principală.',
+              '- Scanarea GoFile are timeout controlat și jurnal explicit pe etape, astfel încât un eșec nu mai poate rămâne fără rezultat și fără eroare.',
+              '- Contextul de autentificare GoFile rămâne numai în memorie; tokenurile/cookie-urile nu sunt salvate în `RemoteItem` sau în istoricul persistent.',
+              '- Repară oprirea noii versiuni la câteva secunde după update: procesul `--ddg-native-updater-cleanup` nu mai poate închide fereastra DDG proaspăt pornită.',
+              '- Păstrează cleanup-ul automat al update-urilor vechi și un singur backup pentru rollback.',
+              '- MEGA Preview și semantica de matching nu sunt modificate.',
+              '',
+              '',
+          ]
           if '## [8.5.39]' not in old:
-              ch.write_text(section + old, encoding='utf-8')
+              ch.write_text('\n'.join(lines) + old, encoding='utf-8')
       - name: Format and verify
         run: |
           gofmt -w main.go provider_gofile_native.go provider_gofile_native_test.go ui_window_cleanup.go ui_window_cleanup_test.go
