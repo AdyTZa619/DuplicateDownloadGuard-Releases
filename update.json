@@ -1,8 +1,8 @@
 {
-  "version": "8.5.29-test.1",
+  "version": "8.5.30-test.1",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "df3840589b3d1a9c91cd6d63933a4eb5817bdad185fc67ff0a14a15607b9a629",
-  "notes": "TEST MEGA Preview 8.5.29-test.1: bază 8.5.9 și ruta per-fișier validată. Păstrează eliminarea completă a cleanup-ului webdav -d și nu anulează comanda MegaClient când se schimbă rapid selecția. Jurnalul Windows 8.5.28 a confirmat că serviciul extern MEGAcmd poate rămâne deja blocat cu Failed to access server: 231 peste restartul DDG. Numai la această eroare, candidatul oprește țintit MEGAcmdServer.exe, îl repornește ascuns o singură dată per sursă și repetă automat fișierul curent. Nu omoară MegaClient și nu intră în buclă. Păstrează Range/206, cache per-fișier și diagnosticul T0-T12. Este numai test, nu stable.",
-  "publishedAt": "2026-09-05T08:03:10.8914922Z",
+  "sha256": "8a741b82f2233d56d55b49a0f36a46e4f043af1f0e7f1e26839a4073fd078377",
+  "notes": "TEST MEGA Preview 8.5.30-test.1: păstrează recuperarea verificată a erorii 231 din 8.5.29. Jurnalul Windows cu 31 de preview-uri arată că după recuperare toate cele 27 de comenzi MEGAcmd au răspuns în 97-432 ms, media 139 ms, dar 8 clickuri au stat între 1,595 și 13,087 s înainte să ajungă la backend. Cauza rămasă este streamul nativ vechi: eliminarea nodului video/audio/imagine din DOM nu garantează anularea descărcării și poate ocupa sloturile HTTP ale browserului. Candidatul golește src plus load() pentru video/audio și înlocuiește src pentru imagini înainte de următoarea cerere /start; evenimentele elementelor vechi sunt ignorate. Este numai test, nu stable.",
+  "publishedAt": "2026-09-05T12:20:23.3371530Z",
   "channel": "test"
 }
