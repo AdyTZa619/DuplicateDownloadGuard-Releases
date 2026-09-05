@@ -609,8 +609,13 @@ func TestMegaPreviewUIDisconnectsOldNativeMediaBeforeNextStartV8530(t *testing.T
 	videoRemove := strings.Index(source, "media.remove()")
 	imageReset := strings.Index(source, "image.src = 'data:image/gif;base64,")
 	imageRemove := strings.Index(source, "image.remove()")
-	requestStart := strings.Index(source, "const data = await api(controlURLV8532('/api/remote-preview/start')")
-	cleanupCall := strings.Index(source, "removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection')")
+	requestOwner := strings.Index(source, "function requestPreviewV8526(row, seq, forceFallback)")
+	if requestOwner < 0 {
+		t.Fatal("final preview request owner is missing")
+	}
+	requestSource := source[requestOwner:]
+	cleanupCall := strings.Index(requestSource, "removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection')")
+	requestStart := strings.Index(requestSource, "startPreviewNowV8533(row, seq")
 	if videoReset < 0 || videoLoad < videoReset || videoRemove < videoLoad {
 		t.Fatal("video/audio must clear src, call load, then detach the DOM node")
 	}
@@ -779,9 +784,14 @@ func TestMegaPreviewJSUsesDedicatedControlOriginWithoutCriticalTelemetryV8532(t 
 	if strings.Contains(source, "sendEventV8526(previous.generation, 'T11'") || strings.Contains(source, "sendEventV8526(previous.generation, 'T12'") {
 		t.Fatal("T11/T12 telemetry must not run before the next /start request")
 	}
-	startAbort := strings.Index(source, "pendingStartV8532?.abort()")
-	startFetch := strings.Index(source, "const data = await api(controlURLV8532('/api/remote-preview/start')")
-	if startAbort < 0 || startFetch < startAbort || !strings.Contains(source, "signal: startAbort.signal") {
+	requestOwner := strings.Index(source, "function requestPreviewV8526(row, seq, forceFallback)")
+	if requestOwner < 0 {
+		t.Fatal("final preview request owner is missing")
+	}
+	requestSource := source[requestOwner:]
+	startAbort := strings.Index(requestSource, "pendingStartV8532?.abort()")
+	startDispatch := strings.Index(requestSource, "startPreviewNowV8533(row, seq")
+	if startAbort < 0 || startDispatch < startAbort || !strings.Contains(source, "signal: startAbort.signal") {
 		t.Fatal("a newer selection must abort the pending /start fetch before opening another one")
 	}
 }
