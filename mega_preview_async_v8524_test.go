@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAsyncPreviewStartReturnsLocalURLFromWarmCacheV8524(t *testing.T) {
@@ -32,6 +33,44 @@ func TestAsyncPreviewStartReturnsLocalURLFromWarmCacheV8524(t *testing.T) {
 	}
 	if job.upstream == "" {
 		t.Fatal("warm-cache upstream missing")
+	}
+}
+
+func TestAsyncPreviewStartDoesNotWaitForBusyPreviewMutexV8525(t *testing.T) {
+	a := &App{}
+	item := RemoteItem{ID: 8, Source: "MEGA", URL: "https://mega.nz/folder/test", Path: "folder/video.mp4", Name: "video.mp4", Handle: "ABC123"}
+
+	a.previewMu.Lock()
+	started := time.Now()
+	job, localURL, err := a.beginMegaAsyncPreviewV8524(item, false)
+	elapsed := time.Since(started)
+	a.previewMu.Unlock()
+	defer cancelMegaAsyncPreviewV8524()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job == nil || !strings.HasPrefix(localURL, "/api/remote-preview/media?v=") {
+		t.Fatalf("job/local URL invalid: job=%v url=%q", job != nil, localURL)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("async preview start waited behind previewMu: %v", elapsed)
+	}
+}
+
+func TestAsyncPreviewStateCommitDoesNotWaitForBusyPreviewMutexV8525(t *testing.T) {
+	a := &App{}
+	a.previewMu.Lock()
+	started := time.Now()
+	ok := a.tryCommitMegaPreviewStateV8525(MegaPreviewState{Active: true, StreamURL: "http://127.0.0.1/test"})
+	elapsed := time.Since(started)
+	a.previewMu.Unlock()
+
+	if ok {
+		t.Fatal("commit unexpectedly acquired busy previewMu")
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("state commit waited behind previewMu: %v", elapsed)
 	}
 }
 
