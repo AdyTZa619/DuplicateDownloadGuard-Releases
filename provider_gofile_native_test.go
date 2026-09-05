@@ -13,6 +13,12 @@ type roundTripFuncV86 func(*http.Request) (*http.Response, error)
 
 func (f roundTripFuncV86) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+func resetGofileAPIRateForTestV86() {
+	gofileAPIRateMuV86.Lock()
+	gofileAPINextAtV86 = time.Time{}
+	gofileAPIRateMuV86.Unlock()
+}
+
 func TestGofileFolderCodeV86(t *testing.T) {
 	for _, raw := range []string{"https://gofile.io/d/INtYpg", "https://www.gofile.io/d/INtYpg?x=1"} {
 		got, err := gofileFolderCodeV86(raw)
@@ -26,6 +32,7 @@ func TestGofileFolderCodeV86(t *testing.T) {
 }
 
 func TestGofileWebsiteTokenV86StablePerBucket(t *testing.T) {
+	t.Setenv("GOFILE_WT_SALT", "")
 	now := time.Unix(1_800_000_000, 0)
 	a := gofileWebsiteTokenV86("guest-token", now)
 	b := gofileWebsiteTokenV86("guest-token", now.Add(10*time.Minute))
@@ -38,7 +45,17 @@ func TestGofileWebsiteTokenV86StablePerBucket(t *testing.T) {
 	}
 }
 
+func TestGofileWebsiteTokenV86UsesCurrentSalt(t *testing.T) {
+	t.Setenv("GOFILE_WT_SALT", "")
+	got := gofileWebsiteTokenV86("guest-token", time.Unix(1_800_000_000, 0))
+	const want = "fde9936898c96be564c37721fccc29fc860e081f63bd005ba31a55f4364e72b6"
+	if got != want {
+		t.Fatalf("current GoFile website token mismatch: got %s want %s", got, want)
+	}
+}
+
 func TestFetchGofileContentV86SendsCurrentHeaders(t *testing.T) {
+	resetGofileAPIRateForTestV86()
 	client := &http.Client{Transport: roundTripFuncV86(func(r *http.Request) (*http.Response, error) {
 		if !strings.Contains(r.URL.String(), "/contents/ROOT") {
 			t.Fatalf("unexpected URL: %s", r.URL)
@@ -61,6 +78,27 @@ func TestFetchGofileContentV86SendsCurrentHeaders(t *testing.T) {
 	}
 	if len(root.Children) != 1 || root.Children["F1"].Name != "a.mp4" {
 		t.Fatalf("unexpected GoFile content: %#v", root)
+	}
+}
+
+func TestFetchGofileContentV86Retries429(t *testing.T) {
+	resetGofileAPIRateForTestV86()
+	calls := 0
+	client := &http.Client{Transport: roundTripFuncV86(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			h := make(http.Header)
+			h.Set("Retry-After", "0")
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Header: h, Body: io.NopCloser(strings.NewReader("rate limited")), Request: r}, nil
+		}
+		body := `{"status":"ok","data":{"id":"ROOT","type":"folder","name":"Root","children":{}}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	if _, err := fetchGofileContentV86(context.Background(), client, "guest-token", "ROOT"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected one 429 retry, got %d calls", calls)
 	}
 }
 
