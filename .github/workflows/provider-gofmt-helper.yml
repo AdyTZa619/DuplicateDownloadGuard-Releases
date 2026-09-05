@@ -1,0 +1,35 @@
+name: Provider gofmt helper
+
+on:
+  push:
+    branches:
+      - 'feature/provider-http-context'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/provider-http-context
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Format provider files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gofmt -w provider_http_transport.go provider_http_transport_test.go
+          if (git diff --quiet) {
+            Write-Host 'Already formatted.'
+            exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add provider_http_transport.go provider_http_transport_test.go
+          git commit -m 'gofmt provider HTTP context'
+          git push origin HEAD:feature/provider-http-context
