@@ -10,11 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const nativeUpdaterModeArg = "--ddg-native-updater"
+const nativeUpdaterCleanupModeArg = "--ddg-native-updater-cleanup"
 
 type nativeUpdateRequest struct {
 	ParentPID       int    `json:"parentPid"`
@@ -28,6 +30,16 @@ type nativeUpdateRequest struct {
 }
 
 func maybeRunNativeUpdater(args []string) (bool, int) {
+	if len(args) >= 2 && args[1] == nativeUpdaterCleanupModeArg {
+		if len(args) != 6 {
+			return true, 64
+		}
+		parentPID, err := strconv.Atoi(args[2])
+		if err != nil || parentPID < 0 {
+			return true, 64
+		}
+		return true, runNativeUpdaterCleanup(parentPID, args[3], args[4], args[5])
+	}
 	if len(args) < 2 || args[1] != nativeUpdaterModeArg {
 		return false, 0
 	}
@@ -82,6 +94,13 @@ func runNativeUpdater(reqPath string) int {
 		time.Sleep(1500 * time.Millisecond)
 	}
 
+	// The new backup is about to be created from the still-valid current EXE.
+	// Remove backups/helpers from older updates first so disk usage cannot grow
+	// with every version. Keep the currently running helper and current pending.
+	updatesDir := filepath.Dir(req.Pending)
+	self, _ := os.Executable()
+	cleanupNativeUpdateArtifacts(updatesDir, "", self, false, false)
+
 	if err := retryFor(60*time.Second, func() error {
 		return copyFileDurable(req.Current, req.Backup)
 	}); err != nil {
@@ -115,9 +134,15 @@ func runNativeUpdater(reqPath string) int {
 	}
 	if waitForExpectedHealth(req.Health, req.ExpectedVersion, 35*time.Second) {
 		logUpdate("Update confirmat sănătos.")
-		_ = os.Remove(req.Pending)
-		_ = os.Remove(reqPath)
 		_ = p.Release()
+		// A tiny second instance of the freshly installed EXE waits for this
+		// helper to exit, then removes helper/pending/temp files. This avoids
+		// relying on Windows to delete an executable while it is still mapped.
+		if err := scheduleNativeUpdaterCleanup(req.Current, os.Getpid(), updatesDir, req.Backup, self); err != nil {
+			logUpdate("Curățarea automată a updaterului nu a putut fi programată: " + err.Error())
+			_ = os.Remove(req.Pending)
+			_ = os.Remove(reqPath)
+		}
 		return 0
 	}
 
@@ -273,4 +298,92 @@ func restoreAndStart(req nativeUpdateRequest, logUpdate func(string)) error {
 	_ = p.Release()
 	logUpdate("Rollback terminat; versiunea anterioară a fost repornită.")
 	return nil
+}
+
+func sameCleanPath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+func pathInside(base, path string) bool {
+	if base == "" || path == "" || !filepath.IsAbs(base) || !filepath.IsAbs(path) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+func cleanupNativeUpdateArtifacts(updatesDir, keepBackup, keepHelper string, removePending, removeRequest bool) {
+	updatesDir = filepath.Clean(updatesDir)
+	backupDir := filepath.Join(updatesDir, "backup")
+
+	if entries, err := os.ReadDir(backupDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(backupDir, entry.Name())
+			if sameCleanPath(path, keepBackup) {
+				continue
+			}
+			lower := strings.ToLower(entry.Name())
+			if (strings.HasPrefix(lower, "duplicatedownloadguard_") && strings.HasSuffix(lower, ".exe")) ||
+				strings.HasSuffix(lower, ".copying") || strings.HasSuffix(lower, ".replacing") || strings.HasSuffix(lower, ".download") {
+				_ = os.Remove(path)
+			}
+		}
+	}
+
+	entries, err := os.ReadDir(updatesDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(updatesDir, entry.Name())
+		if sameCleanPath(path, keepHelper) {
+			continue
+		}
+		lower := strings.ToLower(entry.Name())
+		switch {
+		case strings.HasPrefix(lower, "duplicatedownloadguard.updater_") && strings.HasSuffix(lower, ".exe"):
+			_ = os.Remove(path)
+		case removePending && lower == "duplicatedownloadguard.pending.exe":
+			_ = os.Remove(path)
+		case removeRequest && lower == "apply_update.json":
+			_ = os.Remove(path)
+		case strings.HasSuffix(lower, ".copying") || strings.HasSuffix(lower, ".replacing") || strings.HasSuffix(lower, ".download"):
+			_ = os.Remove(path)
+		}
+	}
+}
+
+func scheduleNativeUpdaterCleanup(current string, parentPID int, updatesDir, keepBackup, helper string) error {
+	cmd := exec.Command(current, nativeUpdaterCleanupModeArg, strconv.Itoa(parentPID), updatesDir, keepBackup, helper)
+	hideChildWindow(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
+func runNativeUpdaterCleanup(parentPID int, updatesDir, keepBackup, helper string) int {
+	if parentPID < 0 || !filepath.IsAbs(updatesDir) || !filepath.IsAbs(keepBackup) || !filepath.IsAbs(helper) {
+		return 65
+	}
+	if !pathInside(updatesDir, keepBackup) || !pathInside(updatesDir, helper) {
+		return 65
+	}
+	if parentPID > 0 && !waitForProcessExit(parentPID, 30*time.Second) {
+		return 7
+	}
+	cleanupNativeUpdateArtifacts(updatesDir, keepBackup, "", true, true)
+	return 0
 }

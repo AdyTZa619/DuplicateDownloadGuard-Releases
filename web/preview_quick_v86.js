@@ -5,7 +5,8 @@
 
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
-    ['/provider_sources.js', 'ddgProviderSources']
+    ['/provider_sources.js', 'ddgProviderSources'],
+    ['/updater_resilience.js', 'ddgUpdaterResilience']
   ];
 
   for (const [src, id] of modules) {
