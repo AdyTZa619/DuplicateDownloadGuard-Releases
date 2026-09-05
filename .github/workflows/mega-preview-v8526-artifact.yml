@@ -27,7 +27,7 @@ jobs:
 
       - name: Format Go sources
         shell: pwsh
-        run: gofmt -w main.go lifecycle.go mega_session.go mega_preview_controller_v8526.go mega_preview_controller_v8526_test.go
+        run: gofmt -w main.go lifecycle.go mega_session.go mega_errors.go mega_preview_controller_v8526.go mega_preview_controller_v8526_test.go
 
       - name: Commit canonical gofmt output
         shell: pwsh

@@ -38,19 +38,19 @@ type megaPreviewCommandV8526 struct {
 }
 
 type megaPreviewTraceV8526 struct {
-	Generation uint64                           `json:"generation"`
-	ItemPath   string                           `json:"itemPath"`
-	Kind       string                           `json:"kind"`
-	Route      string                           `json:"route"`
-	State      string                           `json:"state"`
-	Error      string                           `json:"error,omitempty"`
-	Problem    *MegaProblem                     `json:"problem,omitempty"`
-	Points     map[string]megaPreviewPointV8526 `json:"points"`
-	Commands   []megaPreviewCommandV8526        `json:"commands,omitempty"`
-	HTTPStatus int                              `json:"httpStatus,omitempty"`
-	Range      string                           `json:"range,omitempty"`
-	Bytes      int64                            `json:"bytes,omitempty"`
-	CreatedMS  int64                            `json:"createdMs"`
+	Generation uint64                            `json:"generation"`
+	ItemPath   string                            `json:"itemPath"`
+	Kind       string                            `json:"kind"`
+	Route      string                            `json:"route"`
+	State      string                            `json:"state"`
+	Error      string                            `json:"error,omitempty"`
+	Problem    *MegaProblem                      `json:"problem,omitempty"`
+	Points     map[string]megaPreviewPointV8526  `json:"points"`
+	Commands   []megaPreviewCommandV8526         `json:"commands,omitempty"`
+	HTTPStatus int                               `json:"httpStatus,omitempty"`
+	Range      string                            `json:"range,omitempty"`
+	Bytes      int64                             `json:"bytes,omitempty"`
+	CreatedMS  int64                             `json:"createdMs"`
 }
 
 type megaPreviewSourceV8526 struct {
@@ -250,6 +250,10 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 		c.mu.Unlock()
 		return 0, "", "", errors.New("serviciul de preview este oprit")
 	}
+	if c.cleanupTTL != nil {
+		c.cleanupTTL.Stop()
+		c.cleanupTTL = nil
+	}
 	if old := c.selection; old != nil {
 		c.markLocked(old.generation, "T11", "selecție nouă; anulare transfer vechi")
 		old.cancel()
@@ -295,7 +299,7 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 	c.markLocked(generation, "T2", "node="+redactMegaRefV8526(remoteRef))
 
 	routeKey := megaPreviewRouteKeyV8527(item.URL, remoteRef)
-	if route, ok := c.routes[routeKey]; ok && loopbackPreviewURLV8526(route.target) {
+	if route, ok := c.routes[routeKey]; !force && ok && loopbackPreviewURLV8526(route.target) {
 		route.lastUsed = time.Now()
 		c.routes[routeKey] = route
 		job.target = route.target
@@ -755,13 +759,17 @@ func (c *megaPreviewControllerV8526) startPerFileV8527(ctx context.Context, job 
 }
 
 func (c *megaPreviewControllerV8526) shouldResumeSourceV8527(svc *megaPreviewSourceV8526, out string, err error) bool {
+	problem := classifyMegaProblem(out, err)
 	c.mu.Lock()
 	proven := svc != nil && svc.sessionProven && c.source == svc
+	if problem.Code == "MEGA_AUTH" && svc != nil && c.source == svc {
+		svc.sessionProven = false
+		proven = false
+	}
 	c.mu.Unlock()
 	if proven {
 		return false
 	}
-	problem := classifyMegaProblem(out, err)
 	return problem.Code == "MEGA_AUTH" || problem.Code == "MEGA_NOT_FOUND" || problem.Code == "MEGA_UNKNOWN"
 }
 
@@ -813,13 +821,20 @@ func (c *megaPreviewControllerV8526) commitPerFileV8527(job *megaPreviewJobV8526
 	if job == nil || svc == nil || job.ctx.Err() != nil {
 		return
 	}
+	c.mu.Lock()
+	previousSession := svc.previousSession
+	sourceCurrent := c.source == svc
+	c.mu.Unlock()
+	if !sourceCurrent {
+		return
+	}
 	c.a.previewMu.Lock()
 	c.a.preview = MegaPreviewState{
 		Active:          true,
 		SourceURL:       job.item.URL,
 		RemotePath:      job.remoteRef,
 		StreamURL:       target,
-		PreviousSession: svc.previousSession,
+		PreviousSession: previousSession,
 		Exe:             exe,
 	}
 	c.a.resetPreviewTTLLocked()
@@ -894,10 +909,10 @@ func (c *megaPreviewControllerV8526) cleanupIdleRoutesV8527() {
 		return
 	}
 	for _, route := range stale {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		if err := c.ops.acquire(ctx); err == nil {
 			started := time.Now()
-			out, runErr := c.ops.run(ctx, 4*time.Second, exe, "webdav", "-d", route.ref)
+			out, runErr := c.ops.run(ctx, 800*time.Millisecond, exe, "webdav", "-d", route.ref)
 			c.ops.release()
 			c.diagf("CLEANUP node=%s duration=%s result=%s output=%s", redactMegaRefV8526(route.ref), time.Since(started).Round(time.Millisecond), errorTextV8526(runErr), shortMegaOutputV8526(out))
 		}
@@ -930,6 +945,16 @@ func (c *megaPreviewControllerV8526) currentJob(generation uint64) (*megaPreview
 		return nil, errors.New("preview depășit de o selecție mai nouă")
 	}
 	return c.selection, nil
+}
+
+func (c *megaPreviewControllerV8526) evictJobRouteV8527(job *megaPreviewJobV8526, reason string) {
+	if job == nil {
+		return
+	}
+	c.mu.Lock()
+	delete(c.routes, megaPreviewRouteKeyV8527(job.item.URL, job.remoteRef))
+	c.mu.Unlock()
+	c.diagf("GEN=%d EVICT node=%s reason=%s", job.generation, redactMegaRefV8526(job.remoteRef), reason)
 }
 
 func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.Request, generation uint64) {
@@ -987,14 +1012,27 @@ func (c *megaPreviewControllerV8526) serveMedia(w http.ResponseWriter, r *http.R
 	resp, err := c.transport.RoundTrip(upReq)
 	if err != nil {
 		if requestCtx.Err() == nil {
+			c.evictJobRouteV8527(job, "upstream connection failed")
 			c.mu.Lock()
-			c.failLocked(generation, fmt.Errorf("WebDAV nu a răspuns: %w", err))
+			problemErr := newMegaProblemError(classifyMegaProblem("", fmt.Errorf("WebDAV connection: %w", err)), "")
+			c.failLocked(generation, problemErr)
 			c.mu.Unlock()
 		}
 		return
 	}
 	defer resp.Body.Close()
 	c.mark(generation, "T5", fmt.Sprintf("HTTP upstream %d range=%q", resp.StatusCode, r.Header.Get("Range")))
+	if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		raw := fmt.Sprintf("HTTP status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		problemErr := newMegaProblemError(classifyMegaProblem(raw, errors.New(resp.Status)), raw)
+		c.evictJobRouteV8527(job, fmt.Sprintf("HTTP %d", resp.StatusCode))
+		c.mu.Lock()
+		c.failLocked(generation, problemErr)
+		c.mu.Unlock()
+		http.Error(w, problemErr.Error(), resp.StatusCode)
+		return
+	}
 	for _, h := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Cache-Control"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)

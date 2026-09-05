@@ -40,6 +40,7 @@ func TestMegaPreviewTwentyPerFileSwitchesNeverUseRootOrReloginV8527(t *testing.T
 		}
 		return "Serving via webdav " + args[1] + ": " + server.URL + "/" + strings.TrimPrefix(args[1], "H:"), nil
 	})
+	defer c.close("test")
 
 	var last uint64
 	for i := 1; i <= 20; i++ {
@@ -224,6 +225,7 @@ func TestMegaPreviewTwentyStreamingSwitchesDoNotLeakRequestsV8526(t *testing.T) 
 	c := testPreviewControllerV8526(a, func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
 		return "Serving via webdav " + args[1] + ": " + server.URL + "/stream", nil
 	})
+	defer c.close("test")
 	var wg sync.WaitGroup
 	for i := 1; i <= 20; i++ {
 		generation, _, _, err := c.begin(RemoteItem{Source: "MEGA", URL: "stream-source", Path: fmt.Sprintf("clip-%02d.mp4", i), Handle: fmt.Sprintf("HANDLE%08d", i)}, "video", false, 0)
@@ -342,6 +344,59 @@ func TestMegaPreviewResumesSourceOnceThenKeepsSessionV8527(t *testing.T) {
 	}
 	if rootCalls != 0 {
 		t.Fatalf("webdav / calls=%d, want 0", rootCalls)
+	}
+}
+
+func TestMegaPreviewRetryBypassesStalePerFileCacheV8527(t *testing.T) {
+	var calls atomic.Int32
+	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"}}
+	c := testPreviewControllerV8526(a, func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
+		n := calls.Add(1)
+		return fmt.Sprintf("Serving via webdav %s: http://127.0.0.1:4443/file-%d", args[1], n), nil
+	})
+	item := RemoteItem{Source: "MEGA", URL: "source", Path: "clip.mp4", Handle: "HANDLE-RETRY"}
+	first, _, _, _ := c.begin(item, "video", false, 0)
+	firstJob, _ := c.currentJob(first)
+	<-firstJob.ready
+	second, _, _, _ := c.begin(item, "video", true, 0)
+	secondJob, _ := c.currentJob(second)
+	<-secondJob.ready
+	if calls.Load() != 2 {
+		t.Fatalf("retry used stale cache; MEGAcmd calls=%d, want 2", calls.Load())
+	}
+	if firstJob.target == secondJob.target {
+		t.Fatalf("retry did not replace stale target: %s", secondJob.target)
+	}
+}
+
+func TestMegaPreviewHTTP509ReportsQuotaV8527(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(509)
+		_, _ = io.WriteString(w, "transfer quota exceeded; retry after 2 hours")
+	}))
+	defer server.Close()
+	a := &App{preview: MegaPreviewState{Active: true, SourceURL: "source", Exe: "MegaClient.exe"}}
+	c := testPreviewControllerV8526(a, func(_ context.Context, _ time.Duration, _ string, args ...string) (string, error) {
+		return "Serving via webdav " + args[1] + ": " + server.URL + "/quota", nil
+	})
+	generation, _, _, _ := c.begin(RemoteItem{Source: "MEGA", URL: "source", Path: "clip.mp4", Handle: "HANDLE-QUOTA"}, "video", false, 0)
+	job, _ := c.currentJob(generation)
+	<-job.ready
+	recorder := httptest.NewRecorder()
+	c.serveMedia(recorder, httptest.NewRequest(http.MethodGet, "/", nil), generation)
+	trace, _ := c.trace(generation)
+	if trace.Problem == nil || trace.Problem.Code != "MEGA_QUOTA" {
+		t.Fatalf("HTTP 509 problem=%#v", trace.Problem)
+	}
+	if !strings.Contains(trace.Problem.Action, "~2 ore") {
+		t.Fatalf("quota retry time missing: %s", trace.Problem.Action)
+	}
+}
+
+func TestMegaPreviewDiagnosticRedactsSessionTokenV8527(t *testing.T) {
+	got := shortMegaOutputV8526("Your (secret) session is: VERY-SECRET-TOKEN\nnext line")
+	if strings.Contains(got, "VERY-SECRET-TOKEN") || !strings.Contains(got, "<redacted>") {
+		t.Fatalf("session output was not redacted: %q", got)
 	}
 }
 
