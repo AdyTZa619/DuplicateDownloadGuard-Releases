@@ -543,7 +543,7 @@ func TestMegaPreviewUIDisconnectsOldNativeMediaBeforeNextStartV8530(t *testing.T
 	videoRemove := strings.Index(source, "media.remove()")
 	imageReset := strings.Index(source, "image.src = 'data:image/gif;base64,")
 	imageRemove := strings.Index(source, "image.remove()")
-	requestStart := strings.Index(source, "const data = await api('/api/remote-preview/start'")
+	requestStart := strings.Index(source, "const data = await api(controlURLV8532('/api/remote-preview/start')")
 	cleanupCall := strings.Index(source, "removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection')")
 	if videoReset < 0 || videoLoad < videoReset || videoRemove < videoLoad {
 		t.Fatal("video/audio must clear src, call load, then detach the DOM node")
@@ -643,5 +643,79 @@ func TestNewPreviewClosesOldBrowserMediaConnectionV8531(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("new preview did not close the old browser media connection")
+	}
+}
+
+func TestDedicatedMegaPreviewControlServerIsOriginRestrictedV8532(t *testing.T) {
+	a := &App{}
+	uiOrigin := "http://127.0.0.1:51001"
+	ln, srv, base, err := newMegaPreviewControlServerV8532(a, uiOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if !loopbackPreviewURLV8526(base) || base == uiOrigin {
+		t.Fatalf("control listener must be a distinct loopback origin: ui=%s control=%s", uiOrigin, base)
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, base+"/api/remote-preview/start", nil)
+	preflight.Header.Set("Origin", uiOrigin)
+	preflightResponse := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent {
+		t.Fatalf("preflight status=%d", preflightResponse.Code)
+	}
+	if got := preflightResponse.Header().Get("Access-Control-Allow-Origin"); got != uiOrigin {
+		t.Fatalf("allowed origin=%q, want %q", got, uiOrigin)
+	}
+
+	forbidden := httptest.NewRequest(http.MethodGet, base+"/api/remote-preview/status?generation=1", nil)
+	forbidden.Header.Set("Origin", "https://example.com")
+	forbiddenResponse := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(forbiddenResponse, forbidden)
+	if forbiddenResponse.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin status=%d, want 403", forbiddenResponse.Code)
+	}
+
+	unrelated := httptest.NewRequest(http.MethodGet, base+"/api/status", nil)
+	unrelated.Header.Set("Origin", uiOrigin)
+	unrelatedResponse := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(unrelatedResponse, unrelated)
+	if unrelatedResponse.Code != http.StatusNotFound {
+		t.Fatalf("control listener exposed unrelated API, status=%d", unrelatedResponse.Code)
+	}
+}
+
+func TestMegaPreviewJSUsesDedicatedControlOriginWithoutCriticalTelemetryV8532(t *testing.T) {
+	a := &App{previewControlBase: "http://127.0.0.1:51002"}
+	response := httptest.NewRecorder()
+	a.handleWeb(response, httptest.NewRequest(http.MethodGet, "/mega_preview_v8526.js", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("JS status=%d", response.Code)
+	}
+	source := response.Body.String()
+	if !strings.Contains(source, `window.ddgMegaPreviewControlBaseV8532="http://127.0.0.1:51002";`) {
+		t.Fatal("dedicated preview control origin was not injected into JS")
+	}
+	for _, call := range []string{
+		"controlURLV8532('/api/remote-preview/start')",
+		"controlURLV8532('/api/remote-preview/event')",
+		"controlURLV8532(`/api/remote-preview/status?generation=${generation}`)",
+		"controlURLV8532('/api/remote-preview/stop')",
+	} {
+		if !strings.Contains(source, call) {
+			t.Fatalf("MEGA Preview call does not use the control origin: %s", call)
+		}
+	}
+	if strings.Contains(source, "keepalive: true") {
+		t.Fatal("normal MEGA Preview traffic must not use uncancellable keepalive fetches")
+	}
+	if strings.Contains(source, "sendEventV8526(previous.generation, 'T11'") || strings.Contains(source, "sendEventV8526(previous.generation, 'T12'") {
+		t.Fatal("T11/T12 telemetry must not run before the next /start request")
+	}
+	startAbort := strings.Index(source, "pendingStartV8532?.abort()")
+	startFetch := strings.Index(source, "const data = await api(controlURLV8532('/api/remote-preview/start')")
+	if startAbort < 0 || startFetch < startAbort || !strings.Contains(source, "signal: startAbort.signal") {
+		t.Fatal("a newer selection must abort the pending /start fetch before opening another one")
 	}
 }

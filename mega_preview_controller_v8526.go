@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// v8.5.31 keeps one public-folder MEGAcmd session but exposes media by the
+// v8.5.32 keeps one public-folder MEGAcmd session but exposes media by the
 // exact node handle. Real Windows diagnostics proved that MEGAcmd normalizes
 // `webdav /` to the public folder name, while `webdav H:HANDLE` is ready in
 // roughly 130-170 ms. A -> B -> C cancels only obsolete HTTP transfers; it does
@@ -29,8 +29,9 @@ import (
 // error is observed, DDG restarts only MEGAcmdServer once for the current
 // source and retries the selected handle. It never turns recovery into a loop.
 // The media proxy runs on a dedicated loopback listener so long-lived browser
-// Range requests cannot consume the UI/API origin's connection pool and delay
-// the next /start request, status update, or diagnostic event.
+// Range requests cannot consume the UI/API origin's connection pool. Preview
+// control has a third loopback origin so /start is also independent from the
+// main interface's requests and telemetry cannot enter the critical path.
 
 type megaPreviewPointV8526 struct {
 	AtMS   int64  `json:"atMs"`
@@ -356,6 +357,9 @@ func (c *megaPreviewControllerV8526) begin(item RemoteItem, kind string, force b
 		go c.preparePerFile(job)
 	}
 
+	if generation == 1 {
+		c.diagf("ARCH control=%s media=%s separated=true", safePreviewHostV8526(c.a.previewControlBase), safePreviewHostV8526(c.a.previewMediaBase))
+	}
 	if generation == 1 || generation == 10 || generation == 20 {
 		go c.resourceSnapshot(generation)
 	}

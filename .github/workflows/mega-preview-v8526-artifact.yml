@@ -1,16 +1,16 @@
-name: MEGA Preview v8.5.31 dedicated-media-port test artifact
+name: MEGA Preview v8.5.32 dedicated-control-port test artifact
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - fix/v8531-mega-preview-dedicated-media-port
+      - fix/v8532-mega-preview-dedicated-control-port
 
 permissions:
   contents: write
 
 concurrency:
-  group: mega-preview-v8531-${{ github.ref }}
+  group: mega-preview-v8532-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -- '*.go'
-            git commit -m "gofmt MEGA Preview v8.5.31 [skip ci]"
+            git commit -m "gofmt MEGA Preview v8.5.32 [skip ci]"
             git push origin HEAD:${{ github.ref_name }}
           }
 
@@ -65,38 +65,38 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
-        run: go build -trimpath -ldflags "-s -w" -o DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe .
+        run: go build -trimpath -ldflags "-s -w" -o DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe .
 
       - name: Write checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe" | Set-Content SHA256_v8.5.31-test.1.txt
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe" | Set-Content SHA256_v8.5.32-test.1.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DDG-v8.5.31-test.1-MEGA-PREVIEW
+          name: DDG-v8.5.32-test.1-MEGA-PREVIEW
           if-no-files-found: error
           retention-days: 14
           path: |
-            DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe
-            SHA256_v8.5.31-test.1.txt
+            DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe
+            SHA256_v8.5.32-test.1.txt
             MEGA_PREVIEW_TEST_PROTOCOL_v8526.md
 
       - name: Publish test candidate to in-app updater
         shell: pwsh
         run: |
           git fetch origin main
-          $publishDir = Join-Path $env:RUNNER_TEMP 'ddg-v8531-publish'
+          $publishDir = Join-Path $env:RUNNER_TEMP 'ddg-v8532-publish'
           git worktree add --detach $publishDir origin/main
-          Copy-Item DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe (Join-Path $publishDir 'releases/DuplicateDownloadGuard_PRO_LATEST.exe') -Force
-          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.31-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Copy-Item DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe (Join-Path $publishDir 'releases/DuplicateDownloadGuard_PRO_LATEST.exe') -Force
+          $hash = (Get-FileHash DuplicateDownloadGuard_PRO_v8.5.32-test.1.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  DuplicateDownloadGuard_PRO_LATEST.exe" | Set-Content (Join-Path $publishDir 'SHA256SUMS.txt')
           $manifest = [ordered]@{
-            version = '8.5.31-test.1'
+            version = '8.5.32-test.1'
             url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe'
             sha256 = $hash
-            notes = 'TEST MEGA Preview 8.5.31-test.1: jurnalul real 8.5.30 cu 32 de preview-uri confirmă că MEGAcmd este sănătos (media 159 ms, maxim 493 ms), dar portul HTTP comun rămânea congestionat: T0→T1 a ajuns la 16,364 s, iar T4→T5 la 9,524 s. Playerul media folosește acum un al doilea listener 127.0.0.1 cu port dinamic, dedicat exclusiv proxy-ului image/video/audio. UI, /start, status și diagnosticul rămân pe portul principal și nu mai împart pool-ul de conexiuni al browserului cu streamurile Range. La fiecare schimbare sunt închise explicit socketurile browser-facing ale generației vechi, iar keep-alive este dezactivat pe listenerul media. Păstrează recuperarea unică a erorii 231. Este numai test, nu stable; rezolvarea necesită confirmare Windows reală.'
+            notes = 'TEST MEGA Preview 8.5.32-test.1: jurnalul real 8.5.31 confirmă că portul media separat a eliminat întârzierea dintre WebDAV gata și prima cerere media: 26/26 sub 500 ms, media 25,4 ms, maxim 389 ms. A rămas congestia click→backend pe portul principal: 16/32 peste 500 ms, maxim 17,077 s; generațiile depășite nu mai ajungeau la player. Acest candidat mută /start, status, event, stop și timings pe un al treilea listener loopback dedicat controlului MEGA Preview, cu CORS limitat exact la originea UI. Elimină keepalive din evenimentele normale, nu mai trimite T11/T12 înaintea următorului /start și anulează cererea /start precedentă la un click nou. Media rămâne pe propriul port, cu închiderea socketurilor vechi. Este numai test, nu stable; necesită validare Windows reală.'
             publishedAt = (Get-Date).ToUniversalTime().ToString('o')
             channel = 'test'
           }
@@ -105,6 +105,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add releases/DuplicateDownloadGuard_PRO_LATEST.exe SHA256SUMS.txt update.json
-          git commit -m 'Publish MEGA Preview 8.5.31-test.1 [skip ci]'
+          git commit -m 'Publish MEGA Preview 8.5.32-test.1 [skip ci]'
           git push origin HEAD:main
           Pop-Location

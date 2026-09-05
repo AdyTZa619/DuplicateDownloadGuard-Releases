@@ -3,17 +3,18 @@
 
   const baseLoadRemotePreviewV8526 = window.loadRemotePreview;
   let activeV8526 = null;
+  let pendingStartV8532 = null;
 
   const nowMS = () => Date.now();
   const currentIs = (row, seq) => seq === detailSeq && currentRow && Number(currentRow.id) === Number(row.id);
+  const controlBaseV8532 = String(window.ddgMegaPreviewControlBaseV8532 || '').replace(/\/$/, '');
+  const controlURLV8532 = path => `${controlBaseV8532}${path}`;
 
   function sendEventV8526(generation, event, detail = '') {
     if (!generation) return;
-    fetch('/api/remote-preview/event', {
+    fetch(controlURLV8532('/api/remote-preview/event'), {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({generation, event, detail, clientAt: nowMS()}),
-      keepalive: true
+      body: JSON.stringify({generation, event, detail, clientAt: nowMS()})
     }).catch(() => {});
   }
 
@@ -47,10 +48,8 @@
         try { image.remove(); } catch (_) {}
       }
     }
-    if (previous) {
-      sendEventV8526(previous.generation, 'T11', reason || 'player switch');
-      requestAnimationFrame(() => sendEventV8526(previous.generation, 'T12', 'element DOM detached'));
-    }
+    // The backend records T11/T12 authoritatively when /start or /stop arrives.
+    // Do not put two diagnostic POSTs in front of the next user selection.
   }
 
   function stageTextV8526(trace) {
@@ -77,7 +76,7 @@
   }
 
   async function statusV8526(generation, signal) {
-    const response = await fetch(`/api/remote-preview/status?generation=${generation}`, {signal, cache: 'no-store'});
+    const response = await fetch(controlURLV8532(`/api/remote-preview/status?generation=${generation}`), {signal, cache: 'no-store'});
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   }
@@ -181,22 +180,29 @@
   }
 
   async function requestPreviewV8526(row, seq, forceFallback) {
+    pendingStartV8532?.abort();
+    pendingStartV8532 = null;
     removeRemoteMediaV8526(forceFallback ? 'explicit fallback' : 'new selection');
     if (!currentIs(row, seq)) return;
+    const startAbort = new AbortController();
+    pendingStartV8532 = startAbort;
     const preview = document.getElementById('remotePreview');
     if (preview) preview.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Se pregătește previzualizarea…</b><span class="small">WebDAV per-fișier • sesiune MEGA păstrată • timpi T0–T12</span></div>';
     const clientT0 = nowMS();
     try {
-      const data = await api('/api/remote-preview/start', {
+      const data = await api(controlURLV8532('/api/remote-preview/start'), {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        signal: startAbort.signal,
         body: JSON.stringify({id: row.id, forceFallback: !!forceFallback, clientT0})
       });
       if (!currentIs(row, seq)) return;
       installMediaV8526(row, seq, data, forceFallback);
     } catch (error) {
+      if (error?.name === 'AbortError') return;
       if (!currentIs(row, seq)) return;
       if (preview) preview.innerHTML = `<div class="previewEmpty"><b>MEGA Preview indisponibil.</b><br>${esc(error.message)}<br><br><button class="btn" onclick="playRemote()">▶ Player extern</button></div>`;
+    } finally {
+      if (pendingStartV8532 === startAbort) pendingStartV8532 = null;
     }
   }
 
@@ -232,8 +238,10 @@
       if (activeV8526) window.megaPreviewErrorV8526(activeV8526.generation);
     };
     window.stopRemotePreview = async function () {
+      pendingStartV8532?.abort();
+      pendingStartV8532 = null;
       removeRemoteMediaV8526('user stop');
-      try { await fetch('/api/remote-preview/stop', {method: 'POST', keepalive: true}); } catch (_) {}
+      try { await fetch(controlURLV8532('/api/remote-preview/stop'), {method: 'POST'}); } catch (_) {}
       try { remotePreviewActive = false; } catch (_) {}
       const stop = document.getElementById('stopRemote');
       if (stop) stop.disabled = true;
@@ -241,8 +249,10 @@
       if (preview) preview.innerHTML = '<div class="previewEmpty">Preview remote oprit. Sesiunea MEGA rămâne pregătită pentru următorul fișier.</div>';
     };
     window.addEventListener('pagehide', () => {
+      pendingStartV8532?.abort();
+      pendingStartV8532 = null;
       removeRemoteMediaV8526('pagehide');
-      try { navigator.sendBeacon('/api/remote-preview/stop', new Blob([], {type: 'text/plain'})); } catch (_) {}
+      try { navigator.sendBeacon(controlURLV8532('/api/remote-preview/stop'), new Blob([], {type: 'text/plain'})); } catch (_) {}
     }, {capture: true});
   }
 

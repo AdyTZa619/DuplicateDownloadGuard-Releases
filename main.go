@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.31-test.1 Pro Smart Media Guard"
+const appVersion = "8.5.32-test.1 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -234,6 +234,7 @@ type App struct {
 	previewTTL       *time.Timer
 	previewV8526Once sync.Once
 	previewV8526     *megaPreviewControllerV8526
+	previewControlBase string
 	previewMediaBase string
 	cfg              Config
 	index            map[string]FileEntry
@@ -328,14 +329,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
+	addr := "http://" + ln.Addr().String()
+	controlLn, controlSrv, controlBase, err := newMegaPreviewControlServerV8532(a, addr)
 	if err != nil {
 		_ = ln.Close()
 		log.Fatal(err)
 	}
+	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
+	if err != nil {
+		_ = ln.Close()
+		_ = controlLn.Close()
+		log.Fatal(err)
+	}
+	a.previewControlBase = controlBase
 	a.previewMediaBase = mediaBase
-	addr := "http://" + ln.Addr().String()
 	a.logf("Pornit %s pe %s", appVersion, addr)
+	a.logf("MEGA Preview control listener dedicat: %s", controlBase)
 	a.logf("MEGA Preview media listener dedicat: %s", mediaBase)
 	go markUpdateHealthyLater(a.appDir)
 	shutdownCh := make(chan struct{}, 1)
@@ -347,6 +356,8 @@ func main() {
 	}()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
+	controlServeErr := make(chan error, 1)
+	go func() { controlServeErr <- controlSrv.Serve(controlLn) }()
 	mediaServeErr := make(chan error, 1)
 	go func() { mediaServeErr <- mediaSrv.Serve(mediaLn) }()
 	select {
@@ -358,14 +369,70 @@ func main() {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
+	case err := <-controlServeErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
 	case <-shutdownCh:
 		a.logf("Interfața aplicației s-a închis; opresc DDG controlat")
 		shutdownApp(a)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = srv.Shutdown(ctx)
+		_ = controlSrv.Shutdown(ctx)
 		_ = mediaSrv.Shutdown(ctx)
 		cancel()
 	}
+}
+
+// newMegaPreviewControlServerV8532 keeps every MEGA preview control request
+// away from the main UI origin. Real Windows traces showed /start and event
+// POSTs waiting up to 17 seconds on that shared browser connection pool even
+// after media traffic had been moved to its own port.
+func newMegaPreviewControlServerV8532(a *App, uiOrigin string) (net.Listener, *http.Server, string, error) {
+	if a == nil {
+		return nil, nil, "", errors.New("aplicația lipsește pentru controlul MEGA Preview")
+	}
+	uiOrigin = strings.TrimRight(strings.TrimSpace(uiOrigin), "/")
+	if !loopbackPreviewURLV8526(uiOrigin) {
+		return nil, nil, "", errors.New("originea UI pentru MEGA Preview nu este loopback")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("listener control MEGA Preview: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/remote-preview/start", a.handleRemotePreviewStart)
+	mux.HandleFunc("/api/remote-preview/stop", a.handleRemotePreviewStop)
+	mux.HandleFunc("/api/remote-preview/status", a.handleMegaPreviewStatusV8526)
+	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
+	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
+	srv := &http.Server{
+		Handler:           megaPreviewControlCORSV8532(uiOrigin, mux),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	return ln, srv, "http://" + ln.Addr().String(), nil
+}
+
+func megaPreviewControlCORSV8532(uiOrigin string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+		if origin != "" && !strings.EqualFold(origin, uiOrigin) {
+			http.Error(w, "origine MEGA Preview refuzată", http.StatusForbidden)
+			return
+		}
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", uiOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // newMegaPreviewMediaServerV8531 isolates long-lived image/video/audio
@@ -670,6 +737,13 @@ func (a *App) handleWeb(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if p == "web/mega_preview_v8526.js" {
+		base := strings.TrimRight(strings.TrimSpace(a.previewControlBase), "/")
+		if loopbackPreviewURLV8526(base) {
+			prefix := []byte("window.ddgMegaPreviewControlBaseV8532=" + strconv.Quote(base) + ";\n")
+			b = append(prefix, b...)
+		}
 	}
 	switch filepath.Ext(p) {
 	case ".html":
@@ -3301,6 +3375,11 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	statusURL := fmt.Sprintf("/api/remote-preview/status?generation=%d", generation)
+	controlBase := strings.TrimRight(strings.TrimSpace(a.previewControlBase), "/")
+	if loopbackPreviewURLV8526(controlBase) {
+		statusURL = controlBase + statusURL
+	}
 	jsonOut(w, map[string]any{
 		"url":         streamURL,
 		"kind":        kind,
@@ -3309,7 +3388,7 @@ func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 		"previewMode": previewMode,
 		"prepareMs":   0,
 		"generation":  generation,
-		"statusUrl":   fmt.Sprintf("/api/remote-preview/status?generation=%d", generation),
+		"statusUrl":   statusURL,
 		"note":        "URL-ul local este returnat imediat. Preview-ul folosește WebDAV per-fișier pe handle-ul MEGA confirmat, păstrează sesiunea publică și anulează numai transferul HTTP precedent.",
 	})
 }
