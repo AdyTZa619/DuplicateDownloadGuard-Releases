@@ -2,6 +2,14 @@
 
 Acest fișier păstrează schimbările importante pentru fiecare versiune publicată. Pentru fiecare release nou trebuie adăugată o secțiune `## [x.y.z]`; pipeline-ul de release verifică existența ei înainte de publicare.
 
+## [8.5.34] — 2026-09-05
+
+### Updater — trecere corectă de la test la stable
+- Compararea versiunilor respectă acum precedența SemVer: pentru același nucleu numeric, versiunea stable este mai nouă decât orice prerelease `-test.N`.
+- Repară cazul concret în care `8.5.33-test.1` era considerată mai nouă decât `8.5.33` și updaterul afișa greșit „sunt la zi”.
+- Testele acoperă trecerea test → stable, ordinea între două candidate test, egalitatea stable și intrările invalide.
+- MEGA Preview rămâne identic cu arhitectura 8.5.33 validată real pe Windows.
+
 ## [8.5.33] — 2026-09-05
 
 ### MEGA Preview — rută rapidă validată pe Windows

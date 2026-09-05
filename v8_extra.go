@@ -1622,35 +1622,82 @@ type updateManifest struct {
 	Notes   string `json:"notes"`
 }
 
-func versionParts(s string) []int {
-	re := regexp.MustCompile(`\d+`)
-	ms := re.FindAllString(s, -1)
-	out := []int{}
-	for _, m := range ms {
-		n, _ := strconv.Atoi(m)
-		out = append(out, n)
-	}
-	return out
+type semanticVersion struct {
+	core       [3]int
+	prerelease []string
 }
+
+var semanticVersionRE = regexp.MustCompile(`(?i)(\d+)\.(\d+)\.(\d+)(?:-([0-9a-z.-]+))?`)
+
+func parseSemanticVersion(s string) (semanticVersion, bool) {
+	m := semanticVersionRE.FindStringSubmatch(strings.TrimSpace(s))
+	if len(m) == 0 {
+		return semanticVersion{}, false
+	}
+	var v semanticVersion
+	for i := range v.core {
+		v.core[i], _ = strconv.Atoi(m[i+1])
+	}
+	if m[4] != "" {
+		v.prerelease = strings.Split(strings.ToLower(m[4]), ".")
+	}
+	return v, true
+}
+
+func comparePrerelease(a, b []string) int {
+	// SemVer: a stable version has higher precedence than the same core with a prerelease.
+	if len(a) == 0 && len(b) == 0 {
+		return 0
+	}
+	if len(a) == 0 {
+		return 1
+	}
+	if len(b) == 0 {
+		return -1
+	}
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] == b[i] {
+			continue
+		}
+		x, xErr := strconv.Atoi(a[i])
+		y, yErr := strconv.Atoi(b[i])
+		switch {
+		case xErr == nil && yErr == nil:
+			if x > y {
+				return 1
+			}
+			return -1
+		case xErr == nil:
+			return -1
+		case yErr == nil:
+			return 1
+		case a[i] > b[i]:
+			return 1
+		default:
+			return -1
+		}
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	return 0
+}
+
 func versionNewer(remote, local string) bool {
-	a, b := versionParts(remote), versionParts(local)
-	n := len(a)
-	if len(b) > n {
-		n = len(b)
+	a, aOK := parseSemanticVersion(remote)
+	b, bOK := parseSemanticVersion(local)
+	if !aOK || !bOK {
+		return false
 	}
-	for i := 0; i < n; i++ {
-		x, y := 0, 0
-		if i < len(a) {
-			x = a[i]
-		}
-		if i < len(b) {
-			y = b[i]
-		}
-		if x != y {
-			return x > y
+	for i := range a.core {
+		if a.core[i] != b.core[i] {
+			return a.core[i] > b.core[i]
 		}
 	}
-	return false
+	return comparePrerelease(a.prerelease, b.prerelease) > 0
 }
 func (a *App) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()

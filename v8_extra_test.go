@@ -13,6 +13,11 @@ func TestVersionNewer(t *testing.T) {
 		want bool
 	}{
 		{"8.1.0", "8.0.0", true}, {"8.0.0", "8.0.0", false}, {"7.9.9", "8.0.0", false}, {"8.0.1 Pro", "8.0.0", true},
+		{"8.5.33", "8.5.33-test.1 Pro Smart Media Guard", true},
+		{"8.5.33-test.2", "8.5.33-test.1 Pro Smart Media Guard", true},
+		{"8.5.33-test.1", "8.5.33", false},
+		{"8.5.33", "8.5.33 Pro Smart Media Guard", false},
+		{"invalid", "8.5.33", false},
 	}
 	for _, c := range cases {
 		if got := versionNewer(c.r, c.l); got != c.want {
