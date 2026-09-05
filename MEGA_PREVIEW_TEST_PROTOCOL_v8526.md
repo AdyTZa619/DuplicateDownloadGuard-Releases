@@ -2,6 +2,13 @@
 
 Acesta este un candidat de test, nu o versiune stable. Nu schimbă modulele Duplicate Detection, Smart Guard sau Download Studio.
 
+## Cauzele reparate în candidat
+
+- 8.5.10 considera suficient faptul că vechiul port WebDAV răspundea după restart; asta nu dovedea că portul deservea încă aceeași sesiune și același root.
+- 8.5.17–8.5.25 tratau un `previewMu` ocupat drept cache miss, deci puteau reporni inutil ruta MEGAcmd.
+- workerul global al preview-ului serializa cererile: B și C puteau rămâne în spatele procesului A chiar după anularea selecției A.
+- cleanup-ul playerului și lifecycle-ul serviciului MEGA erau amestecate. Candidatul păstrează un singur serviciu per sursă și anulează separat numai transferul HTTP vechi.
+
 ## Test minim
 
 1. Pornește aplicația și deschide rezultatele ultimei scanări MEGA.
