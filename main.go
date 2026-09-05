@@ -226,28 +226,28 @@ type Progress struct {
 }
 
 type App struct {
-	mu         sync.RWMutex
-	guardMu    sync.Mutex
-	persistMu  sync.Mutex
-	previewMu  sync.Mutex
-	preview    MegaPreviewState
-	previewTTL *time.Timer
+	mu               sync.RWMutex
+	guardMu          sync.Mutex
+	persistMu        sync.Mutex
+	previewMu        sync.Mutex
+	preview          MegaPreviewState
+	previewTTL       *time.Timer
 	previewV8526Once sync.Once
 	previewV8526     *megaPreviewControllerV8526
-	cfg        Config
-	index      map[string]FileEntry
-	bySize     map[int64][]string
-	byName     map[string][]string
-	results    []Result
-	decisions  map[string]Decision
-	undoMarks  []MarkHistory
-	logs       []string
-	progress   Progress
-	appDir     string
-	cancel     context.CancelFunc
-	nextRemote int
-	opRunning  atomic.Bool
-	revision   atomic.Uint64
+	cfg              Config
+	index            map[string]FileEntry
+	bySize           map[int64][]string
+	byName           map[string][]string
+	results          []Result
+	decisions        map[string]Decision
+	undoMarks        []MarkHistory
+	logs             []string
+	progress         Progress
+	appDir           string
+	cancel           context.CancelFunc
+	nextRemote       int
+	opRunning        atomic.Bool
+	revision         atomic.Uint64
 }
 
 func main() {
@@ -3205,8 +3205,8 @@ func (a *App) startMegaPreview(item RemoteItem) (string, error) {
 
 func (a *App) handleRemotePreviewStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID            int  `json:"id"`
-		ForceFallback bool `json:"forceFallback,omitempty"`
+		ID            int   `json:"id"`
+		ForceFallback bool  `json:"forceFallback,omitempty"`
 		ClientT0      int64 `json:"clientT0,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.ID <= 0 {
