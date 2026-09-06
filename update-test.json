@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.57",
+  "version": "8.5.49-test.58",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "1b367098eaf5e2173fcb2d39011f507bc9be71f56d06afb544ac5f67ef171309",
-  "notes": "TEST: TEST add adaptive Bunkr buffer watchdog and range diagnosis",
-  "publishedAt": "2026-09-06T20:52:12.6975136Z",
+  "sha256": "4ebb917814a663c1583c3ab486608e49e784727cea93b0aa315abf861d5df1c9",
+  "notes": "TEST: TEST fix false Bunkr buffer warnings after playback or pause",
+  "publishedAt": "2026-09-06T21:00:40.5584566Z",
   "channel": "test"
 }
