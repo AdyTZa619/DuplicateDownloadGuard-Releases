@@ -1,6 +1,7 @@
 // Final JDownloader routing for TEST builds.
 // This path never calls the DDG download queue. It verifies the selection,
-// then hands approved files directly to JDownloader on 127.0.0.1:9666.
+// then hands approved links to JDownloader and lets JDownloader decide package,
+// destination folder and start behavior from its own settings/rules.
 (() => {
   'use strict';
 
@@ -36,8 +37,8 @@
     const button = primaryButton();
     if (!button || busy) return;
     if (liveEngine() === 'jdownloader') {
-      button.textContent = '⬇ Descarcă prin JDownloader';
-      button.title = 'Verifică selecția, apoi o trimite exclusiv în JDownloader. Coada DDG nu este folosită.';
+      button.textContent = '⬇ Trimite în JDownloader';
+      button.title = 'DDG trimite doar linkurile. JDownloader decide colecția/pachetul, folderul și pornirea după propriile reguli.';
     } else if (button.textContent.includes('JDownloader')) {
       button.textContent = '⬇ Descarcă';
     }
@@ -53,7 +54,9 @@
     }
   }
 
-  function destination() {
+  // Used only by ExactGuard to know which local folders to scan. This value is
+  // deliberately NOT sent to JDownloader as a destination.
+  function guardDestination() {
     return String(document.getElementById('downloadDir')?.value || window.cfg?.downloadDir || '').trim();
   }
 
@@ -124,7 +127,7 @@
     });
   }
 
-  function buildSubmission(rows, dest) {
+  function buildSubmission(rows) {
     const urls = [];
     const descriptions = [];
     const seen = new Set();
@@ -136,12 +139,16 @@
       descriptions.push(row?.remote?.name || row?.remote?.path || 'DDG');
     }
     if (!urls.length) throw new Error('Selecția nu conține linkuri compatibile cu JDownloader.');
+
     const params = new URLSearchParams();
     params.set('urls', urls.join('\n'));
     params.set('description', descriptions.join('\n'));
-    params.set('package', 'Duplicate Download Guard');
-    params.set('dir', dest);
-    params.set('autostart', '1');
+
+    // IMPORTANT: do not send package, dir or autostart. Those fields were the
+    // reason JD inherited DDG's default folder and started immediately. With
+    // only the links supplied, JDownloader/LinkGrabber is free to apply its own
+    // Packagizer rules, package/collection naming, download directory and start
+    // policy exactly as if the user had added the links in JDownloader itself.
     return {params, count: urls.length};
   }
 
@@ -172,13 +179,13 @@
     }, 4000);
   }
 
-  async function submitRowsToJD(rows, dest) {
+  async function submitRowsToJD(rows) {
     const jd = await checkJD();
     if (!jd?.running) {
       throw new Error('JDownloader 2 nu răspunde pe 127.0.0.1:9666. DDG nu a pornit niciun download intern.');
     }
 
-    const submission = buildSubmission(rows, dest);
+    const submission = buildSubmission(rows);
     try {
       const response = await fetch(`${JD_BASE}/flashgot`, {
         method: 'POST',
@@ -218,7 +225,7 @@
   function showReview(report, ids, dest, mode, sent) {
     pendingReview = {
       ids: IDsByVerdict(report, 'REVIEW'),
-      destination: dest,
+      guardDestination: dest,
       guardMode: mode
     };
     window.ddgShowGuardReportV8545?.(report, {
@@ -231,7 +238,7 @@
     if (override && pendingReview.ids.length) {
       override.classList.remove('hidden');
       override.textContent = `Trimite oricum în JDownloader (${pendingReview.ids.length})`;
-      override.title = 'Confirmare explicită: aceste fișiere nu au putut fi verificate sigur, dar vor fi trimise numai în JDownloader.';
+      override.title = 'Confirmare explicită: DDG trimite doar linkurile; JDownloader decide colecția, folderul și pornirea.';
     }
   }
 
@@ -245,10 +252,10 @@
     }
     try {
       const rows = await rowsForIDs(pendingReview.ids);
-      const result = await submitRowsToJD(rows, pendingReview.destination);
+      const result = await submitRowsToJD(rows);
       const suffix = result.confirmed ? 'confirmat de JD' : 'trimis prin interfața locală JD';
       window.closeGuardReport?.();
-      window.toast?.(`JDownloader: ${result.count} fișier(e) • ${suffix}`);
+      window.toast?.(`JDownloader: ${result.count} fișier(e) • ${suffix} • folder/pachet gestionate de JD`);
       pendingReview = null;
     } catch (error) {
       window.toast?.(error?.message || String(error));
@@ -263,8 +270,7 @@
     if (busy) return;
     const ids = selectedIDs();
     if (!ids.length) return window.toast?.('Selectează fișiere');
-    const dest = destination();
-    if (!dest) return window.toast?.('Alege folderul de download pentru JDownloader.');
+    const dest = guardDestination();
     const mode = guardMode();
     const button = primaryButton();
 
@@ -282,7 +288,7 @@
 
       if (safeIDs.length) {
         const rows = await rowsForIDs(safeIDs);
-        const result = await submitRowsToJD(rows, dest);
+        const result = await submitRowsToJD(rows);
         sent = result.count;
         confirmed = result.confirmed;
       }
@@ -294,7 +300,7 @@
       }
 
       if (sent > 0) {
-        window.toast?.(`JDownloader: ${sent} fișier(e) ${confirmed ? 'confirmate' : 'trimise'} • coada DDG neatinsă`);
+        window.toast?.(`JDownloader: ${sent} fișier(e) ${confirmed ? 'confirmate' : 'trimise'} • JD decide colecția/folderul/pornirea`);
       } else if (!reviewIDs.length) {
         window.toast?.('Nimic de trimis în JDownloader: selecția este deja locală/blocată.');
       }
