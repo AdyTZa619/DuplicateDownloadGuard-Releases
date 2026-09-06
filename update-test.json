@@ -1,8 +1,8 @@
 {
-  "version": "8.5.48-test.4",
+  "version": "8.5.48-test.6",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "eb28ce0e080b1767e46c84a399ed698899fa5db2ad66c3c94cda61af1669969a",
-  "notes": "TEST: Base TEST builds on Stable 8.5.47",
-  "publishedAt": "2026-09-06T14:37:24.3410909Z",
+  "sha256": "1a13259de03a05c182382b7958832fded1295f3982c11c811ae6a1ee9b2dc50e",
+  "notes": "TEST: TEST load JDownloader routing hotfix",
+  "publishedAt": "2026-09-06T15:26:52.3541971Z",
   "channel": "test"
 }
