@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.13",
+  "version": "8.5.49-test.18",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "06fff5ee25cb89d5d7dd5295c3a4073be3f176cbedd4fc4bdc7acd205ddafc51",
-  "notes": "TEST: TEST make JDownloader selection fail-closed through backend",
-  "publishedAt": "2026-09-06T16:21:59.5712330Z",
+  "sha256": "ab125ebcd0b07833db33157264cd186ea20c8aad39ef01fdd29627b245dfcdd8",
+  "notes": "TEST: Format TEST source patches before validation",
+  "publishedAt": "2026-09-06T16:32:47.7444631Z",
   "channel": "test"
 }
