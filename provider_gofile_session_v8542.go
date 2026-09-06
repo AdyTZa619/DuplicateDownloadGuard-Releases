@@ -204,8 +204,8 @@ func gofileWebsiteSaltCandidatesV8542() []string {
 	// Known historical values are fallback candidates only. Reusing the same
 	// account token with another website-token candidate is cheap and avoids
 	// creating throw-away guest accounts when GoFile rotates its web token.
-	add("9844d94d963d30")
 	add("5d4f7g8sd45fsd")
+	add("9844d94d963d30")
 	return out
 }
 
@@ -248,8 +248,11 @@ func gofileWebsiteTokenCandidateErrorV8542(err error) bool {
 	if httpStatus == http.StatusUnauthorized || httpStatus == http.StatusForbidden {
 		return true
 	}
+	// GoFile can mask a rejected/rotated website token as HTTP 200
+	// error-notFound. Treat it as ambiguous while other known salts remain;
+	// fetchGofileContentV86 still returns notFound after all candidates fail.
 	switch status {
-	case "error-notpremium", "error-websitetoken", "error-wrongwebsitetoken":
+	case "error-notpremium", "error-websitetoken", "error-wrongwebsitetoken", "error-notfound":
 		return true
 	default:
 		return false
