@@ -43,11 +43,13 @@ jobs:
 
           # Fail-closed JDownloader routing. The normal queue remains guarded as
           # a fallback, but the UI now uses a dedicated endpoint which can never
-          # call the integrated DDG downloader.
+          # call the integrated DDG downloader. The native notifier endpoint plays
+          # the update chime from Windows, independent of WebView focus/autoplay.
           $oldQueueRoute = 'mux.HandleFunc("/api/queue/add", a.handleQueueAdd)'
           $newQueueRoutes = @'
           mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)
           mux.HandleFunc("/api/download/jdownloader-direct", a.handleJDownloaderDirectEndpointV8551)
+          mux.HandleFunc("/api/update/native-notify", a.handleUpdateNativeNotifyV8554)
           '@
           if (-not $main.Contains($oldQueueRoute)) { throw 'Nu am găsit ruta /api/queue/add pentru protecția JDownloader.' }
           $main = $main.Replace($oldQueueRoute, $newQueueRoutes.TrimEnd())
@@ -106,6 +108,7 @@ jobs:
           [System.IO.File]::WriteAllText((Resolve-Path $indexPath), $index, [System.Text.UTF8Encoding]::new($false))
 
           if ($main -notmatch '/api/download/jdownloader-direct') { throw 'Ruta dedicată JDownloader nu a fost injectată.' }
+          if ($main -notmatch '/api/update/native-notify') { throw 'Ruta nativă pentru notificarea update-ului nu a fost injectată.' }
           if ($index -notmatch 'jdownloader_final_v8551\.js') { throw 'Guardul final JDownloader nu a fost injectat în UI.' }
           if ($index -notmatch 'option value="jdownloader"') { throw 'Motorul JDownloader nu este vizibil în UI.' }
 
@@ -124,7 +127,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go
+          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go
           if ($LASTEXITCODE -ne 0) { throw 'gofmt failed while normalizing TEST source patches' }
           $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
