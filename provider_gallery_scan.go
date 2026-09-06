@@ -242,6 +242,10 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 		}
 		nativeErr = err
 		if err != nil {
+			if gofileRateLimitedV8542(err) {
+				a.logf("GoFile: rate-limit detectat; opresc scanarea fără fallback ca să nu creez alte conturi guest: %v", err)
+				return nil, err
+			}
 			a.logf("GoFile: adapterul nativ a eșuat; încerc fallback gallery-dl: %v", err)
 		}
 	}

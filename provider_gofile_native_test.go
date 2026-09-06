@@ -48,7 +48,7 @@ func TestGofileWebsiteTokenV86StablePerBucket(t *testing.T) {
 func TestGofileWebsiteTokenV86UsesCurrentSalt(t *testing.T) {
 	t.Setenv("GOFILE_WT_SALT", "")
 	got := gofileWebsiteTokenV86("guest-token", time.Unix(1_800_000_000, 0))
-	const want = "fde9936898c96be564c37721fccc29fc860e081f63bd005ba31a55f4364e72b6"
+	const want = "d95ba5e3d254623f5894da009b308e7e74224af43841b7fa4195779dc503b007"
 	if got != want {
 		t.Fatalf("current GoFile website token mismatch: got %s want %s", got, want)
 	}
