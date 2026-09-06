@@ -9,7 +9,8 @@
     ['/updater_resilience.js', 'ddgUpdaterResilience'],
     ['/download_actions_v8545.js', 'ddgDownloadActionsV8545Script'],
     ['/update_channels_v8546.js', 'ddgUpdateChannelsV8546'],
-    ['/update_corner_hotfix_v8547.js', 'ddgUpdateCornerHotfixV8547']
+    ['/update_corner_hotfix_v8547.js', 'ddgUpdateCornerHotfixV8547'],
+    ['/jdownloader_route_hotfix_v8549.js', 'ddgJDownloaderRouteHotfixV8549']
   ];
 
   for (const [src, id] of modules) {
