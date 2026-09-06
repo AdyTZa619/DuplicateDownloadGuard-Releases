@@ -109,7 +109,7 @@ type guestRoundTripFuncV8541 func(*http.Request) (*http.Response, error)
 func (f guestRoundTripFuncV8541) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestGofileGuestTokenRequestV8541(t *testing.T) {
-	invalidateGoFileGuestTokenV86()
+	setupGofileStateTestV8542(t)
 	defer invalidateGoFileGuestTokenV86()
 	calls := 0
 	tr := guestRoundTripFuncV8541(func(r *http.Request) (*http.Response, error) {
@@ -147,7 +147,7 @@ func TestGofileGuestTokenRequestV8541(t *testing.T) {
 }
 
 func TestGofileGuestTokenRetriesTransientTimeoutV8541(t *testing.T) {
-	invalidateGoFileGuestTokenV86()
+	setupGofileStateTestV8542(t)
 	defer invalidateGoFileGuestTokenV86()
 	calls := 0
 	tr := guestRoundTripFuncV8541(func(r *http.Request) (*http.Response, error) {
