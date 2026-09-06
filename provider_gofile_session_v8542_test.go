@@ -78,6 +78,9 @@ func TestGofileGuest429CreatesCooldownAndDoesNotHammerV8542(t *testing.T) {
 	if err == nil || calls != 1 {
 		t.Fatalf("err=%v calls=%d", err, calls)
 	}
+	if remaining := gofileGuestCooldownRemainingV8542(); remaining <= 0 {
+		t.Fatal("rate-limit cooldown was not persisted")
+	}
 	invalidateGoFileGuestTokenV86()
 	_, err = gofileGuestTokenV86(context.Background(), tr)
 	if err == nil || calls != 1 {
