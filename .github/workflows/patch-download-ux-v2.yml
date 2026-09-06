@@ -1,0 +1,40 @@
+name: Patch download UX v2
+
+on:
+  push:
+    branches:
+      - fix/download-ux-single-guard
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/download-ux-single-guard
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python tmp/patch_download_ux_v8545.py
+
+      - name: Format and validate
+        run: |
+          gofmt -w download_guard.go download_guard_fresh_cache.go download_guard_fresh_cache_test.go jdownloader_bridge_v8545.go jdownloader_bridge_v8545_test.go v7_extra.go
+          node --check web/exact_guard.js
+          node --check web/download_actions_v8545.js
+          node --check web/preview_quick_v86.js
+          go test ./...
+          go vet ./...
+
+      - name: Commit final patch
+        run: |
+          git rm -f .github/workflows/patch-download-ux-v2.yml tmp/patch_download_ux_v8545.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add download_guard.go download_guard_fresh_cache.go download_guard_fresh_cache_test.go jdownloader_bridge_v8545.go jdownloader_bridge_v8545_test.go v7_extra.go web/exact_guard.js web/download_actions_v8545.js web/preview_quick_v86.js
+          git commit -m "Apply download UX and JDownloader actions"
+          git push origin HEAD:fix/download-ux-single-guard
