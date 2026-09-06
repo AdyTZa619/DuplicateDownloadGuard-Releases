@@ -80,6 +80,22 @@ jobs:
           $newPortable = 'func portableDownloadsDir() string { return executableDir() }'
           if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit portableDownloadsDir pentru default-ul DDG root.' }
           $extra = $extra.Replace($oldPortable, $newPortable)
+
+          # Integrated Bunkr downloads use gallery-dl itself. Do not emulate
+          # Bunkr's rotating API/CDN headers in DDG's generic HTTP downloader.
+          $queuePattern = 'default:\s*q\.update\(a, id, func\(x \*DownloadJob\) \{ x\.Stage = "HTTP: descarc direct cu resume" \}\)\s*path, err = internalDownloadV855\(ctx, res, dest, progress\)'
+          $queueReplacement = @'
+          default:
+          	if strings.EqualFold(strings.TrimSpace(res.Remote.Source), "BUNKR") {
+          		q.update(a, id, func(x *DownloadJob) { x.Stage = "BUNKR: gallery-dl oficial" })
+          		path, err = a.galleryDLDownloadBunkrV8560(ctx, res, dest, progress)
+          	} else {
+          		q.update(a, id, func(x *DownloadJob) { x.Stage = "HTTP: descarc direct cu resume" })
+          		path, err = internalDownloadV855(ctx, res, dest, progress)
+          	}
+          '@
+          if (-not [regex]::IsMatch($extra, $queuePattern)) { throw 'Nu am găsit ruta internă de download pentru delegarea Bunkr.' }
+          $extra = [regex]::Replace($extra, $queuePattern, $queueReplacement.TrimEnd(), 1)
           [System.IO.File]::WriteAllText((Resolve-Path v8_extra.go), $extra, [System.Text.UTF8Encoding]::new($false))
 
           # Bunkr is not maintained in DDG anymore at protocol level. Use the
@@ -116,25 +132,6 @@ jobs:
           if (-not $transport.Contains($oldContextArgs)) { throw 'Nu am găsit argumentele gallery-dl pentru refresh/preview.' }
           $transport = $transport.Replace($oldContextArgs, $newContextArgs.TrimEnd())
           [System.IO.File]::WriteAllText((Resolve-Path $transportPath), $transport, [System.Text.UTF8Encoding]::new($false))
-
-          $downloadPath = 'download_core_v855.go'
-          $downloadCore = Get-Content -Raw $downloadPath
-          $oldInternalStart = @'
-          func internalDownloadV855(ctx context.Context, res Result, dest string, progress func(int64, int64)) (string, error) {
-          	u := resultDownloadURL(res)
-          '@
-          $newInternalStart = @'
-          func internalDownloadV855(ctx context.Context, res Result, dest string, progress func(int64, int64)) (string, error) {
-          	if strings.EqualFold(strings.TrimSpace(res.Remote.Source), "BUNKR") {
-          		return currentAppForBunkrDownloadV8560.galleryDLDownloadBunkrV8560(ctx, res, dest, progress)
-          	}
-          	u := resultDownloadURL(res)
-          '@
-          # internalDownloadV855 has no App receiver. Patch only after a small
-          # bridge is injected below, so Bunkr can reuse the current App instance.
-          if (-not $downloadCore.Contains($oldInternalStart)) { throw 'Nu am găsit începutul internalDownloadV855.' }
-          $downloadCore = $downloadCore.Replace($oldInternalStart, $newInternalStart)
-          [System.IO.File]::WriteAllText((Resolve-Path $downloadPath), $downloadCore, [System.Text.UTF8Encoding]::new($false))
 
           # Make JDownloader a real visible engine in the compiled UI, not an
           # option that only exists when a secondary JS file happens to load.
@@ -181,7 +178,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go provider_bunkr_official_v8560.go provider_gallery_scan.go provider_http_transport.go download_core_v855.go
+          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go provider_bunkr_official_v8560.go provider_gallery_scan.go provider_http_transport.go
           if ($LASTEXITCODE -ne 0) { throw 'gofmt failed while normalizing TEST source patches' }
           $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
