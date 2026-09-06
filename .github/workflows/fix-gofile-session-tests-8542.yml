@@ -1,0 +1,58 @@
+name: Fix GoFile session regression tests 8542
+
+on:
+  push:
+    branches:
+      - fix/gofile-session-8542
+
+permissions:
+  contents: write
+
+jobs:
+  fix-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/gofile-session-8542
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Align tests with durable session semantics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('provider_gofile_native_test.go')
+          s = p.read_text(encoding='utf-8')
+          old = 'const want = "fde9936898c96be564c37721fccc29fc860e081f63bd005ba31a55f4364e72b6"'
+          new = 'const want = "d95ba5e3d254623f5894da009b308e7e74224af43841b7fa4195779dc503b007"'
+          if old not in s:
+              raise SystemExit('old website-token fixture not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          p = Path('provider_http_transport_test.go')
+          s = p.read_text(encoding='utf-8')
+          old1 = 'func TestGofileGuestTokenRequestV8541(t *testing.T) {\n\tinvalidateGoFileGuestTokenV86()'
+          new1 = 'func TestGofileGuestTokenRequestV8541(t *testing.T) {\n\tsetupGofileStateTestV8542(t)'
+          old2 = 'func TestGofileGuestTokenRetriesTransientTimeoutV8541(t *testing.T) {\n\tinvalidateGoFileGuestTokenV86()'
+          new2 = 'func TestGofileGuestTokenRetriesTransientTimeoutV8541(t *testing.T) {\n\tsetupGofileStateTestV8542(t)'
+          if old1 not in s or old2 not in s:
+              raise SystemExit('legacy GoFile test setup markers not found')
+          s = s.replace(old1, new1, 1).replace(old2, new2, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+          gofmt -w provider_gofile_native_test.go provider_http_transport_test.go
+          go test ./...
+          go vet ./...
+      - name: Commit validated test alignment
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add provider_gofile_native_test.go provider_http_transport_test.go
+          git rm .github/workflows/fix-gofile-session-tests-8542.yml
+          git commit -m "Align GoFile tests with persistent guest session"
+          git push origin HEAD:fix/gofile-session-8542
