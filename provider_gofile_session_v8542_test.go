@@ -127,4 +127,51 @@ func TestGofileExplicitWrongTokenIsDistinguishedV8542(t *testing.T) {
 	if !gofileWebsiteTokenCandidateErrorV8542(generic) {
 		t.Fatal("notPremium should try website-token candidates first")
 	}
+	maskedNotFound := &gofileAPIErrorV8542{HTTPStatus: http.StatusOK, APIStatus: "error-notFound"}
+	if !gofileWebsiteTokenCandidateErrorV8542(maskedNotFound) {
+		t.Fatal("notFound must remain ambiguous until website-token candidates are exhausted")
+	}
+}
+
+func TestGofileNotFoundFallsThroughToNextSaltV8544(t *testing.T) {
+	setupGofileStateTestV8542(t)
+	calls := 0
+	client := &http.Client{Transport: gofileRoundTripV8542(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"error-notFound"}`)), Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"ok","data":{"id":"folder","type":"folder","name":"root","children":{}}}`)), Request: r}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	data, err := fetchGofileContentV86(ctx, client, "same-account-token", "folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.ID != "folder" || calls != 2 {
+		t.Fatalf("id=%q calls=%d", data.ID, calls)
+	}
+}
+
+func TestGofileRealNotFoundSurvivesCandidateExhaustionV8544(t *testing.T) {
+	setupGofileStateTestV8542(t)
+	calls := 0
+	client := &http.Client{Transport: gofileRoundTripV8542(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"error-notFound"}`)), Request: r}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := fetchGofileContentV86(ctx, client, "same-account-token", "missing-folder")
+	if err == nil {
+		t.Fatal("expected notFound after candidate exhaustion")
+	}
+	_, status, ok := gofileAPIErrorInfoV8542(err)
+	if !ok || status != "error-notfound" {
+		t.Fatalf("unexpected final error: %v", err)
+	}
+	if calls != len(gofileWebsiteSaltCandidatesV8542()) {
+		t.Fatalf("calls=%d candidates=%d", calls, len(gofileWebsiteSaltCandidatesV8542()))
+	}
 }
