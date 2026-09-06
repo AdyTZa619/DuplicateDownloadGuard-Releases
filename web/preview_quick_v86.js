@@ -17,6 +17,7 @@
     ['/update_sound_v8552.js', 'ddgUpdateSoundV8552Script'],
     ['/update_fast_watch_v8562.js', 'ddgFastUpdateWatchV8562Script'],
     ['/jdownloader_bunkr_compat_v8563.js', 'ddgJDownloaderBunkrCompatV8563Script'],
+    ['/jdownloader_batch_confirm_v8564.js', 'ddgJDownloaderBatchConfirmV8564Script'],
     ['/jdownloader_final_v8551.js', 'ddgJDownloaderFinalV8551Script']
   ];
 
