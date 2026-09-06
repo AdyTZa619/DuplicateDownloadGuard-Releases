@@ -61,7 +61,7 @@ func TestParseGalleryRemoteItemsIgnoresQueueMessagesV86(t *testing.T) {
 }
 
 func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
-	output := `[3,"https://cdn.bunkr.si/path/clip.mp4?token=x",{"name":"clip","extension":"mp4","size":999,"id_url":"42","album_name":"Album X"}]` + "\n"
+	output := `[3,"https://cdn.bunkr.si/path/clip.mp4?token=x",{"name":"clip","extension":"mp4","size":999,"id_url":"42","album_name":"Album X","type":"video/mp4"}]` + "\n"
 	items := parseGalleryRemoteItemsV86([]byte(output), "https://bunkr.si/a/album")
 	if len(items) != 1 {
 		t.Fatalf("items=%d", len(items))
@@ -70,8 +70,48 @@ func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
 	if it.Source != "BUNKR" || it.Name != "clip.mp4" || it.ProviderID != "42" || it.Size != 999 {
 		t.Fatalf("unexpected Bunkr item: %+v", it)
 	}
+	if it.ContentType != "video/mp4" {
+		t.Fatalf("Bunkr MIME metadata missing: %+v", it)
+	}
 	if !strings.Contains(filepathSlashForTestV86(it.Path), "Album X/clip.mp4") {
 		t.Fatalf("album path missing: %q", it.Path)
+	}
+}
+
+func TestBunkrPreviewContextClassicJSONV8556(t *testing.T) {
+	direct := "https://media-files.bunkr.si/path/clip.mp4"
+	source := "https://bunkr.si/a/album"
+	output := `[
+  [
+    3,
+    "https://media-files.bunkr.si/path/clip.mp4",
+    {
+      "name":"clip.mp4",
+      "size":999,
+      "id_url":"42",
+      "_http_headers":{"Referer":"https://get.bunkrr.su/file/42"}
+    }
+  ]
+]`
+
+	providerContextMuV86.Lock()
+	delete(providerContextV86, providerContextKeyV86(direct))
+	providerContextMuV86.Unlock()
+	defer func() {
+		providerContextMuV86.Lock()
+		delete(providerContextV86, providerContextKeyV86(direct))
+		providerContextMuV86.Unlock()
+	}()
+
+	if got := parseGalleryResolvedContextRobustV8556([]byte(output), source, nil); got != 1 {
+		t.Fatalf("resolved contexts=%d want=1", got)
+	}
+	ctx, ok := providerContextForURLV86(direct)
+	if !ok {
+		t.Fatal("Bunkr provider context not stored")
+	}
+	if got := ctx.Headers.Get("Referer"); got != "https://get.bunkrr.su/file/42" {
+		t.Fatalf("Bunkr Referer=%q", got)
 	}
 }
 
@@ -142,7 +182,7 @@ func TestLegacyGalleryScannerRoutesToRichProviderV86(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := string(rich)
-	for _, marker := range []string{"output.private=true", "output.jsonl=true", "--cookies-export", "json.NewDecoder", "walkGalleryJSONV86"} {
+	for _, marker := range []string{"output.private=true", "output.jsonl=true", "--cookies-export", "json.NewDecoder", "walkGalleryJSONV86", "parseGalleryResolvedContextRobustV8556"} {
 		if !strings.Contains(rs, marker) {
 			t.Fatalf("rich scanner missing gallery-dl compatibility marker %q", marker)
 		}
