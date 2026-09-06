@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.75",
+  "version": "8.5.49-test.77",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "e2f0b223878336aacd0f91bd197d66ea1d0ab304bd6b79968ddad888c210f7d0",
-  "notes": "TEST: TEST trigger native background notification proof with .75 comparison case",
-  "publishedAt": "2026-09-06T23:03:29.4866248Z",
+  "sha256": "134de1eb56a88f4b2f7c05adea4e6cae0992b9cf063ada3d28f2274e63609797",
+  "notes": "TEST: TEST align JD confirmation tests with fast explicit send-all flow",
+  "publishedAt": "2026-09-06T23:43:47.6561638Z",
   "channel": "test"
 }
