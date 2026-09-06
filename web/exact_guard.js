@@ -268,6 +268,8 @@
     document.getElementById('guardModal').classList.remove('hidden');
   }
 
+  window.ddgShowGuardReportV8545 = showGuardReport;
+
   window.closeGuardReport = function () {
     const modal = document.getElementById('guardModal');
     if (modal) modal.classList.add('hidden');

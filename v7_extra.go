@@ -1648,7 +1648,7 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 		if (len(set) > 0 && !set[x.ID]) || !allowed[x.ID] {
 			continue
 		}
-		u := resultDownloadURL(x)
+		u := jdownloaderURLForResultV8545(x)
 		if u != "" && !seen[u] {
 			seen[u] = true
 			lines = append(lines, u)
@@ -1666,7 +1666,7 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := filepath.Join(folder, fmt.Sprintf("DuplicateGuard_%s.crawljob", time.Now().Format("20060102_150405")))
-	if e := os.WriteFile(p, []byte(strings.Join(lines, "\r\n")+"\r\n"), 0644); e != nil {
+	if e := writeJDownloaderCrawlJobV8545(p, lines, downloadDest); e != nil {
 		http.Error(w, e.Error(), 500)
 		return
 	}
