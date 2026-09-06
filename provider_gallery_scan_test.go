@@ -75,6 +75,24 @@ func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
 	}
 }
 
+func TestBunkrRotatingDomainScanArgsV8555(t *testing.T) {
+	args := galleryScanArgsV8555("https://bunkrrr.example/a/album", "cookies.txt")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "extractor.bunkr.tlds=true") {
+		t.Fatalf("Bunkr rotating-domain compatibility missing: %q", joined)
+	}
+	if got := providerSourceLabelV86("https://app.bunkrrr.example/a/album"); got != "BUNKR" {
+		t.Fatalf("rotating Bunkr domain detected as %q", got)
+	}
+
+	for _, raw := range []string{"https://gofile.io/d/FOLDER", "https://cyberdrop.to/a/album"} {
+		other := strings.Join(galleryScanArgsV8555(raw, "cookies.txt"), " ")
+		if strings.Contains(other, "extractor.bunkr.tlds=true") {
+			t.Fatalf("Bunkr option leaked into non-Bunkr provider %s: %q", raw, other)
+		}
+	}
+}
+
 func TestParseGalleryRemoteItemsCyberdropV86(t *testing.T) {
 	output := `[3,"https://fs-01.cyberdrop.to/file.bin",{"name":"asset.bin","size":321,"id":"xyz"}]` + "\n"
 	items := parseGalleryRemoteItemsV86([]byte(output), "https://cyberdrop.cr/a/test")
