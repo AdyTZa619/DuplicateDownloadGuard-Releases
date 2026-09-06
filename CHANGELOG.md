@@ -2,6 +2,14 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.48] — 2026-09-06
+
+### Updater TEST — reparare SHA-256 și revizie fixă
+- Repară eroarea „SHA-256 TEST nu corespunde manifestului”: updaterul nu mai hash-uiește accidental răspunsul JSON al GitHub Contents API în locul EXE-ului.
+- Manifestul TEST și EXE-ul sunt citite din aceeași revizie Git fixată înainte de download, eliminând nepotrivirile dacă ramura `testing` se schimbă în timpul instalării.
+- Pentru EXE-urile mari, updaterul citește blob-ul Git base64 exact și calculează SHA-256 pe bytes-ii reali ai executabilului.
+- Stable 8.5.48 este un patch de recuperare/infrastructură pentru updater; nu schimbă MEGA Preview, matching-ul sau motorul normal de download.
+
 ## [8.5.47] — 2026-09-06
 
 ### Updater TEST — compatibilitate și acces
