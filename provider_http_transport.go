@@ -208,9 +208,26 @@ func gofileGuestRetryDelayV86(attempt int, resp *http.Response) time.Duration {
 func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, error) {
 	gofileTokenMuV86.Lock()
 	defer gofileTokenMuV86.Unlock()
-	if gofileTokenV86 != "" && time.Since(gofileTokenAtV86) < 3*time.Hour {
-		return gofileTokenV86, nil
+
+	// Reuse one account token for the whole process. Unlike the old 3-hour
+	// timer, validity is decided by GoFile itself when metadata is requested.
+	if token := strings.TrimSpace(gofileTokenV86); token != "" {
+		return token, nil
 	}
+	if configured := gofileConfiguredTokenV8542(); configured != "" {
+		gofileTokenV86 = configured
+		gofileTokenAtV86 = time.Now()
+		return configured, nil
+	}
+	if cached, ok := loadCachedGofileGuestTokenV8542(); ok {
+		gofileTokenV86 = cached
+		gofileTokenAtV86 = time.Now()
+		return cached, nil
+	}
+	if remaining := gofileGuestCooldownRemainingV8542(); remaining > 0 {
+		return "", fmt.Errorf("GoFile guest account în cooldown încă %s după rate-limit", remaining.Round(time.Second))
+	}
+
 	if base == nil {
 		if wrapped, ok := http.DefaultTransport.(*providerAwareTransportV86); ok && wrapped.base != nil {
 			base = wrapped.base
@@ -222,7 +239,6 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 	const maxAttempts = 3
 	const attemptTimeout = 15 * time.Second
 	var lastErr error
-
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, "https://api.gofile.io/accounts", bytes.NewBufferString("{}"))
@@ -247,7 +263,7 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 			}
 			lastErr = fmt.Errorf("încercarea %d/%d: %w", attempt+1, maxAttempts, err)
 			if attempt+1 < maxAttempts {
-				if sleepErr := gofileSleepV86(ctx, gofileGuestRetryDelayV86(attempt, nil)); sleepErr != nil {
+				if sleepErr := gofileSleepV86(ctx, time.Duration(attempt+1)*time.Second); sleepErr != nil {
 					return "", sleepErr
 				}
 				continue
@@ -256,7 +272,6 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 		}
 
 		status := resp.StatusCode
-		retryDelay := gofileGuestRetryDelayV86(attempt, resp)
 		var env struct {
 			Status string `json:"status"`
 			Data   struct {
@@ -264,36 +279,41 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 			} `json:"data"`
 		}
 		decodeErr := json.NewDecoder(resp.Body).Decode(&env)
+		rateLimited := status == http.StatusTooManyRequests || strings.EqualFold(strings.TrimSpace(env.Status), "error-rateLimit")
+		cooldown := time.Duration(0)
+		if rateLimited {
+			cooldown = gofileGuestCooldownDelayV8542(resp)
+		}
 		_ = resp.Body.Close()
 		cancel()
 
-		if status >= 200 && status < 300 {
-			if decodeErr == nil && strings.EqualFold(strings.TrimSpace(env.Status), "ok") && strings.TrimSpace(env.Data.Token) != "" {
-				gofileTokenV86 = strings.TrimSpace(env.Data.Token)
-				gofileTokenAtV86 = time.Now()
-				return gofileTokenV86, nil
-			}
-			if strings.EqualFold(strings.TrimSpace(env.Status), "error-rateLimit") {
-				lastErr = errors.New("GoFile guest account: error-rateLimit")
-			} else if decodeErr != nil {
-				lastErr = fmt.Errorf("răspuns GoFile guest invalid: %w", decodeErr)
-			} else {
-				return "", fmt.Errorf("GoFile nu a returnat token guest (status %s)", strings.TrimSpace(env.Status))
-			}
-		} else if gofileGuestRetryableStatusV86(status) {
+		if rateLimited {
+			setGofileGuestCooldownV8542(cooldown)
+			return "", fmt.Errorf("GoFile guest account rate-limit; nu mai creez alte conturi timp de %s", cooldown.Round(time.Second))
+		}
+		if status >= 200 && status < 300 && decodeErr == nil && strings.EqualFold(strings.TrimSpace(env.Status), "ok") && strings.TrimSpace(env.Data.Token) != "" {
+			token := strings.TrimSpace(env.Data.Token)
+			gofileTokenV86 = token
+			gofileTokenAtV86 = time.Now()
+			clearGofileGuestCooldownV8542()
+			_ = persistGofileGuestTokenV8542(token)
+			return token, nil
+		}
+		if status == http.StatusRequestTimeout || status == http.StatusTooEarly || status >= 500 {
 			lastErr = fmt.Errorf("GoFile guest account HTTP %d", status)
-		} else {
-			return "", fmt.Errorf("GoFile guest account HTTP %d", status)
-		}
-
-		if attempt+1 < maxAttempts {
-			if sleepErr := gofileSleepV86(ctx, retryDelay); sleepErr != nil {
-				return "", sleepErr
+			if attempt+1 < maxAttempts {
+				if sleepErr := gofileSleepV86(ctx, time.Duration(attempt+1)*time.Second); sleepErr != nil {
+					return "", sleepErr
+				}
+				continue
 			}
-			continue
+			break
 		}
+		if decodeErr != nil {
+			return "", fmt.Errorf("răspuns GoFile guest invalid: %w", decodeErr)
+		}
+		return "", fmt.Errorf("GoFile guest account HTTP %d (%s)", status, strings.TrimSpace(env.Status))
 	}
-
 	if lastErr == nil {
 		lastErr = errors.New("eroare necunoscută")
 	}

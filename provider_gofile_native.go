@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-const gofileWebsiteSaltDefaultV86 = "9844d94d963d30"
-const gofileUserAgentV86 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuplicateDownloadGuard"
+const gofileWebsiteSaltDefaultV86 = gofileCurrentWebsiteSaltV8542
+const gofileUserAgentV86 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 const gofileAPIMinIntervalV86 = 500 * time.Millisecond
 const gofileAPIMax429RetriesV86 = 5
 
@@ -147,28 +147,28 @@ func gofileRetryAfterV86(resp *http.Response) time.Duration {
 	return fallback
 }
 
-func fetchGofileContentV86(ctx context.Context, client *http.Client, token, contentID string) (gofileContentV86, error) {
+func fetchGofileContentOneSaltV8542(ctx context.Context, client *http.Client, token, contentID, salt string) (gofileContentV86, error) {
 	endpoint := "https://api.gofile.io/contents/" + url.PathEscape(contentID)
 	q := url.Values{}
 	q.Set("contentFilter", "")
 	q.Set("page", "1")
 	q.Set("pageSize", "1000")
-	q.Set("sortField", "name")
-	q.Set("sortDirection", "1")
+	q.Set("sortField", "createTime")
+	q.Set("sortDirection", "-1")
 	endpoint += "?" + q.Encode()
 
 	for attempt := 0; attempt <= gofileAPIMax429RetriesV86; attempt++ {
 		if err := waitGofileAPISlotV86(ctx); err != nil {
 			return gofileContentV86{}, err
 		}
-
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return gofileContentV86{}, err
 		}
 		req.Header.Set("User-Agent", gofileUserAgentV86)
+		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("X-Website-Token", gofileWebsiteTokenV86(token, time.Now()))
+		req.Header.Set("X-Website-Token", gofileWebsiteTokenForSaltV8542(token, salt, time.Now()))
 		req.Header.Set("X-BL", "en-US")
 		req.Header.Set("Origin", "https://gofile.io")
 		req.Header.Set("Referer", "https://gofile.io/")
@@ -177,12 +177,21 @@ func fetchGofileContentV86(ctx context.Context, client *http.Client, token, cont
 		if err != nil {
 			return gofileContentV86{}, fmt.Errorf("GoFile API indisponibil: %w", err)
 		}
-
+		delay := time.Duration(0)
 		if resp.StatusCode == http.StatusTooManyRequests {
-			delay := gofileRetryAfterV86(resp)
-			_ = resp.Body.Close()
+			delay = gofileRetryAfterV86(resp)
+		}
+		var env gofileContentEnvelopeV86
+		decodeErr := json.NewDecoder(resp.Body).Decode(&env)
+		_ = resp.Body.Close()
+
+		apiStatus := strings.TrimSpace(env.Status)
+		if resp.StatusCode == http.StatusTooManyRequests || strings.EqualFold(apiStatus, "error-rateLimit") {
 			if attempt >= gofileAPIMax429RetriesV86 {
-				return gofileContentV86{}, fmt.Errorf("GoFile API HTTP 429 după %d reîncercări", gofileAPIMax429RetriesV86)
+				return gofileContentV86{}, &gofileAPIErrorV8542{HTTPStatus: http.StatusTooManyRequests, APIStatus: apiStatus}
+			}
+			if delay <= 0 {
+				delay = 5 * time.Second
 			}
 			if err := gofileSleepV86(ctx, delay); err != nil {
 				return gofileContentV86{}, err
@@ -190,29 +199,38 @@ func fetchGofileContentV86(ctx context.Context, client *http.Client, token, cont
 			continue
 		}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			status := resp.StatusCode
-			_ = resp.Body.Close()
-			return gofileContentV86{}, fmt.Errorf("GoFile API HTTP %d", status)
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && decodeErr == nil && strings.EqualFold(apiStatus, "ok") {
+			return env.Data, nil
 		}
-
-		var env gofileContentEnvelopeV86
-		decodeErr := json.NewDecoder(resp.Body).Decode(&env)
-		_ = resp.Body.Close()
-		if decodeErr != nil {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && decodeErr != nil {
 			return gofileContentV86{}, fmt.Errorf("răspuns GoFile invalid: %w", decodeErr)
 		}
-		if !strings.EqualFold(strings.TrimSpace(env.Status), "ok") {
-			status := strings.TrimSpace(env.Status)
-			if status == "" {
-				status = "necunoscut"
-			}
-			return gofileContentV86{}, fmt.Errorf("GoFile API status %s", status)
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return gofileContentV86{}, &gofileAPIErrorV8542{HTTPStatus: resp.StatusCode, APIStatus: apiStatus}
 		}
-		return env.Data, nil
+		return gofileContentV86{}, &gofileAPIErrorV8542{HTTPStatus: resp.StatusCode, APIStatus: apiStatus}
 	}
-
 	return gofileContentV86{}, errors.New("GoFile API: limită de reîncercări depășită")
+}
+
+func fetchGofileContentV86(ctx context.Context, client *http.Client, token, contentID string) (gofileContentV86, error) {
+	candidates := gofileWebsiteSaltCandidatesV8542()
+	var lastErr error
+	for i, salt := range candidates {
+		data, err := fetchGofileContentOneSaltV8542(ctx, client, token, contentID, salt)
+		if err == nil {
+			rememberWorkingGofileSaltV8542(salt)
+			return data, nil
+		}
+		lastErr = err
+		if gofileAccountTokenRejectedV8542(err) || !gofileWebsiteTokenCandidateErrorV8542(err) || i == len(candidates)-1 {
+			break
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("GoFile nu are niciun website-token candidat")
+	}
+	return gofileContentV86{}, lastErr
 }
 
 func gofileAppendFileV86(items *[]RemoteItem, sourceURL, folderPath, token string, c gofileContentV86) {
@@ -307,9 +325,9 @@ func (a *App) probeGofileNativeV86(ctx context.Context, sourceURL string) ([]Rem
 	}
 	client := gofileAPIClientV86()
 	root, err := fetchGofileContentV86(ctx, client, token, code)
-	if err != nil && strings.Contains(err.Error(), "HTTP 401") {
-		a.logf("GoFile: 401 de la metadata; refac tokenul guest și reîncerc o singură dată")
-		invalidateGoFileGuestTokenV86()
+	if err != nil && gofileAccountTokenRejectedV8542(err) && gofileConfiguredTokenV8542() == "" {
+		a.logf("GoFile: API a confirmat token guest invalid; șterg cache-ul și îl refac o singură dată")
+		invalidatePersistentGofileGuestTokenV8542()
 		if freshToken, tokenErr := gofileGuestTokenV86(ctx, nil); tokenErr == nil {
 			token = freshToken
 			root, err = fetchGofileContentV86(ctx, client, token, code)
