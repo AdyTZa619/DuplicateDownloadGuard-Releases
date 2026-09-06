@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -145,14 +146,15 @@ func appendGalleryMessageV86(items *[]RemoteItem, seen map[string]bool, msg []an
 	}
 	seen[key] = true
 	*items = append(*items, RemoteItem{
-		Path:       galleryRemotePathV86(meta, name),
-		Name:       name,
-		Size:       galleryInt64V86(meta, "size", "filesize", "file_size", "content_size"),
-		Source:     source,
-		URL:        sourceURL,
-		DirectURL:  direct,
-		Extractor:  strings.ToLower(source),
-		ProviderID: providerID,
+		Path:        galleryRemotePathV86(meta, name),
+		Name:        name,
+		Size:        galleryInt64V86(meta, "size", "filesize", "file_size", "content_size"),
+		Source:      source,
+		URL:         sourceURL,
+		DirectURL:   direct,
+		ContentType: strings.ToLower(galleryStringV86(meta, "type", "mime", "content_type", "contentType")),
+		Extractor:   strings.ToLower(source),
+		ProviderID:  providerID,
 	})
 }
 
@@ -197,6 +199,82 @@ func parseGalleryRemoteItemsV86(output []byte, sourceURL string) []RemoteItem {
 		items[i].ID = i + 1
 	}
 	return items
+}
+
+// v8.5.56: context extraction must understand the same two gallery-dl output
+// shapes as the item parser. Bunkr needs its per-file Referer from
+// _http_headers; the old line-scanner lost it whenever gallery-dl emitted a
+// classic pretty JSON document, which made the local preview proxy receive 403.
+func appendGalleryContextMessageV8556(msg []any, sourceURL string, cookies []netscapeCookieV86) int {
+	if len(msg) < 3 || galleryMessageTypeV86(msg[0]) != 3 {
+		return 0
+	}
+	direct, ok := msg[1].(string)
+	if !ok || (!strings.HasPrefix(direct, "http://") && !strings.HasPrefix(direct, "https://")) {
+		return 0
+	}
+	meta, _ := msg[2].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	headers := make(http.Header)
+	if raw, ok := meta["_http_headers"].(map[string]any); ok {
+		for key, value := range raw {
+			switch x := value.(type) {
+			case string:
+				if strings.TrimSpace(x) != "" {
+					headers.Set(key, x)
+				}
+			case []any:
+				for _, entry := range x {
+					if s, ok := entry.(string); ok && strings.TrimSpace(s) != "" {
+						headers.Add(key, s)
+					}
+				}
+			}
+		}
+	}
+	if cookie := cookiesForURLV86(direct, cookies); cookie != "" {
+		headers.Set("Cookie", cookie)
+	}
+	if len(headers) == 0 {
+		return 0
+	}
+	rememberProviderContextV86(direct, sourceURL, headers, 20*time.Minute)
+	return 1
+}
+
+func walkGalleryContextV8556(v any, sourceURL string, cookies []netscapeCookieV86) int {
+	arr, ok := v.([]any)
+	if !ok {
+		return 0
+	}
+	if len(arr) >= 3 && galleryMessageTypeV86(arr[0]) != 0 {
+		return appendGalleryContextMessageV8556(arr, sourceURL, cookies)
+	}
+	count := 0
+	for _, child := range arr {
+		count += walkGalleryContextV8556(child, sourceURL, cookies)
+	}
+	return count
+}
+
+func parseGalleryResolvedContextRobustV8556(output []byte, sourceURL string, cookies []netscapeCookieV86) int {
+	dec := json.NewDecoder(bytes.NewReader(output))
+	dec.UseNumber()
+	count := 0
+	for {
+		var raw any
+		err := dec.Decode(&raw)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		count += walkGalleryContextV8556(raw, sourceURL, cookies)
+	}
+	return count
 }
 
 func mergeGalleryProbeV86(item RemoteItem, probe RemoteItem) RemoteItem {
@@ -290,8 +368,21 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 	args := galleryScanArgsV8555(sourceURL, cookiePath)
 	cmd := exec.CommandContext(cmdCtx, exe, args...)
 	hideChildWindow(cmd)
-	output, err := cmd.Output()
-	if err != nil {
+	output, runErr := cmd.Output()
+
+	// Parse valid stdout even if gallery-dl exits non-zero after one bad Bunkr
+	// item. Bunkr albums can contain a dead/maintenance CDN entry while the rest
+	// of the album metadata is perfectly usable. A timeout is different: it may
+	// mean the album is only partially enumerated, so fail visibly in that case.
+	cookieData, _ := os.ReadFile(cookiePath)
+	cookies := parseNetscapeCookiesV86(cookieData)
+	_ = parseGalleryResolvedContextRobustV8556(output, sourceURL, cookies)
+	items := parseGalleryRemoteItemsV86(output, sourceURL)
+	if runErr != nil && cmdCtx.Err() == nil && len(items) > 0 {
+		a.logf("%s: gallery-dl a raportat o eroare după %d fișiere; păstrez metadata validă deja extrasă: %v", source, len(items), runErr)
+		runErr = nil
+	}
+	if runErr != nil {
 		detail := "gallery-dl nu a putut extrage sursa"
 		if cmdCtx.Err() != nil {
 			detail = "gallery-dl a depășit limita de timp"
@@ -301,10 +392,6 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 		}
 		return nil, errors.New(detail)
 	}
-	cookieData, _ := os.ReadFile(cookiePath)
-	cookies := parseNetscapeCookiesV86(cookieData)
-	_ = parseGalleryResolvedContextV86(output, sourceURL, cookies)
-	items := parseGalleryRemoteItemsV86(output, sourceURL)
 	if len(items) == 0 {
 		if nativeErr != nil {
 			return nil, errors.New("GoFile API: " + nativeErr.Error() + " | gallery-dl a răspuns, dar DDG nu a găsit fișiere în metadata")
