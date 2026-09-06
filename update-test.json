@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.24",
+  "version": "8.5.49-test.25",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "010386136e1fa486b983162cc6d44c9595a3a9f87f096a8c309a6c498add66c7",
-  "notes": "TEST: TEST keep update alerts persistent in top bar",
-  "publishedAt": "2026-09-06T17:07:49.4338746Z",
+  "sha256": "dd9b2182166545da71745292f975733a52d06f44df03e59e710f7dd2b34ccc09",
+  "notes": "TEST: TEST let JDownloader choose package destination and start behavior",
+  "publishedAt": "2026-09-06T17:13:02.9760814Z",
   "channel": "test"
 }
