@@ -26,6 +26,19 @@
     }
   }
 
+  function cyberdropPublicMediaURL(row) {
+    if (sourceName(row) !== 'CYBERDROP' || !row?.remote?.providerId) return '';
+    try {
+      const album = new URL(row.remote.url || '');
+      // gallery-dl's maintained Cyberdrop extractor uses the stable public
+      // /f/<id> page and resolves a fresh signed CDN URL through Cyberdrop's API.
+      // Open the selected file page, not the whole album and not an expiring CDN URL.
+      return `${album.origin}/f/${encodeURIComponent(String(row.remote.providerId))}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
   function providerRemoteMediaHTML(url, kind, name) {
     const source = sourceName();
     const ext = String(name || '').split('.').pop().toUpperCase();
@@ -120,8 +133,8 @@
     const row = rowNow();
     if (!row?.remote) return;
     const source = sourceName(row);
-    const bunkr = bunkrPublicMediaURL(row);
-    const target = bunkr || String(row.remote.url || '').trim();
+    const stableMedia = bunkrPublicMediaURL(row) || cyberdropPublicMediaURL(row);
+    const target = stableMedia || String(row.remote.url || '').trim();
     if (!target) return;
     try {
       await window.api('/api/open-remote', {
