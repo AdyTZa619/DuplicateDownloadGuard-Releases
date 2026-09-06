@@ -1,14 +1,16 @@
-// DDG 8.5.46 — Stable + TEST updater channels and top-right actions.
+// DDG 8.5.47 — Stable + TEST updater channels, browser-safe GitHub API transport and resilient header actions.
 (() => {
   'use strict';
 
-  const TEST_MANIFEST_URL = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/update-test.json';
+  const TEST_MANIFEST_API = 'https://api.github.com/repos/AdyTZa619/DuplicateDownloadGuard-Releases/contents/update-test.json?ref=testing';
+  const TEST_EXE_API = 'https://api.github.com/repos/AdyTZa619/DuplicateDownloadGuard-Releases/contents/test-releases/DuplicateDownloadGuard_PRO_TEST.exe?ref=testing';
   const CORNER_ID = 'ddgUpdateCorner';
   const TEST_BOX_ID = 'ddgTestUpdaterBox';
   let stableState = null;
   let testState = null;
   let currentVersion = '';
   let checking = false;
+  let cornerObserver = null;
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -17,7 +19,7 @@
     const style = document.createElement('style');
     style.id = 'ddgUpdateChannelsStyle';
     style.textContent = `
-      #${CORNER_ID}{display:inline-flex;align-items:center;gap:7px;margin-right:10px;vertical-align:middle}
+      #${CORNER_ID}{display:inline-flex;align-items:center;gap:7px;margin-left:auto;margin-right:8px;vertical-align:middle;flex-shrink:0}
       #${CORNER_ID} .ddgUpdateChip{border:1px solid #3c5066;background:#172131;color:#eaf2ff;padding:7px 10px;border-radius:8px;cursor:pointer;font-weight:750;line-height:1}
       #${CORNER_ID} .ddgUpdateChip:hover{border-color:#4da3ff}
       #${CORNER_ID} .ddgUpdateChip.stable{border-color:#2d6f58;background:#10281f;color:#8ff0c8}
@@ -31,16 +33,49 @@
     document.head.appendChild(style);
   }
 
+  function placeCorner(box) {
+    const top = document.querySelector('.top');
+    if (!top || !box) return box || null;
+    const hud = document.getElementById('operationHud');
+    const status = document.getElementById('topStatus');
+    const statusHost = status?.parentElement;
+
+    if (hud && hud.parentElement === top) {
+      if (box.parentElement !== top || box.nextElementSibling !== hud) top.insertBefore(box, hud);
+    } else if (statusHost && statusHost.parentElement === top) {
+      if (box.parentElement !== top || box.nextElementSibling !== statusHost) top.insertBefore(box, statusHost);
+    } else if (box.parentElement !== top) {
+      top.appendChild(box);
+    }
+    return box;
+  }
+
   function ensureCorner() {
     addStyles();
     let box = document.getElementById(CORNER_ID);
-    if (box) return box;
-    const status = document.getElementById('topStatus');
-    if (!status || !status.parentElement) return null;
-    box = document.createElement('span');
-    box.id = CORNER_ID;
-    status.parentElement.insertBefore(box, status.parentElement.firstChild);
-    return box;
+    if (!box) {
+      box = document.createElement('span');
+      box.id = CORNER_ID;
+    }
+    return placeCorner(box);
+  }
+
+  function keepCornerMounted() {
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries++;
+      const box = ensureCorner();
+      placeCorner(box);
+      if (tries >= 80) clearInterval(timer);
+    }, 100);
+
+    if (!cornerObserver && document.body) {
+      cornerObserver = new MutationObserver(() => {
+        const box = document.getElementById(CORNER_ID);
+        if (box) placeCorner(box);
+      });
+      cornerObserver.observe(document.body, {childList: true, subtree: true});
+    }
   }
 
   function ensureTestBox() {
@@ -113,15 +148,30 @@
     }
   }
 
-  async function fetchTestManifest() {
-    const sep = TEST_MANIFEST_URL.includes('?') ? '&' : '?';
-    const response = await fetch(`${TEST_MANIFEST_URL}${sep}_ddg=${Date.now()}`, {
+  async function githubRaw(url) {
+    const response = await fetch(url, {
       cache: 'no-store',
-      headers: {'Cache-Control': 'no-cache'}
+      headers: {Accept: 'application/vnd.github.raw+json'}
     });
-    if (!response.ok) throw new Error(`manifest TEST HTTP ${response.status}`);
-    const manifest = await response.json();
-    if (!manifest?.version || !manifest?.url || !manifest?.sha256) {
+    if (!response.ok) {
+      let detail = '';
+      try {
+        detail = (await response.text()).trim();
+      } catch (_) {}
+      throw new Error(`GitHub API HTTP ${response.status}${detail ? ` — ${detail.slice(0, 160)}` : ''}`);
+    }
+    return response;
+  }
+
+  async function fetchTestManifest() {
+    const response = await githubRaw(TEST_MANIFEST_API);
+    let manifest;
+    try {
+      manifest = JSON.parse(await response.text());
+    } catch (_) {
+      throw new Error('manifest TEST invalid');
+    }
+    if (!manifest?.version || !manifest?.sha256) {
       throw new Error('manifest TEST incomplet');
     }
     return manifest;
@@ -163,6 +213,7 @@
     box.innerHTML = html.join('');
     box.querySelectorAll('[data-channel="stable"]').forEach(btn => btn.onclick = () => installStable(btn));
     box.querySelectorAll('[data-channel="test"]').forEach(btn => btn.onclick = () => installTest(btn));
+    placeCorner(box);
   }
 
   async function installStable(button) {
@@ -205,14 +256,15 @@
         btn.classList.add('busy');
         btn.textContent = 'Descarc TEST…';
       }
-      const response = await fetch(manifest.url, {cache: 'no-store'});
-      if (!response.ok) throw new Error(`download TEST HTTP ${response.status}`);
+
+      const response = await githubRaw(TEST_EXE_API);
       const buffer = await response.arrayBuffer();
       if (buffer.byteLength > 100 * 1024 * 1024) throw new Error('build TEST prea mare (>100 MB)');
       const got = await sha256Hex(buffer);
       if (got.toLowerCase() !== String(manifest.sha256).trim().toLowerCase()) {
         throw new Error('SHA-256 TEST nu corespunde manifestului; instalarea a fost refuzată');
       }
+
       if (btn) btn.textContent = 'Aplic TEST…';
       const form = new FormData();
       form.append('file', new Blob([buffer], {type: 'application/vnd.microsoft.portable-executable'}), `DuplicateDownloadGuard_TEST_${manifest.version}.exe`);
@@ -244,6 +296,7 @@
     for (let i = 0; i < 40 && typeof window.api !== 'function'; i++) await sleep(100);
     if (typeof window.api !== 'function') return;
     ensureCorner();
+    keepCornerMounted();
     ensureTestBox();
     setTimeout(checkAll, 1400);
     setInterval(checkAll, 10 * 60 * 1000);
