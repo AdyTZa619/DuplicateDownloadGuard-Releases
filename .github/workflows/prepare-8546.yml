@@ -1,0 +1,58 @@
+name: Prepare DDG 8.5.46 metadata
+
+on:
+  push:
+    branches: [fix/updater-channels-8546]
+    paths:
+      - '.github/workflows/prepare-8546.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set VERSION and prepend CHANGELOG
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '8.5.46'
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'VERSION'), "$version`n", [System.Text.UTF8Encoding]::new($false))
+
+          $path = Join-Path $PWD 'CHANGELOG.md'
+          $old = Get-Content -Raw $path
+          if (-not $old.Contains("## [$version]")) {
+            $head = @"
+## [8.5.46] — 2026-09-06
+
+### Updater — Stable + TEST separat
+- Adaugă un canal TEST separat de Stable pentru build-uri de probă, astfel încât fixurile să poată fi verificate înainte de publicarea normală.
+- Când există o versiune nouă, în colțul din dreapta sus apare direct butonul de update; Stable și TEST sunt diferențiate clar.
+- Butonul din colț poate instala direct versiunea disponibilă, fără să fie necesară deschiderea manuală a secțiunii Updater.
+- Build-urile TEST folosesc același mecanism local de backup, health-check și rollback ca updaterul existent.
+- Adaugă pipeline separat pentru ramura `testing`, cu teste, vet, verificare JavaScript, build Windows x64, SHA-256 și manifest `update-test.json`.
+- Canalul Stable rămâne independent; un build TEST nu modifică `update.json` și nu este publicat automat tuturor utilizatorilor.
+
+### Compatibilitate
+- Nu modifică MEGA Preview, matching-ul sau motoarele de download existente.
+
+"@
+            [System.IO.File]::WriteAllText($path, $head + $old, [System.Text.UTF8Encoding]::new($false))
+          }
+
+      - name: Commit metadata and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/prepare-8546.yml
+          git add VERSION CHANGELOG.md
+          git commit -m 'Prepare release 8.5.46 updater channels'
+          git push origin HEAD:fix/updater-channels-8546
