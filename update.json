@@ -1,8 +1,8 @@
 {
-  "version": "8.5.40",
+  "version": "8.5.41",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "6076c30f89631e9e4151e0f6ede99add96497a6ae67f2a56ef8a8d988b07ecc5",
-  "notes": "Noutăți 8.5.40: Repară `GoFile API HTTP 401`: DDG folosește saltul curent pentru `X-Website-Token`, sincronizat cu protocolul GoFile actual. • La `401`, tokenul guest din RAM este invalidat și refăcut o singură dată înainte de a declara scanarea eșuată. • La `429 Too Many Requests`, DDG nu mai cade imediat în fallback: respectă `Retry-After` când este furnizat și reîncearcă controlat de până la 5 ori. • Cererile native GoFile sunt distanțate cu minimum 500 ms pentru a reduce declanșarea rate-limit-ului pe foldere și subfoldere. • Saltul GoFile poate fi suprascris prin `GOFILE_WT_SALT` fără recompilare dacă providerul îl rotește din nou. • MEGA Preview, matching-ul și celelalte providere nu sunt modificate.",
-  "publishedAt": "2026-09-05T23:53:02.5772486Z",
+  "sha256": "944cda63bf0c92829feb90681850a2d1d9689306be02d1e5c073ecced3a547aa",
+  "notes": "Noutăți 8.5.41: Repară timeout-ul la crearea tokenului guest GoFile: cererea `POST /accounts` folosește acum antetele web curente `X-Website-Token` și `X-BL`, plus corp JSON explicit. • Tokenul web pentru crearea contului este calculat cu account token gol, exact pentru etapa de guest-account, folosind același User-Agent ca cererile de metadata. • Timeout-urile de transport și răspunsurile temporare 408/425/429/5xx sunt reîncercate controlat de până la 3 ori; `429` respectă `Retry-After`. • Fiecare încercare are timeout propriu de 15 secunde, astfel încât o singură conexiune blocată nu mai aruncă imediat scanarea în fallback. • Tokenurile GoFile rămân numai în memorie; nu sunt persistate pe disc. • MEGA Preview, matching-ul și celelalte providere nu sunt modificate.",
+  "publishedAt": "2026-09-06T00:21:35.8609573Z",
   "channel": "stable"
 }
