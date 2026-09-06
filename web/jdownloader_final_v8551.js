@@ -1,10 +1,12 @@
-// Final JDownloader routing guard for TEST builds.
-// It runs in capture phase and calls a dedicated backend endpoint, so no
-// legacy onclick/downloadSelected override can ever enqueue the same click in DDG.
+// Final JDownloader routing for TEST builds.
+// This path never calls the DDG download queue. It verifies the selection,
+// then hands approved files directly to JDownloader on 127.0.0.1:9666.
 (() => {
   'use strict';
 
+  const JD_BASE = 'http://127.0.0.1:9666';
   let busy = false;
+  let pendingReview = null;
 
   function liveEngine() {
     const select = document.getElementById('downloadMethod');
@@ -26,63 +28,277 @@
     return true;
   }
 
+  function primaryButton() {
+    return document.getElementById('downloadGuardBtn') || document.querySelector('button[onclick="downloadSelected()"]');
+  }
+
   function updateLabel() {
-    const button = document.getElementById('downloadGuardBtn') || document.querySelector('button[onclick="downloadSelected()"]');
+    const button = primaryButton();
     if (!button || busy) return;
     if (liveEngine() === 'jdownloader') {
       button.textContent = '⬇ Descarcă prin JDownloader';
-      button.title = 'Trimite selecția exclusiv către JDownloader. Coada internă DDG nu este folosită.';
+      button.title = 'Verifică selecția, apoi o trimite exclusiv în JDownloader. Coada DDG nu este folosită.';
+    } else if (button.textContent.includes('JDownloader')) {
+      button.textContent = '⬇ Descarcă';
     }
   }
 
   function selectedIDs() {
     try {
-      return typeof window.idsForAction === 'function' ? window.idsForAction().map(Number) : [];
+      return typeof window.idsForAction === 'function'
+        ? window.idsForAction().map(Number).filter(Number.isFinite)
+        : [];
     } catch (_) {
       return [];
+    }
+  }
+
+  function destination() {
+    return String(document.getElementById('downloadDir')?.value || window.cfg?.downloadDir || '').trim();
+  }
+
+  function guardMode() {
+    return document.getElementById('downloadGuardMode')?.value || window.cfg?.downloadGuardMode || 'smart';
+  }
+
+  async function rowsForIDs(ids) {
+    const wanted = new Set(ids.map(Number));
+    const rows = [];
+    let offset = 0;
+    for (let page = 0; page < 100 && wanted.size; page++) {
+      const data = await window.api(`/api/results?offset=${offset}&limit=1000&status=ALL`);
+      const batch = Array.isArray(data?.rows) ? data.rows : [];
+      for (const row of batch) {
+        const id = Number(row?.id);
+        if (wanted.has(id)) {
+          rows.push(row);
+          wanted.delete(id);
+        }
+      }
+      if (!batch.length || offset + batch.length >= Number(data?.total || 0)) break;
+      offset += batch.length;
+    }
+    if (wanted.size) throw new Error(`Nu mai găsesc ${wanted.size} rezultat(e) selectate.`);
+    return rows;
+  }
+
+  function gofileURL(row) {
+    const r = row?.remote || {};
+    if (String(r.source || '').toUpperCase() !== 'GOFILE' || !r.providerId) return '';
+    try {
+      const u = new URL(r.url || '');
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2 && parts[0].toLowerCase() === 'd' && parts[1]) {
+        return `https://gofile.io/?c=${encodeURIComponent(parts[1])}#file=${encodeURIComponent(r.providerId)}`;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function jdURL(row) {
+    const r = row?.remote || {};
+    return gofileURL(row) || String(r.directUrl || r.url || '').trim();
+  }
+
+  async function checkJD() {
+    if (window.ddgDownloadActionsV8545?.checkJDownloader) {
+      return window.ddgDownloadActionsV8545.checkJDownloader();
+    }
+    return await new Promise(resolve => {
+      document.getElementById('ddgFinalJDCheck')?.remove();
+      window.jdownloader = false;
+      const s = document.createElement('script');
+      s.id = 'ddgFinalJDCheck';
+      s.src = `${JD_BASE}/jdcheck.js?_ddg=${Date.now()}`;
+      let done = false;
+      const finish = running => {
+        if (done) return;
+        done = true;
+        s.remove();
+        resolve({running: Boolean(running), name: 'JDownloader 2'});
+      };
+      s.onload = () => finish(window.jdownloader === true);
+      s.onerror = () => finish(false);
+      document.head.appendChild(s);
+      setTimeout(() => finish(window.jdownloader === true), 2200);
+    });
+  }
+
+  function buildSubmission(rows, dest) {
+    const urls = [];
+    const descriptions = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const url = jdURL(row);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+      descriptions.push(row?.remote?.name || row?.remote?.path || 'DDG');
+    }
+    if (!urls.length) throw new Error('Selecția nu conține linkuri compatibile cu JDownloader.');
+    const params = new URLSearchParams();
+    params.set('urls', urls.join('\n'));
+    params.set('description', descriptions.join('\n'));
+    params.set('package', 'Duplicate Download Guard');
+    params.set('dir', dest);
+    params.set('autostart', '1');
+    return {params, count: urls.length};
+  }
+
+  function submitHiddenForm(params) {
+    const frameName = `ddgJDFrame_${Date.now()}`;
+    const iframe = document.createElement('iframe');
+    iframe.name = frameName;
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `${JD_BASE}/flashgot`;
+    form.target = frameName;
+    form.style.display = 'none';
+    for (const [name, value] of params.entries()) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(() => {
+      form.remove();
+      iframe.remove();
+    }, 4000);
+  }
+
+  async function submitRowsToJD(rows, dest) {
+    const jd = await checkJD();
+    if (!jd?.running) {
+      throw new Error('JDownloader 2 nu răspunde pe 127.0.0.1:9666. DDG nu a pornit niciun download intern.');
+    }
+
+    const submission = buildSubmission(rows, dest);
+    try {
+      const response = await fetch(`${JD_BASE}/flashgot`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+        body: submission.params.toString(),
+        cache: 'no-store'
+      });
+      const reply = (await response.text()).trim();
+      if (!response.ok || /(^|\s)failed(\s|$)/i.test(reply)) {
+        throw new Error(reply || `HTTP ${response.status}`);
+      }
+      return {count: submission.count, confirmed: true};
+    } catch (_) {
+      // Unele WebView/Windows builds blochează răspunsul cross-origin către
+      // portul 9666. JD a fost verificat înainte, deci folosim POST de formular,
+      // care nu poate cădea în downloaderul intern DDG.
+      submitHiddenForm(submission.params);
+      return {count: submission.count, confirmed: false};
+    }
+  }
+
+  async function preflight(ids, dest, mode) {
+    return window.api('/api/download/preflight', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ids, destination: dest, mode})
+    });
+  }
+
+  function IDsByVerdict(report, verdict) {
+    return (report?.decisions || [])
+      .filter(x => String(x?.verdict || '').toUpperCase() === verdict)
+      .map(x => Number(x.resultId))
+      .filter(Number.isFinite);
+  }
+
+  function showReview(report, ids, dest, mode, sent) {
+    pendingReview = {
+      ids: IDsByVerdict(report, 'REVIEW'),
+      destination: dest,
+      guardMode: mode
+    };
+    window.ddgShowGuardReportV8545?.(report, {
+      ids,
+      destination: dest,
+      guardMode: mode,
+      engine: 'jdownloader'
+    }, sent);
+    const override = document.getElementById('guardReviewOverride');
+    if (override && pendingReview.ids.length) {
+      override.classList.remove('hidden');
+      override.textContent = `Trimite oricum în JDownloader (${pendingReview.ids.length})`;
+      override.title = 'Confirmare explicită: aceste fișiere nu au putut fi verificate sigur, dar vor fi trimise numai în JDownloader.';
+    }
+  }
+
+  async function sendReviewOverride() {
+    if (!pendingReview?.ids?.length || busy) return;
+    busy = true;
+    const override = document.getElementById('guardReviewOverride');
+    if (override) {
+      override.disabled = true;
+      override.textContent = '⏳ Trimit în JDownloader…';
+    }
+    try {
+      const rows = await rowsForIDs(pendingReview.ids);
+      const result = await submitRowsToJD(rows, pendingReview.destination);
+      const suffix = result.confirmed ? 'confirmat de JD' : 'trimis prin interfața locală JD';
+      window.closeGuardReport?.();
+      window.toast?.(`JDownloader: ${result.count} fișier(e) • ${suffix}`);
+      pendingReview = null;
+    } catch (error) {
+      window.toast?.(error?.message || String(error));
+    } finally {
+      busy = false;
+      if (override) override.disabled = false;
+      updateLabel();
     }
   }
 
   async function sendExclusiveToJDownloader() {
     if (busy) return;
     const ids = selectedIDs();
-    if (!ids.length) {
-      window.toast?.('Selectează fișiere');
-      return;
-    }
-
-    const destination = String(document.getElementById('downloadDir')?.value || window.cfg?.downloadDir || '').trim();
-    const guardMode = document.getElementById('downloadGuardMode')?.value || window.cfg?.downloadGuardMode || 'smart';
-    const button = document.getElementById('downloadGuardBtn') || document.querySelector('button[onclick="downloadSelected()"]');
+    if (!ids.length) return window.toast?.('Selectează fișiere');
+    const dest = destination();
+    if (!dest) return window.toast?.('Alege folderul de download pentru JDownloader.');
+    const mode = guardMode();
+    const button = primaryButton();
 
     busy = true;
     if (button) {
       button.disabled = true;
-      button.textContent = '⏳ Trimit exclusiv în JDownloader…';
+      button.textContent = '⏳ Verific și trimit în JDownloader…';
     }
-
     try {
-      const data = await window.api('/api/download/jdownloader-direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids, destination, guardMode })
-      });
+      const report = await preflight(ids, dest, mode);
+      const safeIDs = IDsByVerdict(report, 'DOWNLOAD');
+      const reviewIDs = IDsByVerdict(report, 'REVIEW');
+      let sent = 0;
+      let confirmed = true;
 
-      if (data?.jdownloader !== true) {
-        throw new Error('Protecție DDG: backendul nu a confirmat ruta JDownloader. Nu s-a pornit download intern.');
-      }
-      if (Number(data?.added || 0) !== 0) {
-        throw new Error('Protecție DDG: ruta JDownloader a raportat joburi interne. Operația a fost oprită.');
+      if (safeIDs.length) {
+        const rows = await rowsForIDs(safeIDs);
+        const result = await submitRowsToJD(rows, dest);
+        sent = result.count;
+        confirmed = result.confirmed;
       }
 
-      const counts = data?.guard?.counts || {};
-      if ((Number(counts.DUPLICATE || 0) > 0 || Number(counts.REVIEW || 0) > 0) && window.ddgShowGuardReportV8545) {
-        window.ddgShowGuardReportV8545(data.guard, { ids, destination, guardMode }, Number(data.externalAdded || 0));
+      if (reviewIDs.length || IDsByVerdict(report, 'DUPLICATE').length) {
+        showReview(report, ids, dest, mode, sent);
+      } else {
+        pendingReview = null;
       }
-      window.toast?.(data?.message || `Trimis exclusiv în JDownloader: ${Number(data?.externalAdded || 0)} fișier(e)`);
+
+      if (sent > 0) {
+        window.toast?.(`JDownloader: ${sent} fișier(e) ${confirmed ? 'confirmate' : 'trimise'} • coada DDG neatinsă`);
+      } else if (!reviewIDs.length) {
+        window.toast?.('Nimic de trimis în JDownloader: selecția este deja locală/blocată.');
+      }
     } catch (error) {
-      // Dedicated endpoint is fail-closed: on any error there is deliberately
-      // no fallback to /api/queue/add and therefore no integrated DDG download.
       window.toast?.(error?.message || String(error));
     } finally {
       busy = false;
@@ -96,29 +312,48 @@
       setTimeout(install, 100);
       return;
     }
-
     const select = document.getElementById('downloadMethod');
     if (select && !select.dataset.ddgFinalJdBound) {
       select.dataset.ddgFinalJdBound = '1';
-      select.addEventListener('change', () => setTimeout(updateLabel, 0));
+      select.addEventListener('change', () => {
+        if (window.cfg) window.cfg.downloadMethod = select.value;
+        if (typeof window.saveCfg === 'function') window.saveCfg().catch(() => {});
+        setTimeout(updateLabel, 0);
+      });
     }
     updateLabel();
+    window.sendSelectedJD2 = sendExclusiveToJDownloader;
   }
 
-  // Capture phase is intentional. This executes before inline onclick and
-  // before ExactGuard/legacy handlers. In JDownloader mode the click can only
-  // reach the dedicated backend endpoint below.
+  // Capture phase: the JD action never reaches legacy onclick handlers or the
+  // DDG queue. The explicit JD buttons work even if another engine is selected;
+  // the primary Download button uses JD only when JD is the selected engine.
   document.addEventListener('click', event => {
-    if (liveEngine() !== 'jdownloader') return;
-    const button = event.target?.closest?.('#downloadGuardBtn, button[onclick="downloadSelected()"]');
-    if (!button) return;
+    const target = event.target?.closest?.('#guardReviewOverride, #jdSelectedBtn, button[onclick="sendSelectedJD2()"], #downloadGuardBtn, button[onclick="downloadSelected()"]');
+    if (!target) return;
+
+    if (target.id === 'guardReviewOverride' && pendingReview?.ids?.length) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      sendReviewOverride();
+      return;
+    }
+
+    const explicitJD = target.id === 'jdSelectedBtn' || target.getAttribute('onclick') === 'sendSelectedJD2()';
+    const primaryJD = (target.id === 'downloadGuardBtn' || target.getAttribute('onclick') === 'downloadSelected()') && liveEngine() === 'jdownloader';
+    if (!explicitJD && !primaryJD) return;
+
     event.preventDefault();
     event.stopImmediatePropagation();
     sendExclusiveToJDownloader();
   }, true);
 
-  document.addEventListener('DOMContentLoaded', () => setTimeout(install, 0), { once: true });
+  document.addEventListener('DOMContentLoaded', () => setTimeout(install, 0), {once: true});
   setTimeout(install, 600);
 
-  window.ddgJDownloaderFinalV8551 = { sendExclusiveToJDownloader, install };
+  window.ddgJDownloaderFinalV8551 = {
+    sendExclusiveToJDownloader,
+    sendReviewOverride,
+    install
+  };
 })();
