@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.30",
+  "version": "8.5.49-test.33",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "116c4a090149b2b98213a655a1192df4123d439738956a0edb920d9eebf77a63",
-  "notes": "TEST: TEST load cross-port source link persistence",
-  "publishedAt": "2026-09-06T17:58:00.6374621Z",
+  "sha256": "bfd3760bd737b220c9bd235ac42b3adf1404d288a40dc4c74e2444712351e49b",
+  "notes": "TEST: TEST wire native focus-independent update sound",
+  "publishedAt": "2026-09-06T18:05:31.2690876Z",
   "channel": "test"
 }
