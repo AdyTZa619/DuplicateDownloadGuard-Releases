@@ -1,3 +1,4 @@
+// DDG 8.5.46 — Stable + TEST updater channels and top-right actions.
 (() => {
   'use strict';
 
