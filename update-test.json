@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.69",
+  "version": "8.5.49-test.71",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "1a0d3144967307fbf132c92a7701d33ae932a94aed24dc07eaa0cd52614546c6",
-  "notes": "TEST: TEST cover JD batch package and explicit override confirmation",
-  "publishedAt": "2026-09-06T21:58:54.6638805Z",
+  "sha256": "d6605fad29123918ea37273e448f1e8a09348982c50dc356f578dcb7d14f433f",
+  "notes": "TEST: TEST load useful operation HUD diagnostics",
+  "publishedAt": "2026-09-06T22:53:26.2149968Z",
   "channel": "test"
 }
