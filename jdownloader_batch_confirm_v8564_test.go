@@ -15,10 +15,12 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	s := string(b)
 	for _, want := range []string{
 		"params.set('package', packageName)",
-		"Trimite TOATE oricum în JDownloader",
+		"Trimite TOATE",
 		"window.confirm(",
-		"guardJDSafeOnly",
-		"Deliberately omit dir + autostart",
+		"ddgJDSendSafe",
+		"ddgJDFullRecheck",
+		"Do not force dir or autostart",
+		"Deliberately do NOT call /api/download/preflight here",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing JD batch behavior %q", want)
