@@ -40,6 +40,17 @@ jobs:
           if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
           $replacement = 'const appVersion = "' + $testVersion + ' Pro Smart Media Guard TEST"'
           $main = [regex]::Replace($main, $pattern, $replacement, 1)
+
+          # TEST invariant: when engine=jdownloader reaches /api/queue/add, the
+          # request is routed to the backend JDownloader bridge and can never
+          # fall through to DDG's internal queue. This is deliberately applied
+          # in the TEST build before compilation so the real executable tests
+          # the same route the user will run.
+          $oldQueueRoute = 'mux.HandleFunc("/api/queue/add", a.handleQueueAdd)'
+          $newQueueRoute = 'mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)'
+          if (-not $main.Contains($oldQueueRoute)) { throw 'Nu am găsit ruta /api/queue/add pentru protecția JDownloader.' }
+          $main = $main.Replace($oldQueueRoute, $newQueueRoute)
+
           [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
 
           $subject = (git log -1 --pretty=%s).Trim()
