@@ -1,0 +1,8 @@
+{
+  "version": "8.5.47-test.1",
+  "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
+  "sha256": "9692bc37da987bada238442dabb3ff72072c821aa6bf753e22ff94e37186ecba",
+  "notes": "TEST: TEST direct JDownloader engine and exact destination",
+  "publishedAt": "2026-09-06T13:40:22.4527427Z",
+  "channel": "test"
+}
