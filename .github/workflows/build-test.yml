@@ -73,20 +73,16 @@ jobs:
           if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit funcția portableDownloadsDir pentru noul default Downloads.' }
           $extra = $extra.Replace($oldPortable, $newPortable.TrimEnd())
 
-          $oldDefaultBlock = @'
-          	if strings.TrimSpace(a.cfg.DownloadDir) == "" {
-          		a.cfg.DownloadDir = portableDownloadsDir()
-          	}
-          '@
+          $defaultPattern = 'if\s+strings\.TrimSpace\(a\.cfg\.DownloadDir\)\s*==\s*""\s*\{\s*a\.cfg\.DownloadDir\s*=\s*portableDownloadsDir\(\)\s*\}'
           $newDefaultBlock = @'
-          	currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
-          	legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
-          	if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
-          		a.cfg.DownloadDir = portableDownloadsDir()
-          	}
+          currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
+          legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
+          if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
+          	a.cfg.DownloadDir = portableDownloadsDir()
+          }
           '@
-          if (-not $extra.Contains($oldDefaultBlock.TrimEnd())) { throw 'Nu am găsit blocul implicit DownloadDir pentru migrare.' }
-          $extra = $extra.Replace($oldDefaultBlock.TrimEnd(), $newDefaultBlock.TrimEnd())
+          if (-not [regex]::IsMatch($extra, $defaultPattern)) { throw 'Nu am găsit blocul implicit DownloadDir pentru migrare.' }
+          $extra = [regex]::Replace($extra, $defaultPattern, $newDefaultBlock.TrimEnd(), 1)
           [System.IO.File]::WriteAllText((Resolve-Path v8_extra.go), $extra, [System.Text.UTF8Encoding]::new($false))
 
           $subject = (git log -1 --pretty=%s).Trim()
