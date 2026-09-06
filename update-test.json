@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.71",
+  "version": "8.5.49-test.74",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "d6605fad29123918ea37273e448f1e8a09348982c50dc356f578dcb7d14f433f",
-  "notes": "TEST: TEST load useful operation HUD diagnostics",
-  "publishedAt": "2026-09-06T22:53:26.2149968Z",
+  "sha256": "cac8e5493991f8ea650e8f03e9bcf9bf5704954caa2ad6e1bf8ad460716974ad",
+  "notes": "TEST: TEST cover native background update watcher version logic",
+  "publishedAt": "2026-09-06T22:59:57.5444994Z",
   "channel": "test"
 }
