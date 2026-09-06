@@ -8,6 +8,7 @@
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
+    ['/check_activity_v8563.js', 'ddgCheckActivityV8563Script'],
     ['/source_link_persistence_v8553.js', 'ddgSourceLinkPersistenceV8553Script'],
     ['/updater_resilience.js', 'ddgUpdaterResilience'],
     ['/download_actions_v8545.js', 'ddgDownloadActionsV8545Script'],
@@ -15,6 +16,7 @@
     ['/update_corner_hotfix_v8547.js', 'ddgUpdateCornerHotfixV8547'],
     ['/update_sound_v8552.js', 'ddgUpdateSoundV8552Script'],
     ['/update_fast_watch_v8562.js', 'ddgFastUpdateWatchV8562Script'],
+    ['/jdownloader_bunkr_compat_v8563.js', 'ddgJDownloaderBunkrCompatV8563Script'],
     ['/jdownloader_final_v8551.js', 'ddgJDownloaderFinalV8551Script']
   ];
 
