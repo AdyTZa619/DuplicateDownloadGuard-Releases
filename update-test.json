@@ -1,8 +1,8 @@
 {
-  "version": "8.5.48-test.6",
+  "version": "8.5.48-test.7",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "1a13259de03a05c182382b7958832fded1295f3982c11c811ae6a1ee9b2dc50e",
-  "notes": "TEST: TEST load JDownloader routing hotfix",
-  "publishedAt": "2026-09-06T15:26:52.3541971Z",
+  "sha256": "3c581168a736533b0ccac12f8ab262279aa153f381abbf25129c534e309ff10e",
+  "notes": "TEST: TEST make JDownloader handoff independent of DDG queue and CORS",
+  "publishedAt": "2026-09-06T15:28:35.8623309Z",
   "channel": "test"
 }
