@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.50",
+  "version": "8.5.49-test.51",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "6c39ac25cae4f76809334ee4929f7cfc0d1941b24f41df9b70256093fddacc02",
-  "notes": "TEST: TEST show explicit provider failure in preview player",
-  "publishedAt": "2026-09-06T20:12:35.5958146Z",
+  "sha256": "4ebc5908d43fc665f377a4716e9fc89e8b51c2b1a66854a2bb21f377f800f1e2",
+  "notes": "TEST: TEST cover provider preview diagnostics",
+  "publishedAt": "2026-09-06T20:15:44.0862240Z",
   "channel": "test"
 }
