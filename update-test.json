@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.37",
+  "version": "8.5.49-test.40",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "23071057810578b4d9200636d4f44eaee52da1b4b253c8fbcc5d7636332300bc",
-  "notes": "TEST: TEST cover Bunkr preview context and MIME metadata",
-  "publishedAt": "2026-09-06T19:01:13.3671900Z",
+  "sha256": "da883d29287e078173d32ea6fa5cc000b5809b9057e8445b5f78832e6d55246c",
+  "notes": "TEST: TEST load provider-aware Compare Studio UI",
+  "publishedAt": "2026-09-06T19:36:49.5484064Z",
   "channel": "test"
 }
