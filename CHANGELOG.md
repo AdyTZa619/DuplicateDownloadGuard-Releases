@@ -2,6 +2,14 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.47] — 2026-09-06
+
+### Updater TEST — compatibilitate și acces
+- Repară eroarea „Canal TEST indisponibil momentan: Failed to fetch” din aplicația Windows: manifestul și EXE-ul TEST sunt citite prin GitHub REST API, care suportă CORS pentru cereri din interfața locală.
+- Descărcarea TEST păstrează verificarea SHA-256 înainte ca EXE-ul să fie trimis updaterului local.
+- Butoanele Stable/TEST din dreapta sus sunt montate ca elemente separate lângă monitorul operațional și nu mai pot fi șterse când HUD-ul își reconstruiește conținutul.
+- Stable 8.5.47 este un patch de infrastructură pentru updater; nu modifică MEGA Preview, matching-ul sau fluxul normal de download.
+
 ## [8.5.46] — 2026-09-06
 
 ### Updater — Stable + TEST separat
