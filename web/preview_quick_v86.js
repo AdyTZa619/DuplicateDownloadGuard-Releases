@@ -6,6 +6,7 @@
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
+    ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
     ['/source_link_persistence_v8553.js', 'ddgSourceLinkPersistenceV8553Script'],
     ['/updater_resilience.js', 'ddgUpdaterResilience'],
