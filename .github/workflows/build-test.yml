@@ -60,31 +60,31 @@ jobs:
           $extra = Get-Content -Raw v8_extra.go
           $oldPortable = 'func portableDownloadsDir() string { return filepath.Join(executableDir(), "downloads") }'
           $newPortable = @'
-func portableDownloadsDir() string {
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, "Downloads")
-	}
-	if profile := strings.TrimSpace(os.Getenv("USERPROFILE")); profile != "" {
-		return filepath.Join(profile, "Downloads")
-	}
-	return filepath.Join(executableDir(), "downloads")
-}
-'@
+          func portableDownloadsDir() string {
+          	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+          		return filepath.Join(home, "Downloads")
+          	}
+          	if profile := strings.TrimSpace(os.Getenv("USERPROFILE")); profile != "" {
+          		return filepath.Join(profile, "Downloads")
+          	}
+          	return filepath.Join(executableDir(), "downloads")
+          }
+          '@
           if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit funcția portableDownloadsDir pentru noul default Downloads.' }
           $extra = $extra.Replace($oldPortable, $newPortable.TrimEnd())
 
           $oldDefaultBlock = @'
-	if strings.TrimSpace(a.cfg.DownloadDir) == "" {
-		a.cfg.DownloadDir = portableDownloadsDir()
-	}
-'@
+          	if strings.TrimSpace(a.cfg.DownloadDir) == "" {
+          		a.cfg.DownloadDir = portableDownloadsDir()
+          	}
+          '@
           $newDefaultBlock = @'
-	currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
-	legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
-	if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
-		a.cfg.DownloadDir = portableDownloadsDir()
-	}
-'@
+          	currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
+          	legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
+          	if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
+          		a.cfg.DownloadDir = portableDownloadsDir()
+          	}
+          '@
           if (-not $extra.Contains($oldDefaultBlock.TrimEnd())) { throw 'Nu am găsit blocul implicit DownloadDir pentru migrare.' }
           $extra = $extra.Replace($oldDefaultBlock.TrimEnd(), $newDefaultBlock.TrimEnd())
           [System.IO.File]::WriteAllText((Resolve-Path v8_extra.go), $extra, [System.Text.UTF8Encoding]::new($false))
