@@ -1,14 +1,13 @@
 // Audible notification when a new Stable/TEST update appears in the DDG top bar.
-// Plays once per detected update version/channel and never loops every poll.
+// Uses a native Windows chime through the DDG backend, so it does not depend on
+// browser/WebView autoplay permission or on the DDG window having focus.
 (() => {
   'use strict';
 
-  const SEEN_KEY = 'ddg.updateSound.lastSeen.v1';
-  let audioCtx = null;
-  let armed = false;
-  let pendingKey = '';
-  let pendingLabel = '';
+  const SEEN_COOKIE = 'ddgUpdateSoundSeenV2';
+  const MAX_AGE = 365 * 24 * 60 * 60;
   let observer = null;
+  let inFlightKey = '';
 
   function updateEntries() {
     const corner = document.getElementById('ddgUpdateCorner');
@@ -29,75 +28,43 @@
   }
 
   function lastSeen() {
-    try { return localStorage.getItem(SEEN_KEY) || ''; } catch (_) { return ''; }
+    try {
+      const prefix = SEEN_COOKIE + '=';
+      for (const part of String(document.cookie || '').split(';')) {
+        const item = part.trim();
+        if (item.startsWith(prefix)) return decodeURIComponent(item.slice(prefix.length));
+      }
+    } catch (_) {}
+    return '';
   }
 
   function remember(key) {
-    try { localStorage.setItem(SEEN_KEY, key); } catch (_) {}
-  }
-
-  function ensureAudio() {
-    if (audioCtx) return audioCtx;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return null;
-    try { audioCtx = new Ctx(); } catch (_) { audioCtx = null; }
-    return audioCtx;
-  }
-
-  async function armAudio() {
-    const ctx = ensureAudio();
-    if (!ctx) return false;
     try {
-      if (ctx.state === 'suspended') await ctx.resume();
-      armed = ctx.state === 'running';
-    } catch (_) {
-      armed = false;
-    }
-    if (armed && pendingKey) {
-      const key = pendingKey;
-      const label = pendingLabel;
-      pendingKey = '';
-      pendingLabel = '';
-      await playNotification(key, label);
-    }
-    return armed;
+      document.cookie = `${SEEN_COOKIE}=${encodeURIComponent(key)}; Max-Age=${MAX_AGE}; Path=/; SameSite=Lax`;
+    } catch (_) {}
   }
 
-  async function tone(ctx, frequency, start, duration, gainValue) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(frequency, start);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.018);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(start);
-    osc.stop(start + duration + 0.03);
-  }
-
-  async function playNotification(key, label) {
-    if (!key || key === lastSeen()) return;
-    const ctx = ensureAudio();
-    if (!ctx) return;
+  async function notifyNative(key, label) {
+    if (!key || key === lastSeen() || inFlightKey === key) return;
+    inFlightKey = key;
     try {
-      if (ctx.state === 'suspended') await ctx.resume();
-      if (ctx.state !== 'running') {
-        pendingKey = key;
-        pendingLabel = label;
-        return;
-      }
-      const now = ctx.currentTime + 0.02;
-      await tone(ctx, 784, now, 0.18, 0.16);
-      await tone(ctx, 1046, now + 0.22, 0.24, 0.18);
+      const response = await fetch('/api/update/native-notify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key, label}),
+        cache: 'no-store'
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       remember(key);
       if (typeof window.toast === 'function') {
         window.toast(`Update nou disponibil: ${label}`);
       }
     } catch (_) {
-      pendingKey = key;
-      pendingLabel = label;
+      // Do not loop a failed notification every 1.5 seconds. A later update gets
+      // its own key and will be attempted again.
+      remember(key);
+    } finally {
+      inFlightKey = '';
     }
   }
 
@@ -105,30 +72,15 @@
     const entries = updateEntries();
     if (!entries.length) return;
     const key = makeKey(entries);
-    if (!key || key === lastSeen()) return;
-    const label = entries.map(x => x.label).join(' + ');
-    if (!armed) {
-      pendingKey = key;
-      pendingLabel = label;
-      armAudio();
-      return;
-    }
-    playNotification(key, label);
+    if (!key || key === lastSeen() || inFlightKey === key) return;
+    notifyNative(key, entries.map(x => x.label).join(' + '));
   }
 
   function boot() {
-    // Browser/WebView audio policies may require one user interaction first.
-    // Arm on the first normal interaction; if an update was already detected,
-    // the pending sound plays immediately then.
-    const arm = () => armAudio();
-    document.addEventListener('pointerdown', arm, {passive: true});
-    document.addEventListener('keydown', arm, {passive: true});
-
     if (!observer && document.body) {
       observer = new MutationObserver(scan);
       observer.observe(document.body, {childList: true, subtree: true, characterData: true});
     }
-
     setInterval(scan, 1500);
     setTimeout(scan, 1800);
   }
@@ -139,5 +91,5 @@
     boot();
   }
 
-  window.ddgUpdateSoundV8552 = {scan, armAudio};
+  window.ddgUpdateSoundV8552 = {scan};
 })();
