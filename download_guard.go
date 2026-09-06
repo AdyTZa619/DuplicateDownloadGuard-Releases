@@ -44,13 +44,15 @@ type DownloadGuardDecision struct {
 }
 
 type DownloadGuardReport struct {
-	Mode         string                  `json:"mode"`
-	Decisions    []DownloadGuardDecision `json:"decisions"`
-	Counts       map[string]int          `json:"counts"`
-	ScannedFiles int                     `json:"scannedFiles"`
-	ScannedBytes int64                   `json:"scannedBytes"`
-	ScannedRoots []string                `json:"scannedRoots"`
-	DurationMS   int64                   `json:"durationMs"`
+	Mode             string                  `json:"mode"`
+	Decisions        []DownloadGuardDecision `json:"decisions"`
+	Counts           map[string]int          `json:"counts"`
+	ScannedFiles     int                     `json:"scannedFiles"`
+	ScannedBytes     int64                   `json:"scannedBytes"`
+	ScannedRoots     []string                `json:"scannedRoots"`
+	DurationMS       int64                   `json:"durationMs"`
+	ReusedFreshIndex bool                    `json:"reusedFreshIndex,omitempty"`
+	IndexAgeMS       int64                   `json:"indexAgeMs,omitempty"`
 }
 
 type guardScan struct {
@@ -142,6 +144,9 @@ func (a *App) guardRoots(destination string) []string {
 	configuredDownload := a.cfg.DownloadDir
 	a.mu.RUnlock()
 	paths = append(paths, configuredDownload, destination)
+	if strings.TrimSpace(configuredDownload) == "" {
+		paths = append(paths, portableDownloadsDir())
+	}
 	return compactGuardRoots(paths)
 }
 
@@ -242,6 +247,7 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 	for _, e := range entries {
 		out = append(out, e)
 	}
+	a.rememberGuardRefreshV8545(out, scan)
 	return out, scan, nil
 }
 
@@ -564,11 +570,19 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 
 	a.guardMu.Lock()
 	defer a.guardMu.Unlock()
-	entries, scan, err := a.refreshLiveIndexForGuard(ctx, destination)
-	if err != nil {
-		return report, err
+	entries, scan, indexAge, reusedFreshIndex := a.reuseFreshGuardIndexV8545(destination)
+	var err error
+	if !reusedFreshIndex {
+		entries, scan, err = a.refreshLiveIndexForGuard(ctx, destination)
+		if err != nil {
+			return report, err
+		}
 	}
 	report.ScannedFiles, report.ScannedBytes, report.ScannedRoots = scan.Files, scan.Bytes, scan.Roots
+	report.ReusedFreshIndex = reusedFreshIndex
+	if reusedFreshIndex {
+		report.IndexAgeMS = indexAge.Milliseconds()
+	}
 	bySize := map[int64][]FileEntry{}
 	for _, entry := range entries {
 		bySize[entry.Size] = append(bySize[entry.Size], entry)
@@ -616,7 +630,11 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 		a.logf("ExactGuard: indexul live nu a putut fi salvat: %v", err)
 	}
 	a.applyGuardDecisions(report.Decisions)
-	a.logf("ExactGuard %s: %d download, %d duplicate blocate, %d review • scan live %d fișiere în %d ms", mode, report.Counts[guardDownload], report.Counts[guardDuplicate], report.Counts[guardReview], report.ScannedFiles, report.DurationMS)
+	indexSource := "scan live"
+	if report.ReusedFreshIndex {
+		indexSource = fmt.Sprintf("index proaspăt reutilizat (%d ms)", report.IndexAgeMS)
+	}
+	a.logf("ExactGuard %s: %d download, %d duplicate blocate, %d review • %s • %d fișiere în %d ms", mode, report.Counts[guardDownload], report.Counts[guardDuplicate], report.Counts[guardReview], indexSource, report.ScannedFiles, report.DurationMS)
 	return report, nil
 }
 
