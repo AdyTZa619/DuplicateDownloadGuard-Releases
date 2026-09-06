@@ -1,0 +1,38 @@
+name: Prepare DDG 8.5.43
+
+on:
+  push:
+    branches:
+      - release/8.5.43
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/8.5.43
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Apply release payload
+        run: python3 .github/scripts/prepare_release_8543.py
+      - name: Validate release preparation
+        shell: bash
+        run: |
+          gofmt -w main.go
+          go test ./...
+          go vet ./...
+      - name: Commit release preparation and remove helpers
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION main.go CHANGELOG.md
+          git rm .github/workflows/prepare-release-8543.yml .github/scripts/prepare_release_8543.py
+          git commit -m "Prepare 8.5.43 release"
+          git push origin HEAD:release/8.5.43
