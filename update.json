@@ -1,8 +1,8 @@
 {
-  "version": "8.5.47",
+  "version": "8.5.48",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "f5defc192d7aae8fc8383eff1c01d684240dbc911474b6a0858ce5f21d5069da",
-  "notes": "Noutăți 8.5.47: Repară eroarea „Canal TEST indisponibil momentan: Failed to fetch” din aplicația Windows: manifestul și EXE-ul TEST sunt citite prin GitHub REST API, care suportă CORS pentru cereri din interfața locală. • Descărcarea TEST păstrează verificarea SHA-256 înainte ca EXE-ul să fie trimis updaterului local. • Butoanele Stable/TEST din dreapta sus sunt montate ca elemente separate lângă monitorul operațional și nu mai pot fi șterse când HUD-ul își reconstruiește conținutul. • Stable 8.5.47 este un patch de infrastructură pentru updater; nu modifică MEGA Preview, matching-ul sau fluxul normal de download.",
-  "publishedAt": "2026-09-06T14:36:17.8015134Z",
+  "sha256": "843a5502d7449c6efce7ff2c802d1aad791e610aa309a8cf246aa80269c03842",
+  "notes": "Noutăți 8.5.48: Repară eroarea „SHA-256 TEST nu corespunde manifestului”: updaterul nu mai hash-uiește accidental răspunsul JSON al GitHub Contents API în locul EXE-ului. • Manifestul TEST și EXE-ul sunt citite din aceeași revizie Git fixată înainte de download, eliminând nepotrivirile dacă ramura `testing` se schimbă în timpul instalării. • Pentru EXE-urile mari, updaterul citește blob-ul Git base64 exact și calculează SHA-256 pe bytes-ii reali ai executabilului. • Stable 8.5.48 este un patch de recuperare/infrastructură pentru updater; nu schimbă MEGA Preview, matching-ul sau motorul normal de download.",
+  "publishedAt": "2026-09-06T15:38:36.8539426Z",
   "channel": "stable"
 }
