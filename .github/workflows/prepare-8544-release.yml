@@ -1,0 +1,78 @@
+name: Prepare DDG 8.5.44 release
+
+on:
+  push:
+    branches:
+      - release/8.5.44
+    paths:
+      - .github/workflows/prepare-8544-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/8.5.44
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Prepare release files
+        shell: python
+        run: |
+          from pathlib import Path
+
+          Path('VERSION').write_text('8.5.44\n', encoding='utf-8')
+
+          main = Path('main.go')
+          text = main.read_text(encoding='utf-8')
+          old = 'const appVersion = "8.5.43 Pro Smart Media Guard"'
+          new = 'const appVersion = "8.5.44 Pro Smart Media Guard"'
+          if old not in text:
+              raise SystemExit('appVersion marker not found')
+          main.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          changelog = Path('CHANGELOG.md')
+          old_text = changelog.read_text(encoding='utf-8')
+          section = '''## [8.5.44] — 2026-09-06
+
+### GoFile — fallback corect pentru `error-notFound` mascat
+- Când API-ul GoFile răspunde HTTP 200 cu `error-notFound`, DDG nu mai declară imediat folderul inexistent; încearcă mai întâi ceilalți candidați cunoscuți de `X-Website-Token` cu același account token.
+- Formula/saltul `5d4f7g8sd45fsd`, folosit de extractorul GoFile din gallery-dl, este încercat înaintea vechiului fallback `9844d94d963d30`.
+- Retry-urile de website-token nu creează conturi guest noi și nu agravează rate-limit-ul.
+- Dacă toate formulele cunoscute întorc `error-notFound`, DDG păstrează eroarea finală `notFound`, astfel încât un folder realmente șters să nu fie raportat fals ca valid.
+- Testele acoperă atât trecerea de la un `error-notFound` mascat la următorul salt, cât și epuizarea corectă a tuturor candidaților.
+
+### Compatibilitate
+- MEGA Preview și semantica de matching nu sunt modificate.
+
+'''
+          if old_text.startswith('## [8.5.44]'):
+              raise SystemExit('8.5.44 changelog already present')
+          changelog.write_text(section + old_text, encoding='utf-8')
+
+      - name: Validate release
+        run: |
+          gofmt -w main.go provider_gofile_session_v8542.go provider_gofile_session_v8542_test.go
+          test "$(cat VERSION)" = "8.5.44"
+          grep -q 'const appVersion = "8.5.44 Pro Smart Media Guard"' main.go
+          grep -q '^## \[8.5.44\]' CHANGELOG.md
+          go test ./...
+          go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/DuplicateDownloadGuard_PRO_8.5.44.exe .
+
+      - name: Commit release prep and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/prepare-8544-release.yml
+          git add VERSION main.go CHANGELOG.md
+          git commit -m "Prepare 8.5.44 release"
+          git push origin HEAD:release/8.5.44
