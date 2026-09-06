@@ -39,9 +39,13 @@
     if (!state) {
       state = {
         startedAt: Date.now(),
+        playStartedAt: 0,
         lastProgressAt: Date.now(),
         lastBufferedEnd: 0,
         lastCurrentTime: Number(media?.currentTime || 0),
+        playRequested: false,
+        everPlayable: false,
+        everPlayed: false,
         probeStarted: false,
         probeDone: false,
         rangeSupported: null,
@@ -94,6 +98,7 @@
       case 'loadstart': return `${source} • pregătesc bufferul…`;
       case 'loadedmetadata': return `${source} • metadata gata • ${aheadText}${pctText}`;
       case 'progress': return `${source} • ${aheadText}${pctText}`;
+      case 'play': return `${source} • pornesc redarea • ${aheadText}`;
       case 'waiting': return `${source} • BUFFERING… • ${aheadText}`;
       case 'stalled': return `${source} • server lent / aștept date… • ${aheadText}`;
       case 'seeking': return `${source} • caut poziția cerută…`;
@@ -116,27 +121,57 @@
     const state = stateFor(media);
     const end = bufferedEnd(media);
     const now = Number(media.currentTime || 0);
-    if (end > state.lastBufferedEnd + 0.05 || now > state.lastCurrentTime + 0.05) {
+    if (end > state.lastBufferedEnd + 0.05 || Math.abs(now - state.lastCurrentTime) > 0.05) {
       state.lastBufferedEnd = Math.max(state.lastBufferedEnd, end);
-      state.lastCurrentTime = Math.max(state.lastCurrentTime, now);
+      state.lastCurrentTime = now;
       state.lastProgressAt = Date.now();
     }
+    if (now > 0.05) state.everPlayed = true;
+    if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) state.everPlayable = true;
+  }
+
+  function resetProbeState(state) {
+    state.probeStarted = false;
+    state.probeDone = false;
+    state.rangeSupported = null;
+    state.probeStatus = 0;
+    state.probeLatencyMs = 0;
+    state.probeMessage = '';
+    state.retryDone = false;
   }
 
   function providerBufferEvent(media, stateName) {
     if (!media) return;
     const state = stateFor(media);
+    const now = Date.now();
     if (stateName === 'loadstart') {
-      state.startedAt = Date.now();
-      state.lastProgressAt = state.startedAt;
+      state.startedAt = now;
+      state.playStartedAt = 0;
+      state.lastProgressAt = now;
       state.lastBufferedEnd = 0;
       state.lastCurrentTime = 0;
-      state.probeStarted = false;
-      state.probeDone = false;
-      state.rangeSupported = null;
-      state.probeStatus = 0;
-      state.probeLatencyMs = 0;
-      state.probeMessage = '';
+      state.playRequested = false;
+      state.everPlayable = false;
+      state.everPlayed = false;
+      resetProbeState(state);
+    } else if (stateName === 'play') {
+      state.playRequested = true;
+      state.playStartedAt = now;
+      state.lastProgressAt = now;
+      resetProbeState(state);
+    } else if (stateName === 'waiting' || stateName === 'stalled') {
+      state.playRequested = !media.paused && !media.ended;
+      if (state.playRequested && !state.playStartedAt) state.playStartedAt = now;
+    } else if (stateName === 'canplay') {
+      state.everPlayable = true;
+    } else if (stateName === 'playing') {
+      state.playRequested = true;
+      state.everPlayable = true;
+      state.everPlayed = true;
+      state.lastProgressAt = now;
+    } else if (stateName === 'pause' || stateName === 'ended') {
+      state.playRequested = false;
+      state.playStartedAt = 0;
     }
     noteProgress(media);
     setStatus(media, stateName, '');
@@ -144,7 +179,7 @@
 
   async function probeRange(media) {
     const state = stateFor(media);
-    if (state.probeStarted || state.probeDone) return;
+    if (state.probeStarted || state.probeDone || !state.playRequested || media.paused || media.ended) return;
     const src = String(media.currentSrc || media.src || '').trim();
     if (!src) return;
     state.probeStarted = true;
@@ -186,13 +221,14 @@
 
   function maybeRetry(media) {
     const state = stateFor(media);
-    if (state.retryDone || state.rangeSupported !== true) return false;
+    if (state.retryDone || state.rangeSupported !== true || !state.playRequested || media.paused || media.ended) return false;
     if (media.readyState > HTMLMediaElement.HAVE_NOTHING || bufferedEnd(media) > 0.05) return false;
     state.retryDone = true;
     setStatus(media, 'probing', 'BUNKR • Range este OK, refac o singură dată conexiunea CDN…');
     try {
       media.load();
       state.startedAt = Date.now();
+      state.playStartedAt = state.startedAt;
       state.lastProgressAt = state.startedAt;
       return true;
     } catch (_) {
@@ -206,8 +242,19 @@
     const state = stateFor(media);
     noteProgress(media);
 
-    if (media.error) return;
-    const age = Date.now() - state.startedAt;
+    if (media.error || media.ended) return;
+
+    // A paused video is not buffering for playback. Do not overwrite a valid
+    // paused/ready state with a stale watchdog warning, which was the cause of
+    // false "no buffer" messages after a clip had already played successfully.
+    if (media.paused || !state.playRequested) return;
+
+    // If the browser already has future data, playback is healthy right now.
+    // Normal progress/canplay/playing events own the status in this state.
+    if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && bufferedAhead(media) >= 0.1) return;
+
+    const base = state.playStartedAt || state.startedAt;
+    const age = Date.now() - base;
     const idle = Date.now() - state.lastProgressAt;
     const ahead = bufferedAhead(media);
 
@@ -224,7 +271,10 @@
       } else if (media.readyState === HTMLMediaElement.HAVE_NOTHING) {
         setStatus(media, 'slow', `${state.probeMessage} Metadata video încă nu a sosit după ${Math.round(age / 1000)}s.`);
       } else if (media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-        setStatus(media, 'slow', `${state.probeMessage} Metadata există, dar nu s-a format buffer suficient pentru redare.`);
+        const context = state.everPlayed
+          ? ' Redarea a funcționat înainte, dar poziția curentă nu primește suficient buffer.'
+          : ' Metadata există, dar nu s-a format buffer suficient pentru redare.';
+        setStatus(media, 'slow', `${state.probeMessage}${context}`);
       }
     }
   }
@@ -235,6 +285,7 @@
       `onloadstart="providerBufferEvent(this,'loadstart')" ` +
       `onloadedmetadata="providerBufferEvent(this,'loadedmetadata')" ` +
       `onprogress="providerBufferEvent(this,'progress')" ` +
+      `onplay="providerBufferEvent(this,'play')" ` +
       `onwaiting="providerBufferEvent(this,'waiting')" ` +
       `onstalled="providerBufferEvent(this,'stalled')" ` +
       `onseeking="providerBufferEvent(this,'seeking')" ` +
