@@ -1,8 +1,8 @@
 {
-  "version": "8.5.47-test.3",
+  "version": "8.5.48-test.4",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "dc5a3237c6950b7000a32aa5ada36ab6d9d5c9d9b65d1d211b5d0227424f4f54",
-  "notes": "TEST: TEST load updater corner HUD hotfix",
-  "publishedAt": "2026-09-06T14:10:03.5401835Z",
+  "sha256": "eb28ce0e080b1767e46c84a399ed698899fa5db2ad66c3c94cda61af1669969a",
+  "notes": "TEST: Base TEST builds on Stable 8.5.47",
+  "publishedAt": "2026-09-06T14:37:24.3410909Z",
   "channel": "test"
 }
