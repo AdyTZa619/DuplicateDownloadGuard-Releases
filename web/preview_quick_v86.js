@@ -14,6 +14,7 @@
     ['/update_channels_v8546.js', 'ddgUpdateChannelsV8546'],
     ['/update_corner_hotfix_v8547.js', 'ddgUpdateCornerHotfixV8547'],
     ['/update_sound_v8552.js', 'ddgUpdateSoundV8552Script'],
+    ['/update_fast_watch_v8562.js', 'ddgFastUpdateWatchV8562Script'],
     ['/jdownloader_final_v8551.js', 'ddgJDownloaderFinalV8551Script']
   ];
 
