@@ -11,9 +11,9 @@ const (
 	updateHandoffRequestName = "apply_update.json"
 )
 
-// isDDGAppWindowTitle is intentionally strict. During the one-time post-update
-// cleanup we only close the dedicated Edge app window whose title is exactly
-// the DDG application title. We do not match ordinary browser windows such as
+// isDDGAppWindowTitle is intentionally strict. We only close the dedicated
+// Edge --app window whose title is exactly the DDG application title. We do
+// not match ordinary browser windows such as
 // "Duplicate Download Guard Pro - Microsoft Edge", because closing one of
 // those could also close unrelated tabs in the same browser window.
 func isDDGAppWindowTitle(title string) bool {
@@ -33,18 +33,17 @@ func postUpdateHandoffPending() bool {
 	return updateHandoffPendingAtRoot(executableDir())
 }
 
-// The native updater keeps apply_update.json until the freshly started version
-// writes its health marker. That gives the new executable a safe, precise way
-// to know it is a post-update launch. The previous backend is already gone at
-// this point, but its Edge --app window may still be visible. Close that stale
-// window before main() opens the new UI.
+// Each normal DDG process opens its Edge --app window only later, from main().
+// Therefore every exact-title DDG app window that exists during init belongs
+// to an older process/UI instance. Close it on every normal startup, not only
+// when apply_update.json is still present. This also recovers from a failed or
+// partially completed updater handoff where the old Edge window survived but
+// its localhost backend is already gone (the UI would otherwise display
+// "Monitor local indisponibil").
 func init() {
-	// Both updater helper modes run from the same freshly installed EXE. The
-	// cleanup helper must never close the normal post-update UI window.
+	// Updater helper modes run from the same executable and must never touch UI
+	// windows. Only a real application launch performs stale-window cleanup.
 	if runningNativeUpdaterMode(os.Args) {
-		return
-	}
-	if !postUpdateHandoffPending() {
 		return
 	}
 	closeDDGAppWindowsNative()
