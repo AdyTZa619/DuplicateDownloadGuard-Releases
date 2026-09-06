@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.48",
+  "version": "8.5.49-test.50",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "e950a4e71a6a46d04dd7c63eb732e28a28255ed7f6167f43c81f6e3ea8a70d56",
-  "notes": "TEST: TEST route Bunkr queue through official gallery-dl",
-  "publishedAt": "2026-09-06T19:58:17.4423087Z",
+  "sha256": "6c39ac25cae4f76809334ee4929f7cfc0d1941b24f41df9b70256093fddacc02",
+  "notes": "TEST: TEST show explicit provider failure in preview player",
+  "publishedAt": "2026-09-06T20:12:35.5958146Z",
   "channel": "test"
 }
