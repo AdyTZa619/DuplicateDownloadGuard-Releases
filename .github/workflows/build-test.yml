@@ -41,24 +41,31 @@ jobs:
           $replacement = 'const appVersion = "' + $testVersion + ' Pro Smart Media Guard TEST"'
           $main = [regex]::Replace($main, $pattern, $replacement, 1)
 
-          # TEST invariant: when engine=jdownloader reaches /api/queue/add, the
-          # request is routed to the backend JDownloader bridge and can never
-          # fall through to DDG's internal queue. This is deliberately applied
-          # in the TEST build before compilation so the real executable tests
-          # the same route the user will run.
+          # Fail-closed JDownloader routing. The normal queue remains guarded as
+          # a fallback, but the UI now uses a dedicated endpoint which can never
+          # call the integrated DDG downloader.
           $oldQueueRoute = 'mux.HandleFunc("/api/queue/add", a.handleQueueAdd)'
-          $newQueueRoute = 'mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)'
+          $newQueueRoutes = @'
+          mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)
+          mux.HandleFunc("/api/download/jdownloader-direct", a.handleJDownloaderDirectEndpointV8551)
+          '@
           if (-not $main.Contains($oldQueueRoute)) { throw 'Nu am găsit ruta /api/queue/add pentru protecția JDownloader.' }
-          $main = $main.Replace($oldQueueRoute, $newQueueRoute)
+          $main = $main.Replace($oldQueueRoute, $newQueueRoutes.TrimEnd())
 
-          # Existing configs created by older builds may still point to the old
-          # portable <exe>\downloads default. Migrate only that exact old default
-          # (or an empty value); folders explicitly chosen by the user stay intact.
+          # Default pentru downloadurile integrate = folderul principal DDG
+          # (directorul în care se află EXE-ul). Migrăm doar vechile default-uri:
+          # <exe>\downloads și Windows Downloads. Orice alt folder ales manual rămâne.
           $defaultPattern = 'if\s+strings\.TrimSpace\(a\.cfg\.DownloadDir\)\s*==\s*""\s*\{\s*a\.cfg\.DownloadDir\s*=\s*portableDownloadsDir\(\)\s*\}'
           $newDefaultBlock = @'
           currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
           legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
-          if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
+          windowsDownloads := ""
+          if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+          	windowsDownloads = filepath.Clean(filepath.Join(home, "Downloads"))
+          }
+          if currentDownloadDir == "" ||
+          	strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) ||
+          	(windowsDownloads != "" && strings.EqualFold(filepath.Clean(currentDownloadDir), windowsDownloads)) {
           	a.cfg.DownloadDir = portableDownloadsDir()
           }
           '@
@@ -66,24 +73,41 @@ jobs:
           $main = [regex]::Replace($main, $defaultPattern, $newDefaultBlock.TrimEnd(), 1)
           [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
 
-          # Default pentru descărcările integrate: folderul principal Downloads
-          # al utilizatorului Windows, nu folderul portabil de lângă EXE.
           $extra = Get-Content -Raw v8_extra.go
           $oldPortable = 'func portableDownloadsDir() string { return filepath.Join(executableDir(), "downloads") }'
-          $newPortable = @'
-          func portableDownloadsDir() string {
-          	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-          		return filepath.Join(home, "Downloads")
-          	}
-          	if profile := strings.TrimSpace(os.Getenv("USERPROFILE")); profile != "" {
-          		return filepath.Join(profile, "Downloads")
-          	}
-          	return filepath.Join(executableDir(), "downloads")
-          }
-          '@
-          if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit funcția portableDownloadsDir pentru noul default Downloads.' }
-          $extra = $extra.Replace($oldPortable, $newPortable.TrimEnd())
+          $newPortable = 'func portableDownloadsDir() string { return executableDir() }'
+          if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit portableDownloadsDir pentru default-ul DDG root.' }
+          $extra = $extra.Replace($oldPortable, $newPortable)
           [System.IO.File]::WriteAllText((Resolve-Path v8_extra.go), $extra, [System.Text.UTF8Encoding]::new($false))
+
+          # Make JDownloader a real visible engine in the compiled UI, not an
+          # option that only exists when a secondary JS file happens to load.
+          $indexPath = 'web/index.html'
+          $index = Get-Content -Raw $indexPath
+          if ($index -notmatch 'option value="jdownloader"') {
+            $oldEngineTail = '<option value="mega">MEGAcmd</option></select>'
+            $newEngineTail = '<option value="mega">MEGAcmd</option><option value="jdownloader">JDownloader 2 — direct</option></select>'
+            if (-not $index.Contains($oldEngineTail)) { throw 'Nu am găsit lista motoarelor de download în index.html.' }
+            $index = $index.Replace($oldEngineTail, $newEngineTail)
+          }
+
+          # Legacy inline downloadSelected used cfg.downloadMethod and could ignore
+          # the current selector until Save Rules. Force it to read the live value.
+          $index = $index.Replace("let engine=cfg.downloadMethod||'auto';", "let engine=$('downloadMethod')?.value||cfg.downloadMethod||'auto';")
+
+          # Final capture-phase guard is loaded in the real EXE. It calls only the
+          # dedicated JDownloader endpoint, so ExactGuard/inline handlers cannot
+          # enqueue the same click in DDG.
+          $finalScript = '<script defer src="/jdownloader_final_v8551.js"></script>'
+          if (-not $index.Contains($finalScript)) {
+            if (-not $index.Contains('</body>')) { throw 'index.html nu conține </body> pentru injectarea guardului JDownloader.' }
+            $index = $index.Replace('</body>', "$finalScript</body>")
+          }
+          [System.IO.File]::WriteAllText((Resolve-Path $indexPath), $index, [System.Text.UTF8Encoding]::new($false))
+
+          if ($main -notmatch '/api/download/jdownloader-direct') { throw 'Ruta dedicată JDownloader nu a fost injectată.' }
+          if ($index -notmatch 'jdownloader_final_v8551\.js') { throw 'Guardul final JDownloader nu a fost injectat în UI.' }
+          if ($index -notmatch 'option value="jdownloader"') { throw 'Motorul JDownloader nu este vizibil în UI.' }
 
           $subject = (git log -1 --pretty=%s).Trim()
           if ([string]::IsNullOrWhiteSpace($subject)) { $subject = 'build de test DDG' }
@@ -100,7 +124,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          gofmt -w main.go v8_extra.go
+          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go
           if ($LASTEXITCODE -ne 0) { throw 'gofmt failed while normalizing TEST source patches' }
           $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
