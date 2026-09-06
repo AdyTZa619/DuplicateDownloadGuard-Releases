@@ -32,22 +32,88 @@
     const note = '<span class="trafficNote">REMOTE • streaming la cerere</span>';
     const tag = source === 'MEGA' ? 'MEGA' : source;
     if (kind === 'image') {
-      return `<img id="remoteImage" src="${url}" alt="Preview remote" onerror="remotePreviewError()"><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)}</span>${note}`;
+      return `<img id="remoteImage" src="${url}" alt="Preview remote" onerror="remotePreviewError(this)"><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)}</span>${note}`;
     }
     if (kind === 'video') {
-      return `<video id="remoteVideo" controls preload="metadata" src="${url}" onerror="remotePreviewError()"></video><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)} stream</span>${note}`;
+      return `<video id="remoteVideo" controls preload="metadata" src="${url}" onerror="remotePreviewError(this)"></video><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)} stream</span>${note}`;
     }
     if (kind === 'audio') {
-      return `<audio controls preload="metadata" src="${url}" onerror="remotePreviewError()"></audio><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)}</span>${note}`;
+      return `<audio controls preload="metadata" src="${url}" onerror="remotePreviewError(this)"></audio><span class="miniInfo">${htmlEscape(ext)} • ${htmlEscape(tag)}</span>${note}`;
     }
     return '<div class="previewEmpty">Format fără player remote integrat.</div>';
   }
 
-  function providerRemotePreviewError() {
+  function diagnosticURL(mediaElement, row) {
+    const src = String(mediaElement?.currentSrc || mediaElement?.src || '').trim();
+    if (!src || !row?.id) return '';
+    try {
+      const u = new URL(src, window.location.href);
+      u.searchParams.set('id', String(row.id));
+      u.searchParams.set('diagnose', '1');
+      u.searchParams.set('_ddg', String(Date.now()));
+      return u.toString();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function previewButtons() {
+    return '<button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ Deschide sursa</button>';
+  }
+
+  function renderPreviewDiagnosis(box, data, source) {
+    const ok = Boolean(data?.ok);
+    const code = String(data?.code || '').trim();
+    const httpStatus = Number(data?.httpStatus || 0);
+    const contentType = String(data?.contentType || '').trim();
+    let title = String(data?.title || '').trim();
+    let detail = String(data?.detail || '').trim();
+
+    if (ok) {
+      title = 'Fișierul răspunde, dar playerul integrat nu îl poate reda';
+      detail = detail || 'Sursa remote răspunde normal. Problema este probabil formatul/codec-ul sau o limitare a playerului WebView.';
+    } else if (!title) {
+      title = `${source}: fișier remote indisponibil`;
+    }
+
+    const meta = [];
+    if (httpStatus > 0) meta.push(`HTTP ${httpStatus}`);
+    if (contentType) meta.push(contentType);
+    if (code) meta.push(code);
+    const metaHTML = meta.length ? `<br><br><span class="miniInfo">${htmlEscape(meta.join(' • '))}</span>` : '';
+
+    box.innerHTML = `<div class="previewEmpty"><b>${htmlEscape(title)}</b><br><br>${htmlEscape(detail)}${metaHTML}<br><br>${previewButtons()}</div>`;
+  }
+
+  async function providerRemotePreviewError(mediaElement) {
     const box = document.getElementById('remotePreview');
     if (!box) return;
-    const source = sourceName();
-    box.innerHTML = `<div class="previewEmpty">Browserul nu poate reda streamul ${htmlEscape(source)} în forma curentă.<br><br><button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ Deschide sursa</button></div>`;
+    if (box.dataset.providerDiagnosing === '1') return;
+    box.dataset.providerDiagnosing = '1';
+
+    const row = rowNow();
+    const source = sourceName(row);
+    const diagnose = diagnosticURL(mediaElement, row);
+    if (!diagnose) {
+      box.innerHTML = `<div class="previewEmpty"><b>${htmlEscape(source)}: preview indisponibil</b><br><br>Nu am putut identifica URL-ul media pentru diagnostic.<br><br>${previewButtons()}</div>`;
+      return;
+    }
+
+    box.innerHTML = `<div class="previewEmpty"><b>Verific problema fișierului ${htmlEscape(source)}…</b><br><br>DDG verifică doar headerele și primul byte; nu descarcă fișierul pentru acest diagnostic.</div>`;
+    try {
+      const response = await fetch(diagnose, {
+        method: 'GET',
+        headers: {'Accept':'application/json'},
+        cache: 'no-store'
+      });
+      if (!response.ok) throw new Error(`Diagnostic HTTP ${response.status}`);
+      const data = await response.json();
+      renderPreviewDiagnosis(box, data, source);
+    } catch (error) {
+      box.innerHTML = `<div class="previewEmpty"><b>${htmlEscape(source)}: nu am putut diagnostica preview-ul</b><br><br>${htmlEscape(error?.message || String(error))}<br><br>${previewButtons()}</div>`;
+    } finally {
+      delete box.dataset.providerDiagnosing;
+    }
   }
 
   async function providerOpenRemote() {
