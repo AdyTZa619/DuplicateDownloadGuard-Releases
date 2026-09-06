@@ -1,8 +1,8 @@
 {
-  "version": "8.5.42",
+  "version": "8.5.43",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "e18535147ccae93fa1f09f8ad3e27e0a0b41b82b1472050017d860d846d22cc5",
-  "notes": "Noutăți 8.5.42: Tokenul guest creat de DDG este păstrat în `data/cache/gofile_guest_state.json` și reutilizat după restart sau update, în loc să fie recreat la fiecare pornire. • Un token configurat prin `GOFILE_TOKEN`, `GOFILE_API_TOKEN` sau `GF_TOKEN` are prioritate și nu este persistat de DDG. • `POST /accounts` nu mai este repetat după `429`: DDG salvează un cooldown și nu mai lovește endpointul până la expirarea lui; fallback-ul `gallery-dl` este oprit când cauza este rate-limit GoFile. • Tokenul guest este invalidat numai pentru erori explicite de autentificare precum `error-wrongToken` sau `error-notAuthenticated`, nu pentru orice răspuns HTTP 401. • Pentru metadata, DDG încearcă mai întâi candidații de website-token cu același account token și abia apoi decide dacă sesiunea trebuie refăcută. • Valoarea implicită folosită de generatorul website-token este actualizată la `12af056dacea0b`, iar override-ul `GOFILE_WT_SALT` rămâne disponibil.",
-  "publishedAt": "2026-09-06T08:46:12.2481096Z",
+  "sha256": "dffdcec0aa5998239cf0a0650d7d0f263674cf014fa03217ae3f0ae2f45aee5b",
+  "notes": "Noutăți 8.5.43: Crearea contului guest folosește acum un singur `POST /accounts` fără corp, în loc de trei încercări consecutive de câte 15 secunde. • Cererea de creare guest nu mai trimite headerele de metadata `X-Website-Token` / `X-BL`, nici `Content-Type: application/json` sau corpul artificial `{}`. • Timeout-ul pentru prima creare guest este limitat la 8 secunde; la blocaj de transport DDG trece rapid la fallback-ul `gallery-dl` în loc să consume toate cele 45 de secunde ale scanării native. • Răspunsurile reale `429` păstrează protecția de cooldown și nu pornesc fallback-uri care ar crea alte conturi guest. • Tokenurile guest reușite continuă să fie persistate și reutilizate conform mecanismului introdus în 8.5.42. • Testele verifică explicit requestul bodyless/fără headere metadata și faptul că un timeout de transport nu este repetat.",
+  "publishedAt": "2026-09-06T09:15:03.6756915Z",
   "channel": "stable"
 }
