@@ -1,0 +1,202 @@
+name: Patch download UX single-pass
+
+on:
+  push:
+    branches:
+      - fix/download-ux-single-guard
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Apply download UX single-pass'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/download-ux-single-guard
+          fetch-depth: 0
+
+      - name: Apply focused download UX patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('download_guard.go')
+          s = p.read_text(encoding='utf-8')
+
+          old = '"strings"\n\t"time"'
+          new = '"strings"\n\t"sync"\n\t"time"'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tDurationMS   int64                   `json:"durationMs"`\n}'''
+          new = '''\tDurationMS       int64                   `json:"durationMs"`\n\tReusedFreshIndex bool                    `json:"reusedFreshIndex,omitempty"`\n\tIndexAgeMS       int64                   `json:"indexAgeMs,omitempty"`\n}'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          marker = '''type guardScan struct {\n\tFiles int\n\tBytes int64\n\tRoots []string\n}\n'''
+          insert = marker + '''\nconst guardFreshIndexTTL = 60 * time.Second\n\ntype guardRefreshSnapshot struct {\n\tAt       time.Time\n\tRootsKey string\n\tScan     guardScan\n}\n\nvar guardRefreshSnapshots sync.Map\n\nfunc guardRootsKey(roots []string) string {\n\tkeys := make([]string, 0, len(roots))\n\tfor _, root := range roots {\n\t\tkeys = append(keys, pathKey(root))\n\t}\n\tsort.Strings(keys)\n\treturn strings.Join(keys, "\\n")\n}\n\nfunc (a *App) rememberGuardRefresh(scan guardScan) {\n\tguardRefreshSnapshots.Store(a, guardRefreshSnapshot{At: time.Now(), RootsKey: guardRootsKey(scan.Roots), Scan: scan})\n}\n\nfunc (a *App) reuseFreshGuardIndex(destination string) ([]FileEntry, guardScan, time.Duration, bool) {\n\traw, ok := guardRefreshSnapshots.Load(a)\n\tif !ok {\n\t\treturn nil, guardScan{}, 0, false\n\t}\n\tsnapshot, ok := raw.(guardRefreshSnapshot)\n\tif !ok {\n\t\treturn nil, guardScan{}, 0, false\n\t}\n\tage := time.Since(snapshot.At)\n\tif age < 0 || age > guardFreshIndexTTL {\n\t\treturn nil, guardScan{}, age, false\n\t}\n\troots := a.guardRoots(destination)\n\tif guardRootsKey(roots) != snapshot.RootsKey {\n\t\treturn nil, guardScan{}, age, false\n\t}\n\ta.mu.RLock()\n\tentries := make([]FileEntry, 0, len(a.index))\n\tfor _, entry := range a.index {\n\t\tif !isGuardTemporaryFile(entry.Path) {\n\t\t\tentries = append(entries, entry)\n\t\t}\n\t}\n\ta.mu.RUnlock()\n\tscan := snapshot.Scan\n\tscan.Roots = append([]string(nil), roots...)\n\treturn entries, scan, age, true\n}\n'''
+          assert marker in s
+          s = s.replace(marker, insert, 1)
+
+          old = '''\tpaths = append(paths, configuredDownload, destination)\n\treturn compactGuardRoots(paths)'''
+          new = '''\tpaths = append(paths, configuredDownload, destination)\n\tif strings.TrimSpace(configuredDownload) == "" {\n\t\tpaths = append(paths, portableDownloadsDir())\n\t}\n\treturn compactGuardRoots(paths)'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tout := make([]FileEntry, 0, len(entries))\n\tfor _, e := range entries {\n\t\tout = append(out, e)\n\t}\n\treturn out, scan, nil\n}'''
+          new = '''\tout := make([]FileEntry, 0, len(entries))\n\tfor _, e := range entries {\n\t\tout = append(out, e)\n\t}\n\ta.rememberGuardRefresh(scan)\n\treturn out, scan, nil\n}'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tentries, scan, err := a.refreshLiveIndexForGuard(ctx, destination)\n\tif err != nil {\n\t\treturn report, err\n\t}\n\treport.ScannedFiles, report.ScannedBytes, report.ScannedRoots = scan.Files, scan.Bytes, scan.Roots'''
+          new = '''\tentries, scan, indexAge, reusedFreshIndex := a.reuseFreshGuardIndex(destination)\n\tvar err error\n\tif !reusedFreshIndex {\n\t\tentries, scan, err = a.refreshLiveIndexForGuard(ctx, destination)\n\t\tif err != nil {\n\t\t\treturn report, err\n\t\t}\n\t}\n\treport.ScannedFiles, report.ScannedBytes, report.ScannedRoots = scan.Files, scan.Bytes, scan.Roots\n\treport.ReusedFreshIndex = reusedFreshIndex\n\tif reusedFreshIndex {\n\t\treport.IndexAgeMS = indexAge.Milliseconds()\n\t}'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\ta.logf("ExactGuard %s: %d download, %d duplicate blocate, %d review • scan live %d fișiere în %d ms", mode, report.Counts[guardDownload], report.Counts[guardDuplicate], report.Counts[guardReview], report.ScannedFiles, report.DurationMS)'''
+          new = '''\tindexSource := "scan live"\n\tif report.ReusedFreshIndex {\n\t\tindexSource = fmt.Sprintf("index proaspăt reutilizat (%d ms)", report.IndexAgeMS)\n\t}\n\ta.logf("ExactGuard %s: %d download, %d duplicate blocate, %d review • %s • %d fișiere în %d ms", mode, report.Counts[guardDownload], report.Counts[guardDuplicate], report.Counts[guardReview], indexSource, report.ScannedFiles, report.DurationMS)'''
+          assert old in s
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('download_guard_test.go')
+          s = p.read_text(encoding='utf-8')
+          test = r'''
+
+func TestDownloadGuardReusesFreshCompareIndex(t *testing.T) {
+	collection, download := t.TempDir(), t.TempDir()
+	data := []byte("fresh-index-exact-content")
+	local := filepath.Join(collection, "renamed-local.bin")
+	if err := os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	remote := RemoteItem{Name: "remote.bin", Size: int64(len(data)), Source: "HTTP", HashType: "sha256", Hash: hex.EncodeToString(sum[:])}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.LiveRefreshCompare = true
+	a.compareRemote(context.Background(), []RemoteItem{remote}, "balanced")
+
+	report, err := a.runDownloadGuard(context.Background(), a.results, download, guardModeSmart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.ReusedFreshIndex {
+		t.Fatalf("expected fresh compare index to be reused: %#v", report)
+	}
+	if report.IndexAgeMS < 0 || report.IndexAgeMS > guardFreshIndexTTL.Milliseconds() {
+		t.Fatalf("unexpected cached index age: %dms", report.IndexAgeMS)
+	}
+	if got := report.Decisions[0]; got.Verdict != guardDuplicate || got.LocalPath != local {
+		t.Fatalf("unexpected guard decision from reused index: %#v", got)
+	}
+}
+'''
+          if 'TestDownloadGuardReusesFreshCompareIndex' not in s:
+              s += test
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('web/exact_guard.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("downloadButton.textContent = '⬇ Descarcă selectate';", "downloadButton.textContent = '⬇ Descarcă';", 1)
+          s = s.replace("downloadButton.title = 'Smart Guard verifică automat duplicatele înainte de transfer; apoi pornește downloadul sau explică exact de ce nu poate porni.';", "downloadButton.title = 'Un click: DDG confirmă în fundal ce este sigur și pornește coada. Te oprește numai dacă găsește duplicat, caz neclar sau eroare.';", 1)
+
+          start = s.index('    downloadSelected = async function () {')
+          end = s.index('    const originalJD2 = sendSelectedJD2;', start)
+          replacement = r'''    downloadSelected = async function () {
+      const ids = idsForAction();
+      if (!ids.length) return toast('Selectează fișiere');
+      const destination = document.getElementById('downloadDir')?.value?.trim() || cfg.downloadDir || '';
+      const engine = document.getElementById('downloadMethod')?.value || cfg.downloadMethod || 'auto';
+      const mode = document.getElementById('downloadGuardMode')?.value || cfg.downloadGuardMode || 'smart';
+      const request = { ids, engine, destination, guardMode: mode };
+      const button = document.getElementById('downloadGuardBtn');
+      if (button) {
+        button.disabled = true;
+        button.textContent = '⏳ Pregătesc…';
+      }
+      const started = Date.now();
+      showActivity(`Pregătesc ${ids.length} fișier(e) pentru download. Protecția rulează în fundal…`);
+      clearInterval(guardTicker);
+      guardTicker = setInterval(() => {
+        const seconds = Math.floor((Date.now() - started) / 1000);
+        showActivity(`Pregătesc downloadul: ${seconds}s • ${ids.length} fișier(e)`);
+      }, 1000);
+      try {
+        const data = await api('/api/queue/add', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+        });
+        await loadResults();
+        const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+        const counts = data.guard?.counts || {};
+        const duplicates = Number(counts.DUPLICATE || 0);
+        const reviews = Number(counts.REVIEW || 0);
+        const needsAttention = rejected.length > 0 || duplicates > 0 || reviews > 0;
+
+        if (needsAttention) {
+          showGuardReport(data.guard, request, data.added);
+          if (rejected.length) {
+            const list = document.getElementById('guardDecisionList');
+            if (list) {
+              const html = rejected.map(x => `<div class="guardItem" style="border-left:3px solid #ff6b7a"><div class="row"><b class="dangerText">NU S-A PORNIT</b><span class="guardAction">${esc(x.engine || 'auto')}</span></div><div style="margin-top:5px"><b>${esc(x.name || 'Fișier')}</b></div><div class="guardReason">${esc(x.title || 'Download indisponibil')}: ${esc(x.message || '')}</div>${x.action ? `<div class="muted small" style="margin-top:5px"><b>Ce faci:</b> ${esc(x.action)}</div>` : ''}</div>`).join('');
+              list.insertAdjacentHTML('afterbegin', html);
+            }
+          }
+        } else {
+          const modal = document.getElementById('guardModal');
+          if (modal && !modal.classList.contains('hidden')) closeGuardReport();
+        }
+
+        const firstReject = rejected[0];
+        const reused = data.guard?.reusedFreshIndex === true;
+        const guardNote = reused ? 'indexul local proaspăt a fost reutilizat' : 'indexul local a fost actualizat';
+        const activity = data.message || `${data.added || 0} fișier(e) au intrat în coadă.`;
+        showActivity(firstReject && !data.added ? `${activity}. ${firstReject.title}: ${firstReject.action || firstReject.message}` : `${activity} • ${guardNote}`, data.added > 0 ? 'ok' : (rejected.length ? 'error' : 'info'));
+        await loadQueue();
+
+        if (data.added > 0 && !needsAttention) {
+          toast(`${data.added} fișier(e) în coadă • download pornit`);
+          goTab('downloads');
+        } else if (needsAttention && data.added > 0) {
+          toast(`${data.added} fișier(e) sigure au intrat în coadă; restul necesită atenție`);
+        }
+      } catch (error) {
+        showActivity(`Download oprit cu eroare: ${error.message}`, 'error');
+        toast(error.message);
+      } finally {
+        clearInterval(guardTicker);
+        guardTicker = null;
+        if (button) {
+          button.disabled = false;
+          button.textContent = '⬇ Descarcă';
+        }
+      }
+    };
+
+'''
+          s = s[:start] + replacement + s[end:]
+          s = s.replace('„🛡 Verifică inteligent + descarcă” rescanează live locațiile și verifică mai întâi dacă fișierul a fost deja descărcat.', '„⬇ Descarcă” folosește indexul proaspăt al scanării când este disponibil și pornește direct coada. O rescanare completă se face numai când indexul nu mai este proaspăt.', 1)
+          s = s.replace('Coada este goală. Selectează rezultate și apasă „🛡 Verifică inteligent + descarcă”.', 'Coada este goală. Selectează rezultate și apasă „⬇ Descarcă”.', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Format and validate
+        shell: bash
+        run: |
+          gofmt -w download_guard.go download_guard_test.go
+          node --check web/exact_guard.js
+          go test ./...
+          go vet ./...
+
+      - name: Commit patch and remove helper
+        shell: bash
+        run: |
+          rm -f .github/workflows/patch-download-ux.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add download_guard.go download_guard_test.go web/exact_guard.js .github/workflows/patch-download-ux.yml
+          git commit -m "Apply download UX single-pass"
+          git push origin HEAD:fix/download-ux-single-guard
