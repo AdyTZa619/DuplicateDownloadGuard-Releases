@@ -9,6 +9,7 @@
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
     ['/check_activity_v8563.js', 'ddgCheckActivityV8563Script'],
+    ['/operation_hud_plus_v8565.js', 'ddgOperationHudPlusV8565Script'],
     ['/source_link_persistence_v8553.js', 'ddgSourceLinkPersistenceV8553Script'],
     ['/updater_resilience.js', 'ddgUpdaterResilience'],
     ['/download_actions_v8545.js', 'ddgDownloadActionsV8545Script'],
