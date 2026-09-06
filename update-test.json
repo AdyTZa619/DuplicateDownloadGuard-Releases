@@ -1,8 +1,8 @@
 {
-  "version": "8.5.47-test.1",
+  "version": "8.5.47-test.3",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "9692bc37da987bada238442dabb3ff72072c821aa6bf753e22ff94e37186ecba",
-  "notes": "TEST: TEST direct JDownloader engine and exact destination",
-  "publishedAt": "2026-09-06T13:40:22.4527427Z",
+  "sha256": "dc5a3237c6950b7000a32aa5ada36ab6d9d5c9d9b65d1d211b5d0227424f4f54",
+  "notes": "TEST: TEST load updater corner HUD hotfix",
+  "publishedAt": "2026-09-06T14:10:03.5401835Z",
   "channel": "test"
 }
