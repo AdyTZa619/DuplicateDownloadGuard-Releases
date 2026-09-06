@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.61",
+  "version": "8.5.49-test.65",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "93bda8006eca9d83c4839ab0ec0d1dda1b1025755b7680fdf2376cc6279804e5",
-  "notes": "TEST: TEST verify Cyberdrop stable media routing",
-  "publishedAt": "2026-09-06T21:11:54.2082657Z",
+  "sha256": "eeccc0da699a93b59dc3463f5c37b7a4772c00483e0b214e2af708d9937f016a",
+  "notes": "TEST: TEST cover check activity and Bunkr JD compatibility modules",
+  "publishedAt": "2026-09-06T21:24:00.1058142Z",
   "channel": "test"
 }
