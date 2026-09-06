@@ -16,6 +16,16 @@
     return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   }
 
+  function bunkrPublicMediaURL(row) {
+    if (sourceName(row) !== 'BUNKR' || !row?.remote?.handle) return '';
+    try {
+      const album = new URL(row.remote.url || '');
+      return `${album.origin}/f/${encodeURIComponent(String(row.remote.handle))}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
   function providerRemoteMediaHTML(url, kind, name) {
     const source = sourceName();
     const ext = String(name || '').split('.').pop().toUpperCase();
@@ -40,13 +50,35 @@
     box.innerHTML = `<div class="previewEmpty">Browserul nu poate reda streamul ${htmlEscape(source)} în forma curentă.<br><br><button class="btn primary" onclick="playRemote()">▶ Încearcă în player extern</button> <button class="btn" onclick="openRemote()">↗ Deschide sursa</button></div>`;
   }
 
+  async function providerOpenRemote() {
+    const row = rowNow();
+    if (!row?.remote) return;
+    const source = sourceName(row);
+    const bunkr = bunkrPublicMediaURL(row);
+    const target = bunkr || String(row.remote.url || '').trim();
+    if (!target) return;
+    try {
+      await window.api('/api/open-remote', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          url: target,
+          handle: source === 'MEGA' ? (row.remote.handle || '') : '',
+          source
+        })
+      });
+    } catch (error) {
+      window.toast?.(error?.message || String(error));
+    }
+  }
+
   function tuneCompareUI(row = rowNow()) {
     if (!row?.remote) return;
     const source = sourceName(row);
     const open = document.getElementById('openRemote');
     if (open) {
       open.textContent = source === 'MEGA' ? '↗ MEGA' : `↗ ${source}`;
-      open.title = source === 'MEGA' ? 'Deschide în MEGA' : `Deschide sursa ${source}`;
+      open.title = source === 'MEGA' ? 'Deschide în MEGA' : `Deschide fișierul selectat în ${source}`;
     }
 
     const mediaInfo = document.getElementById('mediaInfo');
@@ -65,6 +97,7 @@
   function install() {
     window.remoteMediaHTML = providerRemoteMediaHTML;
     window.remotePreviewError = providerRemotePreviewError;
+    window.openRemote = providerOpenRemote;
 
     const original = window.showDetail;
     if (typeof original === 'function' && !original.__providerAwareV8558) {
