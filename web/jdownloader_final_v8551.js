@@ -112,9 +112,24 @@
     }
   }
 
+  function cyberdropURL(row) {
+    const r = row?.remote || {};
+    if (String(r.source || '').toUpperCase() !== 'CYBERDROP' || !r.providerId) return '';
+    try {
+      const album = new URL(r.url || '');
+      // The maintained gallery-dl Cyberdrop extractor resolves files through
+      // the public /f/<id> page, then obtains a fresh auth/CDN URL from the
+      // Cyberdrop API. Hand the stable public media page to JDownloader instead
+      // of DDG's expiring signed CDN URL.
+      return `${album.origin}/f/${encodeURIComponent(String(r.providerId))}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
   function jdURL(row) {
     const r = row?.remote || {};
-    return gofileURL(row) || bunkrURL(row) || String(r.directUrl || r.url || '').trim();
+    return gofileURL(row) || bunkrURL(row) || cyberdropURL(row) || String(r.directUrl || r.url || '').trim();
   }
 
   async function checkJD() {
