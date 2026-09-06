@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -94,5 +95,66 @@ func TestProviderRemoteMatchRankV86(t *testing.T) {
 	}
 	if got := providerRemoteMatchRankV86(old, RemoteItem{Name: "clip.mp4", Path: "Else/clip.mp4"}); got != 1 {
 		t.Fatalf("name rank=%d", got)
+	}
+}
+
+func TestProviderPreviewMaintenanceURLV8559(t *testing.T) {
+	for _, raw := range []string{
+		"https://cdn.example/x/maint.mp4",
+		"https://cdn.example/x/maintenance-vid.mp4?token=1",
+	} {
+		if !providerPreviewMaintenanceURLV8559(raw) {
+			t.Fatalf("maintenance URL not detected: %s", raw)
+		}
+	}
+	if providerPreviewMaintenanceURLV8559("https://cdn.example/x/real-video.mp4") {
+		t.Fatal("normal media classified as maintenance")
+	}
+}
+
+func TestProviderPreviewDiagnosticUnavailableV8559(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	a := &App{results: []Result{{ID: 9, Remote: RemoteItem{ID: 9, Name: "missing.mp4", Source: "HTTP", DirectURL: upstream.URL + "/missing.mp4"}}}}
+	req := httptest.NewRequest(http.MethodGet, "/api/provider-preview/media?id=9&diagnose=1", nil)
+	rr := httptest.NewRecorder()
+	a.handleProviderPreviewMediaV86(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var data map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if data["code"] != "FILE_UNAVAILABLE" {
+		t.Fatalf("code=%v body=%s", data["code"], rr.Body.String())
+	}
+}
+
+func TestProviderPreviewDiagnosticPlayableButPlayerMayFailV8559(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-0/100")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer upstream.Close()
+
+	a := &App{results: []Result{{ID: 10, Remote: RemoteItem{ID: 10, Name: "codec.mp4", Source: "BUNKR", DirectURL: upstream.URL + "/codec.mp4"}}}}
+	req := httptest.NewRequest(http.MethodGet, "/api/provider-preview/media?id=10&diagnose=1", nil)
+	rr := httptest.NewRecorder()
+	a.handleProviderPreviewMediaV86(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var data map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if data["code"] != "READY" || data["ok"] != true {
+		t.Fatalf("unexpected diagnostic: %s", rr.Body.String())
 	}
 }
