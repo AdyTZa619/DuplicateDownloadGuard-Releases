@@ -2,6 +2,10 @@
   'use strict';
 
   let installAttempts = 0;
+  const states = new WeakMap();
+  const WATCHDOG_MS = 1000;
+  const PROBE_AFTER_MS = 8000;
+  const RETRY_AFTER_MS = 12000;
 
   function currentSource() {
     try {
@@ -23,10 +27,32 @@
     style.id = 'providerBufferV8561Style';
     style.textContent = `
       .providerBufferStatus{position:absolute;left:14px;top:14px;z-index:4;max-width:calc(100% - 28px);padding:6px 9px;border-radius:8px;background:rgba(6,12,18,.82);border:1px solid #31485e;color:#c9d9e8;font-size:11px;font-weight:700;pointer-events:none;backdrop-filter:blur(4px)}
-      .providerBufferStatus[data-state="waiting"],.providerBufferStatus[data-state="stalled"]{border-color:#927326;color:#ffe08a}
-      .providerBufferStatus[data-state="playing"]{border-color:#286a50;color:#8af0c1}
+      .providerBufferStatus[data-state="waiting"],.providerBufferStatus[data-state="stalled"],.providerBufferStatus[data-state="probing"],.providerBufferStatus[data-state="slow"]{border-color:#927326;color:#ffe08a}
+      .providerBufferStatus[data-state="playing"],.providerBufferStatus[data-state="ready"]{border-color:#286a50;color:#8af0c1}
+      .providerBufferStatus[data-state="problem"]{border-color:#8b4050;color:#ff9fb0}
     `;
     document.head.appendChild(style);
+  }
+
+  function stateFor(media) {
+    let state = states.get(media);
+    if (!state) {
+      state = {
+        startedAt: Date.now(),
+        lastProgressAt: Date.now(),
+        lastBufferedEnd: 0,
+        lastCurrentTime: Number(media?.currentTime || 0),
+        probeStarted: false,
+        probeDone: false,
+        rangeSupported: null,
+        probeStatus: 0,
+        probeLatencyMs: 0,
+        retryDone: false,
+        probeMessage: ''
+      };
+      states.set(media, state);
+    }
+    return state;
   }
 
   function bufferedAhead(media) {
@@ -43,24 +69,28 @@
     return Math.max(0, best);
   }
 
+  function bufferedEnd(media) {
+    let end = 0;
+    try {
+      for (let i = 0; i < (media?.buffered?.length || 0); i++) end = Math.max(end, media.buffered.end(i));
+    } catch (_) {}
+    return end;
+  }
+
   function bufferedPercent(media) {
     const duration = Number(media?.duration || 0);
     if (!Number.isFinite(duration) || duration <= 0 || !media?.buffered?.length) return 0;
-    let end = 0;
-    try {
-      for (let i = 0; i < media.buffered.length; i++) end = Math.max(end, media.buffered.end(i));
-    } catch (_) {}
-    return Math.max(0, Math.min(100, end / duration * 100));
+    return Math.max(0, Math.min(100, bufferedEnd(media) / duration * 100));
   }
 
-  function statusText(media, state) {
+  function statusText(media, stateName) {
     const source = currentSource();
     const ahead = bufferedAhead(media);
     const pct = bufferedPercent(media);
     const aheadText = ahead >= 0.1 ? `${ahead.toFixed(ahead >= 10 ? 0 : 1)}s buffer înainte` : 'buffer aproape gol';
     const pctText = pct >= 1 ? ` • ${pct.toFixed(0)}% încărcat` : '';
 
-    switch (state) {
+    switch (stateName) {
       case 'loadstart': return `${source} • pregătesc bufferul…`;
       case 'loadedmetadata': return `${source} • metadata gata • ${aheadText}${pctText}`;
       case 'progress': return `${source} • ${aheadText}${pctText}`;
@@ -75,11 +105,128 @@
     }
   }
 
-  function providerBufferEvent(media, state) {
+  function setStatus(media, stateName, text) {
     const status = document.getElementById('providerBufferStatus');
     if (!status || !media) return;
-    status.dataset.state = state || '';
-    status.textContent = statusText(media, state || 'progress');
+    status.dataset.state = stateName || '';
+    status.textContent = text || statusText(media, stateName || 'progress');
+  }
+
+  function noteProgress(media) {
+    const state = stateFor(media);
+    const end = bufferedEnd(media);
+    const now = Number(media.currentTime || 0);
+    if (end > state.lastBufferedEnd + 0.05 || now > state.lastCurrentTime + 0.05) {
+      state.lastBufferedEnd = Math.max(state.lastBufferedEnd, end);
+      state.lastCurrentTime = Math.max(state.lastCurrentTime, now);
+      state.lastProgressAt = Date.now();
+    }
+  }
+
+  function providerBufferEvent(media, stateName) {
+    if (!media) return;
+    const state = stateFor(media);
+    if (stateName === 'loadstart') {
+      state.startedAt = Date.now();
+      state.lastProgressAt = state.startedAt;
+      state.lastBufferedEnd = 0;
+      state.lastCurrentTime = 0;
+      state.probeStarted = false;
+      state.probeDone = false;
+      state.rangeSupported = null;
+      state.probeStatus = 0;
+      state.probeLatencyMs = 0;
+      state.probeMessage = '';
+    }
+    noteProgress(media);
+    setStatus(media, stateName, '');
+  }
+
+  async function probeRange(media) {
+    const state = stateFor(media);
+    if (state.probeStarted || state.probeDone) return;
+    const src = String(media.currentSrc || media.src || '').trim();
+    if (!src) return;
+    state.probeStarted = true;
+    setStatus(media, 'probing', 'BUNKR • verific dacă serverul suportă streaming Range…');
+    const controller = new AbortController();
+    const started = performance.now();
+    try {
+      const response = await fetch(src, {
+        method: 'GET',
+        headers: {'Range':'bytes=0-0'},
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      state.probeLatencyMs = Math.round(performance.now() - started);
+      state.probeStatus = response.status;
+      const contentRange = String(response.headers.get('Content-Range') || '').trim();
+      const acceptRanges = String(response.headers.get('Accept-Ranges') || '').trim().toLowerCase();
+      state.rangeSupported = response.status === 206 || /^bytes\s+/i.test(contentRange) || acceptRanges === 'bytes';
+      controller.abort();
+
+      if (response.status >= 400) {
+        state.probeMessage = `BUNKR • serverul răspunde HTTP ${response.status}; preview-ul nu poate primi date acum.`;
+      } else if (!state.rangeSupported) {
+        state.probeMessage = 'BUNKR • fișierul există, dar serverul nu respectă Range; unele MP4 pot porni foarte greu dacă metadata este la final.';
+      } else if (state.probeLatencyMs >= 3000) {
+        state.probeMessage = `BUNKR • Range OK, dar CDN-ul răspunde lent (${(state.probeLatencyMs / 1000).toFixed(1)}s până la headere).`;
+      } else {
+        state.probeMessage = `BUNKR • Range OK • CDN răspunde în ${(state.probeLatencyMs / 1000).toFixed(1)}s; verific playerul/containerul.`;
+      }
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        state.probeMessage = `BUNKR • testul de streaming a eșuat: ${error?.message || String(error)}`;
+      }
+    } finally {
+      state.probeDone = true;
+      state.probeStarted = false;
+    }
+  }
+
+  function maybeRetry(media) {
+    const state = stateFor(media);
+    if (state.retryDone || state.rangeSupported !== true) return false;
+    if (media.readyState > HTMLMediaElement.HAVE_NOTHING || bufferedEnd(media) > 0.05) return false;
+    state.retryDone = true;
+    setStatus(media, 'probing', 'BUNKR • Range este OK, refac o singură dată conexiunea CDN…');
+    try {
+      media.load();
+      state.startedAt = Date.now();
+      state.lastProgressAt = state.startedAt;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function watchdog() {
+    const media = document.getElementById('remoteVideo');
+    if (!media || currentSource() !== 'BUNKR') return;
+    const state = stateFor(media);
+    noteProgress(media);
+
+    if (media.error) return;
+    const age = Date.now() - state.startedAt;
+    const idle = Date.now() - state.lastProgressAt;
+    const ahead = bufferedAhead(media);
+
+    if (age >= PROBE_AFTER_MS && ahead < 0.1 && !state.probeDone && !state.probeStarted) {
+      probeRange(media);
+      return;
+    }
+
+    if (age >= RETRY_AFTER_MS && idle >= RETRY_AFTER_MS && state.probeDone && maybeRetry(media)) return;
+
+    if (state.probeDone && idle >= RETRY_AFTER_MS && ahead < 0.1) {
+      if (state.probeStatus >= 400 || state.rangeSupported === false) {
+        setStatus(media, 'problem', state.probeMessage);
+      } else if (media.readyState === HTMLMediaElement.HAVE_NOTHING) {
+        setStatus(media, 'slow', `${state.probeMessage} Metadata video încă nu a sosit după ${Math.round(age / 1000)}s.`);
+      } else if (media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        setStatus(media, 'slow', `${state.probeMessage} Metadata există, dar nu s-a format buffer suficient pentru redare.`);
+      }
+    }
   }
 
   function bunkrVideoHTML(url, name) {
@@ -118,6 +265,7 @@
     wrapped.__ddgBunkrBufferV8561 = true;
     window.remoteMediaHTML = wrapped;
     window.providerBufferEvent = providerBufferEvent;
+    setInterval(watchdog, WATCHDOG_MS);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
