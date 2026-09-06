@@ -1,0 +1,70 @@
+name: Patch GoFile notFound token fallback 8.5.44
+
+on:
+  push:
+    branches:
+      - fix/gofile-notfound-token-fallback-8544
+    paths:
+      - .github/workflows/patch-gofile-8544.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/gofile-notfound-token-fallback-8544
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Apply focused GoFile fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          session = Path("provider_gofile_session_v8542.go")
+          text = session.read_text(encoding="utf-8")
+
+          old_order = '''\tadd("9844d94d963d30")\n\tadd("5d4f7g8sd45fsd")'''
+          new_order = '''\tadd("5d4f7g8sd45fsd")\n\tadd("9844d94d963d30")'''
+          if old_order not in text:
+              raise SystemExit("salt candidate order marker not found")
+          text = text.replace(old_order, new_order, 1)
+
+          old_switch = '''\tswitch status {\n\tcase "error-notpremium", "error-websitetoken", "error-wrongwebsitetoken":\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}'''
+          new_switch = '''\t// GoFile can mask a rejected/rotated website token as HTTP 200\n\t// error-notFound. Treat it as ambiguous while other known salts remain;\n\t// fetchGofileContentV86 still returns notFound after all candidates fail.\n\tswitch status {\n\tcase "error-notpremium", "error-websitetoken", "error-wrongwebsitetoken", "error-notfound":\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}'''
+          if old_switch not in text:
+              raise SystemExit("website-token classifier marker not found")
+          text = text.replace(old_switch, new_switch, 1)
+          session.write_text(text, encoding="utf-8")
+
+          tests = Path("provider_gofile_session_v8542_test.go")
+          t = tests.read_text(encoding="utf-8")
+          marker = '''\tif !gofileWebsiteTokenCandidateErrorV8542(generic) {\n\t\tt.Fatal("notPremium should try website-token candidates first")\n\t}\n}'''
+          replacement = '''\tif !gofileWebsiteTokenCandidateErrorV8542(generic) {\n\t\tt.Fatal("notPremium should try website-token candidates first")\n\t}\n\tmaskedNotFound := &gofileAPIErrorV8542{HTTPStatus: http.StatusOK, APIStatus: "error-notFound"}\n\tif !gofileWebsiteTokenCandidateErrorV8542(maskedNotFound) {\n\t\tt.Fatal("notFound must remain ambiguous until website-token candidates are exhausted")\n\t}\n}\n\nfunc TestGofileNotFoundFallsThroughToNextSaltV8544(t *testing.T) {\n\tsetupGofileStateTestV8542(t)\n\tcalls := 0\n\tclient := &http.Client{Transport: gofileRoundTripV8542(func(r *http.Request) (*http.Response, error) {\n\t\tcalls++\n\t\tif calls == 1 {\n\t\t\treturn &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{\\"status\\":\\"error-notFound\\"}`)), Request: r}, nil\n\t\t}\n\t\treturn &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{\\"status\\":\\"ok\\",\\"data\\":{\\"id\\":\\"folder\\",\\"type\\":\\"folder\\",\\"name\\":\\"root\\",\\"children\\":{}}}`)), Request: r}, nil\n\t})}\n\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n\tdefer cancel()\n\tdata, err := fetchGofileContentV86(ctx, client, "same-account-token", "folder")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif data.ID != "folder" || calls != 2 {\n\t\tt.Fatalf("id=%q calls=%d", data.ID, calls)\n\t}\n}\n\nfunc TestGofileRealNotFoundSurvivesCandidateExhaustionV8544(t *testing.T) {\n\tsetupGofileStateTestV8542(t)\n\tcalls := 0\n\tclient := &http.Client{Transport: gofileRoundTripV8542(func(r *http.Request) (*http.Response, error) {\n\t\tcalls++\n\t\treturn &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{\\"status\\":\\"error-notFound\\"}`)), Request: r}, nil\n\t})}\n\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n\tdefer cancel()\n\t_, err := fetchGofileContentV86(ctx, client, "same-account-token", "missing-folder")\n\tif err == nil {\n\t\tt.Fatal("expected notFound after candidate exhaustion")\n\t}\n\t_, status, ok := gofileAPIErrorInfoV8542(err)\n\tif !ok || status != "error-notfound" {\n\t\tt.Fatalf("unexpected final error: %v", err)\n\t}\n\tif calls != len(gofileWebsiteSaltCandidatesV8542()) {\n\t\tt.Fatalf("calls=%d candidates=%d", calls, len(gofileWebsiteSaltCandidatesV8542()))\n\t}\n}'''
+          if marker not in t:
+              raise SystemExit("test insertion marker not found")
+          t = t.replace(marker, replacement, 1)
+          tests.write_text(t, encoding="utf-8")
+
+      - name: Format and validate
+        run: |
+          gofmt -w provider_gofile_session_v8542.go provider_gofile_session_v8542_test.go
+          go test ./...
+          go vet ./...
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-gofile-8544.yml
+          git add provider_gofile_session_v8542.go provider_gofile_session_v8542_test.go
+          git commit -m "Handle GoFile masked notFound across website-token salts"
+          git push origin HEAD:fix/gofile-notfound-token-fallback-8544
