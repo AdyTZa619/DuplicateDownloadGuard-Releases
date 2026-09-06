@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.28",
+  "version": "8.5.49-test.30",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "227f9780cc27dd71d2f2ac634f5a62d88fe9a7f9f0bd94f2a26dd7fa836a25ec",
-  "notes": "TEST: TEST load audible update notifier",
-  "publishedAt": "2026-09-06T17:49:43.4240689Z",
+  "sha256": "116c4a090149b2b98213a655a1192df4123d439738956a0edb920d9eebf77a63",
+  "notes": "TEST: TEST load cross-port source link persistence",
+  "publishedAt": "2026-09-06T17:58:00.6374621Z",
   "channel": "test"
 }
