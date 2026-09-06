@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.10",
+  "version": "8.5.49-test.13",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "d2d5a6158942c6c455923ad1f6338838caef9538edd4645ff321d193a1f3f31a",
-  "notes": "TEST: TEST close stale DDG app window on every real startup",
-  "publishedAt": "2026-09-06T15:44:35.1019733Z",
+  "sha256": "06fff5ee25cb89d5d7dd5295c3a4073be3f176cbedd4fc4bdc7acd205ddafc51",
+  "notes": "TEST: TEST make JDownloader selection fail-closed through backend",
+  "publishedAt": "2026-09-06T16:21:59.5712330Z",
   "channel": "test"
 }
