@@ -1,3 +1,15 @@
+## [8.5.44] — 2026-09-06
+
+### GoFile — fallback corect pentru `error-notFound` mascat
+- Când API-ul GoFile răspunde HTTP 200 cu `error-notFound`, DDG nu mai declară imediat folderul inexistent; încearcă mai întâi ceilalți candidați cunoscuți de `X-Website-Token` cu același account token.
+- Formula/saltul `5d4f7g8sd45fsd`, folosit de extractorul GoFile din gallery-dl, este încercat înaintea vechiului fallback `9844d94d963d30`.
+- Retry-urile de website-token nu creează conturi guest noi și nu agravează rate-limit-ul.
+- Dacă toate formulele cunoscute întorc `error-notFound`, DDG păstrează eroarea finală `notFound`, astfel încât un folder realmente șters să nu fie raportat fals ca valid.
+- Testele acoperă atât trecerea de la un `error-notFound` mascat la următorul salt, cât și epuizarea corectă a tuturor candidaților.
+
+### Compatibilitate
+- MEGA Preview și semantica de matching nu sunt modificate.
+
 ## [8.5.43] — 2026-09-06
 
 ### GoFile — cold-start rapid și creare guest aliniată fluxului web
