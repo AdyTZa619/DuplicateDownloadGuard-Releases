@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -33,10 +34,25 @@ func (a *App) handleUpdateNativeNotifyV8554(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ok := playNativeUpdateChimeV8554()
+	var request struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&request)
+	version := extractNativeUpdateVersionV8566(strings.TrimSpace(request.Label) + " " + strings.TrimSpace(request.Key))
+	played, skipped := notifyNativeUpdateVersionV8566(version)
+	if version == "" {
+		// Compatibility fallback for a malformed/legacy caller. New DDG builds
+		// always send a version in the chip label, but keep the endpoint usable.
+		played = playNativeUpdateChimeV8554()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":     ok,
-		"native": true,
+		"ok":      played || skipped,
+		"native":  true,
+		"played":  played,
+		"skipped": skipped,
+		"version": version,
 	})
 }
