@@ -98,9 +98,23 @@
     return '';
   }
 
+  function bunkrURL(row) {
+    const r = row?.remote || {};
+    if (String(r.source || '').toUpperCase() !== 'BUNKR' || !r.handle) return '';
+    try {
+      const album = new URL(r.url || '');
+      // gallery-dl exposes Bunkr's public media slug. Hand the public /f/ page
+      // to JDownloader so its Bunkr plugin resolves fresh CDN URL + Referer on
+      // its own. Sending DDG's temporary CDN URL directly loses that context.
+      return `${album.origin}/f/${encodeURIComponent(String(r.handle))}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
   function jdURL(row) {
     const r = row?.remote || {};
-    return gofileURL(row) || String(r.directUrl || r.url || '').trim();
+    return gofileURL(row) || bunkrURL(row) || String(r.directUrl || r.url || '').trim();
   }
 
   async function checkJD() {
@@ -210,7 +224,7 @@
   async function preflight(ids, dest, mode) {
     return window.api('/api/download/preflight', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ids, destination: dest, mode})
     });
   }
