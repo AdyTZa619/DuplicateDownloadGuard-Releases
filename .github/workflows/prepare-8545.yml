@@ -1,0 +1,73 @@
+name: Prepare DDG 8.5.45 release
+
+on:
+  push:
+    branches:
+      - release/8.5.45
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.event.head_commit.message != 'Prepare 8.5.45 release metadata'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release/8.5.45
+          fetch-depth: 0
+
+      - name: Prepare release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          version = '8.5.45'
+          Path('VERSION').write_text(version + '\n', encoding='utf-8')
+
+          p = Path('main.go')
+          s = p.read_text(encoding='utf-8')
+          s2, n = re.subn(r'const appVersion = "[^"]+"', f'const appVersion = "{version} Pro Smart Media Guard"', s, count=1)
+          if n != 1:
+              raise SystemExit('appVersion marker not found')
+          p.write_text(s2, encoding='utf-8')
+
+          p = Path('CHANGELOG.md')
+          changelog = p.read_text(encoding='utf-8')
+          header = f'## [{version}]'
+          if header not in changelog:
+              section = '''## [8.5.45] - 2026-09-06
+
+### Download Studio — flux simplificat
+- Downloadul nu mai rescanează imediat aceleași HDD-uri când comparația tocmai a actualizat indexul local; reutilizează temporar indexul proaspăt și păstrează verificarea de siguranță.
+- Când toate fișierele selectate sunt sigure, un singur click pe „Descarcă” le pune direct în coadă și pornește transferul fără raport modal inutil.
+- Raportul Smart/Exact Guard apare numai când există duplicate, cazuri neclare sau erori; verificarea de integritate după download rămâne activă.
+
+### JDownloader
+- Rezultatele selectate pot fi trimise direct în JDownloader LinkGrabber prin interfața locală Click'n'Load/FlashGot.
+- Pentru GoFile se trimite un URL stabil bazat pe folder și ProviderID, nu URL-ul CDN temporar extras pentru preview/download intern.
+- FolderWatch rămâne fallback, iar fișierele .crawljob sunt generate în format JSON valid JDownloader.
+
+### Compatibilitate
+- MEGA Preview, scanarea GoFile și semantica de matching nu sunt modificate.
+- Testele și validarea Windows verifică noul flux de download și integrarea JDownloader.
+
+'''
+              p.write_text(section + changelog, encoding='utf-8')
+          PY
+
+      - name: Commit metadata and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-8545.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add VERSION CHANGELOG.md main.go .github/workflows/prepare-8545.yml
+          git commit -m 'Prepare 8.5.45 release metadata'
+          git push origin HEAD:release/8.5.45
