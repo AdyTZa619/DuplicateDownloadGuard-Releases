@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.58",
+  "version": "8.5.49-test.61",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "4ebb917814a663c1583c3ab486608e49e784727cea93b0aa315abf861d5df1c9",
-  "notes": "TEST: TEST fix false Bunkr buffer warnings after playback or pause",
-  "publishedAt": "2026-09-06T21:00:40.5584566Z",
+  "sha256": "93bda8006eca9d83c4839ab0ec0d1dda1b1025755b7680fdf2376cc6279804e5",
+  "notes": "TEST: TEST verify Cyberdrop stable media routing",
+  "publishedAt": "2026-09-06T21:11:54.2082657Z",
   "channel": "test"
 }
