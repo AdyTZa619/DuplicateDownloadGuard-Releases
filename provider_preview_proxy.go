@@ -164,6 +164,156 @@ func doProviderPreviewRequestV86(ctx context.Context, incoming *http.Request, it
 	return client.Do(req)
 }
 
+// gallery-dl's maintained Bunkr extractor rejects these exact redirects as
+// maintenance placeholders instead of treating them as the requested media.
+func providerPreviewMaintenanceURLV8559(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u == nil {
+		return false
+	}
+	path := strings.ToLower(strings.TrimSpace(u.Path))
+	return strings.HasSuffix(path, "/maint.mp4") || strings.HasSuffix(path, "/maintenance-vid.mp4")
+}
+
+func providerPreviewFinalURLV8559(resp *http.Response) string {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return ""
+	}
+	return resp.Request.URL.String()
+}
+
+func providerPreviewContentTypeV8559(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+}
+
+func providerPreviewDiagnosticV8559(resp *http.Response, item RemoteItem, refreshed bool, refreshNote string) map[string]any {
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	finalURL := providerPreviewFinalURLV8559(resp)
+	contentType := providerPreviewContentTypeV8559(resp)
+	source := strings.ToUpper(strings.TrimSpace(item.Source))
+	if source == "" {
+		source = "REMOTE"
+	}
+	out := map[string]any{
+		"ok":          false,
+		"code":        "REMOTE_ERROR",
+		"title":       "Fișierul remote nu poate fi redat",
+		"detail":      "Sursa remote nu a putut fi validată.",
+		"httpStatus":  status,
+		"contentType": contentType,
+		"finalUrl":    finalURL,
+		"refreshed":   refreshed,
+		"source":      source,
+	}
+	appendRefresh := func(detail string) string {
+		if strings.TrimSpace(refreshNote) == "" {
+			return detail
+		}
+		return detail + " Reîmprospătare: " + strings.TrimSpace(refreshNote)
+	}
+
+	switch {
+	case providerPreviewMaintenanceURLV8559(finalURL):
+		out["code"] = "BUNKR_MAINTENANCE"
+		out["title"] = "Bunkr: serverul fișierului este în mentenanță"
+		out["detail"] = appendRefresh("Bunkr a redirecționat fișierul către videoclipul său de mentenanță; conținutul original nu este disponibil acum.")
+	case status == http.StatusNotFound || status == http.StatusGone:
+		out["code"] = "FILE_UNAVAILABLE"
+		out["title"] = "Fișier indisponibil / șters"
+		out["detail"] = appendRefresh(fmt.Sprintf("Serverul a răspuns HTTP %d. Fișierul nu mai este disponibil la adresa furnizată de provider.", status))
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		out["code"] = "ACCESS_DENIED"
+		out["title"] = "Acces refuzat de server"
+		out["detail"] = appendRefresh(fmt.Sprintf("Serverul a răspuns HTTP %d. Linkul temporar poate fi expirat sau providerul cere un context nou de acces.", status))
+	case status >= 500:
+		out["code"] = "REMOTE_SERVER_ERROR"
+		out["title"] = "Problemă pe serverul providerului"
+		out["detail"] = appendRefresh(fmt.Sprintf("Serverul remote a răspuns HTTP %d. Problema este la sursă, nu la playerul DDG.", status))
+	case status >= 400:
+		out["code"] = "HTTP_ERROR"
+		out["title"] = "Sursa remote a refuzat fișierul"
+		out["detail"] = appendRefresh(fmt.Sprintf("Serverul remote a răspuns HTTP %d.", status))
+	case strings.HasPrefix(contentType, "text/html"):
+		out["code"] = "HTML_INSTEAD_OF_MEDIA"
+		out["title"] = "Providerul a întors o pagină, nu fișierul media"
+		out["detail"] = appendRefresh("URL-ul media a răspuns cu HTML. De regulă înseamnă fișier indisponibil, link expirat sau pagină de eroare/mentenanță.")
+	default:
+		out["ok"] = true
+		out["code"] = "READY"
+		out["title"] = "Fișierul răspunde de la provider"
+		detail := fmt.Sprintf("Remote HTTP %d", status)
+		if contentType != "" {
+			detail += " • " + contentType
+		}
+		out["detail"] = appendRefresh(detail + ". Dacă playerul integrat tot nu pornește, cauza probabilă este formatul/codec-ul neacceptat de playerul WebView.")
+	}
+	return out
+}
+
+func (a *App) handleProviderPreviewDiagnosticV8559(w http.ResponseWriter, r *http.Request, id int, res Result) {
+	if _, err := providerPreviewTargetV86(res.Remote); err != nil {
+		jsonOut(w, map[string]any{
+			"ok": false, "code": "URL_MISSING", "title": "URL remote lipsă",
+			"detail": err.Error(), "source": strings.ToUpper(strings.TrimSpace(res.Remote.Source)),
+		})
+		return
+	}
+	if remoteMediaKind(res.Remote.Name) == "other" {
+		jsonOut(w, map[string]any{
+			"ok": false, "code": "FORMAT_UNSUPPORTED", "title": "Format fără preview integrat",
+			"detail": "Fișierul există în listă, dar extensia lui nu are player integrat în DDG.",
+			"source": strings.ToUpper(strings.TrimSpace(res.Remote.Source)),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+	defer cancel()
+	probeReq := &http.Request{Method: http.MethodGet, Header: make(http.Header)}
+	probeReq.Header.Set("Range", "bytes=0-0")
+	item := res.Remote
+	resp, err := doProviderPreviewRequestV86(ctx, probeReq, item)
+	if err != nil {
+		jsonOut(w, map[string]any{
+			"ok": false, "code": "REMOTE_UNREACHABLE", "title": "Sursa remote nu răspunde",
+			"detail": err.Error(), "source": strings.ToUpper(strings.TrimSpace(item.Source)),
+		})
+		return
+	}
+
+	refreshed := false
+	refreshNote := ""
+	if providerPreviewNeedsRefreshV86(resp.StatusCode) && providerRefreshableSourceV86(item.Source) {
+		if strings.EqualFold(item.Source, "GOFILE") {
+			invalidateGoFileGuestTokenV86()
+		}
+		if fresh, refreshErr := a.refreshProviderRemoteV86(ctx, item); refreshErr == nil {
+			_ = resp.Body.Close()
+			item = fresh
+			a.replaceResultRemoteV86(id, fresh)
+			refreshed = true
+			resp, err = doProviderPreviewRequestV86(ctx, probeReq, item)
+			if err != nil {
+				jsonOut(w, map[string]any{
+					"ok": false, "code": "REMOTE_UNREACHABLE", "title": "Sursa remote nu răspunde după reîmprospătare",
+					"detail": err.Error(), "refreshed": true, "source": strings.ToUpper(strings.TrimSpace(item.Source)),
+				})
+				return
+			}
+		} else {
+			refreshNote = refreshErr.Error()
+		}
+	}
+	defer resp.Body.Close()
+	jsonOut(w, providerPreviewDiagnosticV8559(resp, item, refreshed, refreshNote))
+}
+
 func (a *App) handleProviderPreviewMediaV86(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "metodă neacceptată", http.StatusMethodNotAllowed)
@@ -181,6 +331,10 @@ func (a *App) handleProviderPreviewMediaV86(w http.ResponseWriter, r *http.Reque
 	}
 	if strings.EqualFold(res.Remote.Source, "MEGA") {
 		http.Error(w, "MEGA folosește motorul de preview dedicat", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(r.URL.Query().Get("diagnose")) == "1" {
+		a.handleProviderPreviewDiagnosticV8559(w, r, id, res)
 		return
 	}
 	if remoteMediaKind(res.Remote.Name) == "other" {
@@ -219,6 +373,14 @@ func (a *App) handleProviderPreviewMediaV86(w http.ResponseWriter, r *http.Reque
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		http.Error(w, fmt.Sprintf("Sursa remote a răspuns HTTP %d", resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+	if providerPreviewMaintenanceURLV8559(providerPreviewFinalURLV8559(resp)) {
+		http.Error(w, "Bunkr: serverul fișierului este în mentenanță; conținutul original nu este disponibil acum", http.StatusServiceUnavailable)
+		return
+	}
+	if strings.HasPrefix(providerPreviewContentTypeV8559(resp), "text/html") {
+		http.Error(w, "Providerul a returnat HTML în locul fișierului media", http.StatusBadGateway)
 		return
 	}
 
