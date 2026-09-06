@@ -1,3 +1,18 @@
+## [8.5.42] — 2026-09-06
+
+### GoFile — sesiune guest durabilă și protecție reală la rate-limit
+- Tokenul guest creat de DDG este păstrat în `data/cache/gofile_guest_state.json` și reutilizat după restart sau update, în loc să fie recreat la fiecare pornire.
+- Un token configurat prin `GOFILE_TOKEN`, `GOFILE_API_TOKEN` sau `GF_TOKEN` are prioritate și nu este persistat de DDG.
+- `POST /accounts` nu mai este repetat după `429`: DDG salvează un cooldown și nu mai lovește endpointul până la expirarea lui; fallback-ul `gallery-dl` este oprit când cauza este rate-limit GoFile.
+- Tokenul guest este invalidat numai pentru erori explicite de autentificare precum `error-wrongToken` sau `error-notAuthenticated`, nu pentru orice răspuns HTTP 401.
+- Pentru metadata, DDG încearcă mai întâi candidații de website-token cu același account token și abia apoi decide dacă sesiunea trebuie refăcută.
+- Valoarea implicită folosită de generatorul website-token este actualizată la `12af056dacea0b`, iar override-ul `GOFILE_WT_SALT` rămâne disponibil.
+- Interogarea de metadata este aliniată la clientul web (`sortField=createTime`, `sortDirection=-1`), iar User-Agent-ul browser-like este folosit consecvent în formula WT și în cereri.
+- Testele acoperă persistența tokenului, token configurat ne-persistent, cooldown-ul 429, fallback-ul website-token cu același cont și separarea erorilor de autentificare de cele de acces.
+
+### Compatibilitate
+- MEGA Preview și semantica de matching nu sunt modificate.
+
 ## [8.5.41] - 2026-09-06
 - Repară timeout-ul la crearea tokenului guest GoFile: cererea `POST /accounts` folosește acum antetele web curente `X-Website-Token` și `X-BL`, plus corp JSON explicit.
 - Tokenul web pentru crearea contului este calculat cu account token gol, exact pentru etapa de guest-account, folosind același User-Agent ca cererile de metadata.
