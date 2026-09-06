@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.9",
+  "version": "8.5.49-test.10",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "fded4cff7361a268918daeccc5ec0bc5292784e46caa4482880bc2b5ee5d317b",
-  "notes": "TEST: TEST fix updater SHA by pinning Git revision",
-  "publishedAt": "2026-09-06T15:40:03.6306073Z",
+  "sha256": "d2d5a6158942c6c455923ad1f6338838caef9538edd4645ff321d193a1f3f31a",
+  "notes": "TEST: TEST close stale DDG app window on every real startup",
+  "publishedAt": "2026-09-06T15:44:35.1019733Z",
   "channel": "test"
 }
