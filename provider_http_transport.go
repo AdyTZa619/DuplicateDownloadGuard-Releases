@@ -184,6 +184,27 @@ func applyProviderHeadersV86(dst, src http.Header) {
 	}
 }
 
+func gofileGuestRetryableStatusV86(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func gofileGuestRetryDelayV86(attempt int, resp *http.Response) time.Duration {
+	if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+		return gofileRetryAfterV86(resp)
+	}
+	delay := time.Duration(attempt+1) * 500 * time.Millisecond
+	if delay > 2*time.Second {
+		delay = 2 * time.Second
+	}
+	return delay
+}
+
 func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, error) {
 	gofileTokenMuV86.Lock()
 	defer gofileTokenMuV86.Unlock()
@@ -191,39 +212,92 @@ func gofileGuestTokenV86(ctx context.Context, base http.RoundTripper) (string, e
 		return gofileTokenV86, nil
 	}
 	if base == nil {
-		base = http.DefaultTransport
+		if wrapped, ok := http.DefaultTransport.(*providerAwareTransportV86); ok && wrapped.base != nil {
+			base = wrapped.base
+		} else {
+			base = http.DefaultTransport
+		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.gofile.io/accounts", bytes.NewBuffer(nil))
-	if err != nil {
-		return "", err
+
+	const maxAttempts = 3
+	const attemptTimeout = 15 * time.Second
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, "https://api.gofile.io/accounts", bytes.NewBufferString("{}"))
+		if err != nil {
+			cancel()
+			return "", err
+		}
+		req.Header.Set("Origin", "https://gofile.io")
+		req.Header.Set("Referer", "https://gofile.io/")
+		req.Header.Set("User-Agent", gofileUserAgentV86)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-BL", "en-US")
+		req.Header.Set("X-Website-Token", gofileWebsiteTokenV86("", time.Now()))
+
+		client := &http.Client{Transport: base}
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			lastErr = fmt.Errorf("încercarea %d/%d: %w", attempt+1, maxAttempts, err)
+			if attempt+1 < maxAttempts {
+				if sleepErr := gofileSleepV86(ctx, gofileGuestRetryDelayV86(attempt, nil)); sleepErr != nil {
+					return "", sleepErr
+				}
+				continue
+			}
+			break
+		}
+
+		status := resp.StatusCode
+		retryDelay := gofileGuestRetryDelayV86(attempt, resp)
+		var env struct {
+			Status string `json:"status"`
+			Data   struct {
+				Token string `json:"token"`
+			} `json:"data"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&env)
+		_ = resp.Body.Close()
+		cancel()
+
+		if status >= 200 && status < 300 {
+			if decodeErr == nil && strings.EqualFold(strings.TrimSpace(env.Status), "ok") && strings.TrimSpace(env.Data.Token) != "" {
+				gofileTokenV86 = strings.TrimSpace(env.Data.Token)
+				gofileTokenAtV86 = time.Now()
+				return gofileTokenV86, nil
+			}
+			if strings.EqualFold(strings.TrimSpace(env.Status), "error-rateLimit") {
+				lastErr = errors.New("GoFile guest account: error-rateLimit")
+			} else if decodeErr != nil {
+				lastErr = fmt.Errorf("răspuns GoFile guest invalid: %w", decodeErr)
+			} else {
+				return "", fmt.Errorf("GoFile nu a returnat token guest (status %s)", strings.TrimSpace(env.Status))
+			}
+		} else if gofileGuestRetryableStatusV86(status) {
+			lastErr = fmt.Errorf("GoFile guest account HTTP %d", status)
+		} else {
+			return "", fmt.Errorf("GoFile guest account HTTP %d", status)
+		}
+
+		if attempt+1 < maxAttempts {
+			if sleepErr := gofileSleepV86(ctx, retryDelay); sleepErr != nil {
+				return "", sleepErr
+			}
+			continue
+		}
 	}
-	req.Header.Set("Origin", "https://gofile.io")
-	req.Header.Set("Referer", "https://gofile.io/")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuplicateDownloadGuard")
-	client := &http.Client{Transport: base, Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+
+	if lastErr == nil {
+		lastErr = errors.New("eroare necunoscută")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("GoFile guest account HTTP %d", resp.StatusCode)
-	}
-	var env struct {
-		Status string `json:"status"`
-		Data   struct {
-			Token string `json:"token"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-		return "", err
-	}
-	if !strings.EqualFold(env.Status, "ok") || strings.TrimSpace(env.Data.Token) == "" {
-		return "", errors.New("GoFile nu a returnat token guest")
-	}
-	gofileTokenV86 = strings.TrimSpace(env.Data.Token)
-	gofileTokenAtV86 = time.Now()
-	return gofileTokenV86, nil
+	return "", fmt.Errorf("GoFile guest account indisponibil după %d încercări: %w", maxAttempts, lastErr)
 }
 
 func detectGalleryDLForProviderV86() string {

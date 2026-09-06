@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -99,5 +101,72 @@ func TestProviderHostDetectionV86(t *testing.T) {
 	}
 	if providerSpecialHostV86("example.com") {
 		t.Fatal("unrelated host classified as provider host")
+	}
+}
+
+type guestRoundTripFuncV8541 func(*http.Request) (*http.Response, error)
+
+func (f guestRoundTripFuncV8541) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestGofileGuestTokenRequestV8541(t *testing.T) {
+	invalidateGoFileGuestTokenV86()
+	defer invalidateGoFileGuestTokenV86()
+	calls := 0
+	tr := guestRoundTripFuncV8541(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Method != http.MethodPost || r.URL.String() != "https://api.gofile.io/accounts" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		if got := r.Header.Get("X-BL"); got != "en-US" {
+			t.Fatalf("X-BL=%q", got)
+		}
+		if got := r.Header.Get("X-Website-Token"); len(got) != 64 {
+			t.Fatalf("website token missing: %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("content type=%q", got)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if strings.TrimSpace(string(body)) != "{}" {
+			t.Fatalf("guest body=%q", string(body))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"token":"guest-8541"}}`)),
+			Request:    r,
+		}, nil
+	})
+	token, err := gofileGuestTokenV86(context.Background(), tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "guest-8541" || calls != 1 {
+		t.Fatalf("token=%q calls=%d", token, calls)
+	}
+}
+
+func TestGofileGuestTokenRetriesTransientTimeoutV8541(t *testing.T) {
+	invalidateGoFileGuestTokenV86()
+	defer invalidateGoFileGuestTokenV86()
+	calls := 0
+	tr := guestRoundTripFuncV8541(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return nil, context.DeadlineExceeded
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"token":"guest-retry"}}`)),
+			Request:    r,
+		}, nil
+	})
+	token, err := gofileGuestTokenV86(context.Background(), tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "guest-retry" || calls != 2 {
+		t.Fatalf("token=%q calls=%d", token, calls)
 	}
 }

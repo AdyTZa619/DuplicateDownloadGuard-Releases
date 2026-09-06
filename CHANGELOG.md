@@ -1,3 +1,11 @@
+## [8.5.41] - 2026-09-06
+- Repară timeout-ul la crearea tokenului guest GoFile: cererea `POST /accounts` folosește acum antetele web curente `X-Website-Token` și `X-BL`, plus corp JSON explicit.
+- Tokenul web pentru crearea contului este calculat cu account token gol, exact pentru etapa de guest-account, folosind același User-Agent ca cererile de metadata.
+- Timeout-urile de transport și răspunsurile temporare 408/425/429/5xx sunt reîncercate controlat de până la 3 ori; `429` respectă `Retry-After`.
+- Fiecare încercare are timeout propriu de 15 secunde, astfel încât o singură conexiune blocată nu mai aruncă imediat scanarea în fallback.
+- Tokenurile GoFile rămân numai în memorie; nu sunt persistate pe disc.
+- MEGA Preview, matching-ul și celelalte providere nu sunt modificate.
+
 ## [8.5.40] - 2026-09-06
 - Repară `GoFile API HTTP 401`: DDG folosește saltul curent pentru `X-Website-Token`, sincronizat cu protocolul GoFile actual.
 - La `401`, tokenul guest din RAM este invalidat și refăcut o singură dată înainte de a declara scanarea eșuată.
