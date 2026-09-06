@@ -11,6 +11,7 @@ func TestNativeVersionIsNewerV8566(t *testing.T) {
 		want   bool
 	}{
 		{"8.5.49-test.72", "8.5.49-test.71 Pro Smart Media Guard TEST", true},
+		{"8.5.49-test.75", "8.5.49-test.74 Pro Smart Media Guard TEST", true},
 		{"8.5.49-test.71", "8.5.49-test.71 Pro Smart Media Guard TEST", false},
 		{"8.5.49-test.70", "8.5.49-test.71 Pro Smart Media Guard TEST", false},
 		{"8.5.50-test.1", "8.5.49-test.99 Pro Smart Media Guard TEST", true},
