@@ -1,6 +1,7 @@
 (() => {
   'use strict';
 
+  const LAST_SOURCE_KEY = 'ddg.lastUniversalSourceUrl';
   const PROVIDERS = [
     {id:'mega', name:'MEGA', adapter:'mega', hosts:[/^mega\.nz$/i, /^mega\.co\.nz$/i], note:'motor MEGAcmd dedicat'},
     {id:'gofile', name:'GoFile', adapter:'gallery-dl', hosts:[/(^|\.)gofile\.io$/i], note:'gallery-dl • foldere recursive'},
@@ -13,6 +14,20 @@
   let galleryReady = null;
   let galleryCheckAt = 0;
   let scanInFlight = false;
+
+  function rememberLastSource(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return;
+    try { localStorage.setItem(LAST_SOURCE_KEY, raw); } catch (_) {}
+  }
+
+  function restoreLastSource(input) {
+    if (!input || String(input.value || '').trim()) return;
+    try {
+      const saved = String(localStorage.getItem(LAST_SOURCE_KEY) || '').trim();
+      if (saved) input.value = saved;
+    } catch (_) {}
+  }
 
   function parseURL(raw) {
     try {
@@ -125,6 +140,7 @@
       return;
     }
 
+    rememberLastSource(raw);
     const provider = detectProvider(raw);
     if (provider?.id === 'mega') {
       const mega = document.getElementById('megaUrl');
@@ -184,6 +200,7 @@
   function installUI() {
     const input = document.getElementById('directUrl');
     if (!input) return;
+    restoreLastSource(input);
     input.placeholder = 'GoFile, Bunkr, Cyberdrop, MEGA, link direct, galerie sau pagină video…';
     const section = input.closest('.section');
     const head = section?.querySelector('.sectionHead h3');
