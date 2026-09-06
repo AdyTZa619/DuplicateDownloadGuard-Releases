@@ -1,3 +1,19 @@
+## [8.5.45] — 2026-09-06
+
+### Download Studio — flux simplificat
+- Downloadul nu mai rescanează imediat aceleași HDD-uri când comparația tocmai a actualizat indexul local; reutilizează temporar indexul proaspăt și păstrează verificarea de siguranță.
+- Când toate fișierele selectate sunt sigure, un singur click pe „Descarcă” le pune direct în coadă și pornește transferul fără raport modal inutil.
+- Raportul Smart/Exact Guard apare numai când există duplicate, cazuri neclare sau erori; verificarea de integritate după download rămâne activă.
+
+### JDownloader
+- Rezultatele selectate pot fi trimise direct în JDownloader LinkGrabber prin interfața locală Click'n'Load/FlashGot.
+- Pentru GoFile se trimite un URL stabil bazat pe folder și ProviderID, nu URL-ul CDN temporar extras pentru preview/download intern.
+- FolderWatch rămâne fallback, iar fișierele .crawljob sunt generate în format JSON valid JDownloader.
+
+### Compatibilitate
+- MEGA Preview, scanarea GoFile și semantica de matching nu sunt modificate.
+- Testele și validarea Windows verifică noul flux de download și integrarea JDownloader.
+
 ## [8.5.44] — 2026-09-06
 
 ### GoFile — fallback corect pentru `error-notFound` mascat
