@@ -38,6 +38,23 @@ func (a *App) handleQueueAddRoutedV8550(w http.ResponseWriter, r *http.Request) 
 	a.handleQueueAdd(w, r)
 }
 
+// handleJDownloaderDirectEndpointV8551 is the dedicated, fail-closed route used
+// by the final UI guard. It never calls the integrated DDG queue. If JDownloader
+// cannot receive the request, the operation ends with an error and nothing is
+// downloaded by DDG as a substitute.
+func (a *App) handleJDownloaderDirectEndpointV8551(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	a.handleJDownloaderDirectV8550(w, r, body)
+}
+
 func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Request, body []byte) {
 	var req struct {
 		IDs         []int  `json:"ids"`
