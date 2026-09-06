@@ -16,58 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  prepare-8546:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/updater-channels-8546'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Prepare release metadata once
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $version = '8.5.46'
-          [System.IO.File]::WriteAllText((Join-Path $PWD 'VERSION'), "$version`n", [System.Text.UTF8Encoding]::new($false))
-          $path = Join-Path $PWD 'CHANGELOG.md'
-          $old = Get-Content -Raw $path
-          if (-not $old.Contains("## [$version]")) {
-            $head = @"
-## [8.5.46] — 2026-09-06
-
-### Updater — Stable + TEST separat
-- Adaugă un canal TEST separat de Stable pentru build-uri de probă, astfel încât fixurile să poată fi verificate înainte de publicarea normală.
-- Când există o versiune nouă, în colțul din dreapta sus apare direct butonul de update; Stable și TEST sunt diferențiate clar.
-- Butonul din colț poate instala direct versiunea disponibilă, fără să fie necesară deschiderea manuală a secțiunii Updater.
-- Build-urile TEST folosesc același mecanism local de backup, health-check și rollback ca updaterul existent.
-- Adaugă pipeline separat pentru ramura `testing`, cu teste, vet, verificare JavaScript, build Windows x64, SHA-256 și manifest `update-test.json`.
-- Canalul Stable rămâne independent; un build TEST nu modifică `update.json` și nu este publicat automat tuturor utilizatorilor.
-
-### Compatibilitate
-- Nu modifică MEGA Preview, matching-ul sau motoarele de download existente.
-
-"@
-            [System.IO.File]::WriteAllText($path, $head + $old, [System.Text.UTF8Encoding]::new($false))
-          }
-
-      - name: Commit metadata when needed
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- VERSION CHANGELOG.md; then
-            echo 'Metadata already prepared.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add VERSION CHANGELOG.md
-          git commit -m 'Prepare release 8.5.46 updater channels'
-          git push origin HEAD:fix/updater-channels-8546
-
   test-build:
     runs-on: windows-latest
     steps:
