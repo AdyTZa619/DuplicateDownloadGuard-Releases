@@ -1,0 +1,45 @@
+name: Apply GoFile durable session patch 8542
+
+on:
+  push:
+    branches:
+      - fix/gofile-session-8542
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/gofile-session-8542
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Execute patch payload
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/prepare-gofile-session-8542.yml').read_text(encoding='utf-8')
+          marker = '      - name: Patch durable GoFile session\n'
+          start = src.index(marker)
+          runpos = src.index('        run: |\n', start) + len('        run: |\n')
+          end = src.index('      - name: Commit patch and remove helper\n', runpos)
+          lines = src[runpos:end].splitlines()
+          body = '\n'.join((line[10:] if line.startswith('          ') else line) for line in lines) + '\n'
+          Path('/tmp/apply_gofile_8542.sh').write_text(body, encoding='utf-8')
+          PY
+          bash /tmp/apply_gofile_8542.sh
+      - name: Commit validated patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add provider_gofile_session_v8542.go provider_gofile_session_v8542_test.go provider_gofile_native.go provider_http_transport.go provider_gallery_scan.go
+          git rm .github/workflows/prepare-gofile-session-8542.yml .github/workflows/apply-gofile-session-8542.yml
+          git commit -m "Fix GoFile guest session lifecycle and rate-limit churn"
+          git push origin HEAD:fix/gofile-session-8542
