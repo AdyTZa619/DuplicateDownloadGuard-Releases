@@ -1,8 +1,8 @@
 {
-  "version": "8.5.48-test.7",
+  "version": "8.5.49-test.9",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "3c581168a736533b0ccac12f8ab262279aa153f381abbf25129c534e309ff10e",
-  "notes": "TEST: TEST make JDownloader handoff independent of DDG queue and CORS",
-  "publishedAt": "2026-09-06T15:28:35.8623309Z",
+  "sha256": "fded4cff7361a268918daeccc5ec0bc5292784e46caa4482880bc2b5ee5d317b",
+  "notes": "TEST: TEST fix updater SHA by pinning Git revision",
+  "publishedAt": "2026-09-06T15:40:03.6306073Z",
   "channel": "test"
 }
