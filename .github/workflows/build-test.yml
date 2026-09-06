@@ -1,0 +1,136 @@
+name: Build and publish DDG TEST updater
+
+on:
+  push:
+    branches: [testing]
+    paths-ignore:
+      - 'test-releases/**'
+      - 'update-test.json'
+      - 'SHA256SUMS_TEST.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddg-publish-testing
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare TEST version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path VERSION)) { throw 'VERSION lipsește.' }
+          $stable = (Get-Content -Raw VERSION).Trim()
+          if ($stable -notmatch '^(\d+)\.(\d+)\.(\d+)$') { throw "VERSION invalid: $stable" }
+          $major = [int]$Matches[1]
+          $minor = [int]$Matches[2]
+          $patch = [int]$Matches[3] + 1
+          $testVersion = "$major.$minor.$patch-test.$env:GITHUB_RUN_NUMBER"
+
+          $main = Get-Content -Raw main.go
+          $pattern = 'const appVersion = "[^"]+"'
+          if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
+          $replacement = 'const appVersion = "' + $testVersion + ' Pro Smart Media Guard TEST"'
+          $main = [regex]::Replace($main, $pattern, $replacement, 1)
+          [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
+
+          $subject = (git log -1 --pretty=%s).Trim()
+          if ([string]::IsNullOrWhiteSpace($subject)) { $subject = 'build de test DDG' }
+          "DDG_TEST_VERSION=$testVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DDG_TEST_SUBJECT=$subject" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Pregătit TEST $testVersion din baza Stable $stable"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Verify source formatting and all UI JavaScript
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = @()
+          Get-ChildItem -Filter *.go | ForEach-Object {
+            $out = gofmt -l $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+            if ($out) { $bad += $out }
+          }
+          if ($bad.Count -gt 0) {
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Go formatting check failed; TEST aborted'
+          }
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
+          foreach ($script in $scripts) {
+            node --check $script.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed; TEST aborted' }
+
+      - name: Vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed; TEST aborted' }
+
+      - name: Build Windows x64 TEST
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force test-releases | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o test-releases/DuplicateDownloadGuard_PRO_TEST.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 TEST build failed' }
+          if (-not (Test-Path 'test-releases/DuplicateDownloadGuard_PRO_TEST.exe')) { throw 'TEST EXE lipsește după build' }
+
+      - name: Generate TEST manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'test-releases/DuplicateDownloadGuard_PRO_TEST.exe'
+          $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          if ($sha -notmatch '^[0-9a-f]{64}$') { throw 'SHA-256 TEST invalid.' }
+          $url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe'
+          $manifest = [ordered]@{
+            version = $env:DDG_TEST_VERSION
+            url = $url
+            sha256 = $sha
+            notes = ('TEST: ' + $env:DDG_TEST_SUBJECT)
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'test'
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 update-test.json
+          "$sha  DuplicateDownloadGuard_PRO_TEST.exe" | Set-Content -Encoding ascii SHA256SUMS_TEST.txt
+
+      - name: Publish TEST updater files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test-releases/DuplicateDownloadGuard_PRO_TEST.exe update-test.json SHA256SUMS_TEST.txt
+          if (git diff --cached --quiet) {
+            Write-Host 'Nu sunt schimbări TEST de publicat.'
+            exit 0
+          }
+          git commit -m "Publish TEST updater build $env:DDG_TEST_VERSION [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'git commit TEST failed' }
+          git push
+          if ($LASTEXITCODE -ne 0) { throw 'git push TEST failed' }
