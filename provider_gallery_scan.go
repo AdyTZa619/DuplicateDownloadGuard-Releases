@@ -140,6 +140,13 @@ func appendGalleryMessageV86(items *[]RemoteItem, seen map[string]bool, msg []an
 	}
 	name := galleryRemoteNameV86(meta, direct)
 	providerID := galleryStringV86(meta, "id", "id_url", "uuid", "slug", "file_id")
+	providerHandle := ""
+	if strings.EqualFold(source, "BUNKR") {
+		// Keep Bunkr's public media slug separately from id_url. The stable
+		// identity remains ProviderID, while Handle lets external downloaders
+		// receive the selected media page instead of an authenticated CDN URL.
+		providerHandle = galleryStringV86(meta, "slug")
+	}
 	key := providerContextKeyV86(direct) + "|" + strings.ToLower(name)
 	if seen[key] {
 		return
@@ -152,6 +159,7 @@ func appendGalleryMessageV86(items *[]RemoteItem, seen map[string]bool, msg []an
 		Source:      source,
 		URL:         sourceURL,
 		DirectURL:   direct,
+		Handle:      providerHandle,
 		ContentType: strings.ToLower(galleryStringV86(meta, "type", "mime", "content_type", "contentType")),
 		Extractor:   strings.ToLower(source),
 		ProviderID:  providerID,
@@ -297,12 +305,16 @@ func mergeGalleryProbeV86(item RemoteItem, probe RemoteItem) RemoteItem {
 
 func shouldEnrichGalleryHTTPV86(source string) bool {
 	switch strings.ToUpper(strings.TrimSpace(source)) {
-	case "GOFILE", "BUNKR", "CYBERDROP":
-		// These extractors already provide the metadata needed for the initial
-		// local comparison. Probing every signed/authenticated CDN URL here can
-		// block the whole scan for tens of seconds per file. Transport details
-		// are resolved lazily by preview/verify/download instead.
+	case "GOFILE", "CYBERDROP":
+		// These providers already expose enough metadata for the initial compare;
+		// their transport details can stay lazy.
 		return false
+	case "BUNKR":
+		// Bunkr's album HTML changes frequently and gallery-dl can legitimately
+		// return size=0 even while the direct media URL is valid. Resolve the
+		// actual Content-Length/Content-Type concurrently so DDG can build real
+		// size-based candidates instead of displaying -1 B for the whole album.
+		return true
 	default:
 		return true
 	}
@@ -403,9 +415,9 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 		return items, nil
 	}
 
-	// Generic gallery-dl sources may not expose a reliable size. Keep the older
-	// HTTP enrichment only there; known provider scans must return immediately
-	// after extraction instead of waiting on one network request per file.
+	// Generic gallery-dl sources and Bunkr may need HTTP metadata enrichment.
+	// Bunkr keeps the required per-file Referer in the in-memory provider
+	// context, so these probes remain metadata-only and do not save media.
 	workers := 8
 	if len(items) < workers {
 		workers = len(items)
@@ -417,6 +429,9 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
+				if strings.EqualFold(source, "BUNKR") && items[idx].Size > 0 && items[idx].ContentType != "" {
+					continue
+				}
 				probe, err := probeHTTPMeta(items[idx].DirectURL)
 				if err == nil {
 					items[idx] = mergeGalleryProbeV86(items[idx], probe)
