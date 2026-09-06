@@ -1,8 +1,7 @@
-// Batch-aware JDownloader handoff for TEST builds.
-// If ExactGuard finds REVIEW/DUPLICATE items, nothing is sent automatically:
-// the report lets the user send only recommended files or explicitly confirm
-// sending the entire original selection anyway. Every send is one FlashGot
-// submission with one package; DDG still does not force dir or autostart.
+// Fast, batch-aware JDownloader handoff for TEST builds.
+// Default flow reuses the CURRENT DDG result set instead of walking hundreds of
+// thousands of local files again. A full live HDD recheck remains available as
+// an explicit option. Nothing is sent until the user chooses recommended or ALL.
 (() => {
   'use strict';
 
@@ -101,7 +100,6 @@
         if (name) return name;
       }
     }
-
     const first = rows[0]?.remote || {};
     const provider = String(first.source || 'DDG').toUpperCase();
     try {
@@ -155,7 +153,7 @@
     params.set('urls', urls.join('\n'));
     params.set('descriptions', descriptions.join('\n'));
     params.set('package', packageName);
-    // Deliberately omit dir + autostart. Only the grouping package is forced.
+    // One FlashGot request = one JD package. Do not force dir or autostart.
     return {params, count: urls.length, packageName};
   }
 
@@ -210,6 +208,43 @@
     });
   }
 
+  function classifyCurrentRow(row) {
+    const manual = Boolean(row?.manual);
+    const status = String(row?.status || row?.autoStatus || '').trim().toUpperCase();
+    const guard = String(row?.guardVerdict || '').trim().toUpperCase();
+
+    // Manual HAVE must never disappear from the confirmation just because an
+    // older automatic verdict said DOWNLOAD.
+    if (manual && ['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
+    if (guard === 'DUPLICATE') return 'DUPLICATE';
+    if (guard === 'REVIEW') return 'REVIEW';
+    if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';
+
+    if (['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
+    if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
+    if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
+    return manual ? 'REVIEW' : 'DOWNLOAD';
+  }
+
+  function currentReport(rows) {
+    const counts = {DOWNLOAD:0, DUPLICATE:0, REVIEW:0};
+    const decisions = rows.map(row => {
+      const verdict = classifyCurrentRow(row);
+      counts[verdict]++;
+      return {
+        resultId:Number(row.id),
+        name:row?.remote?.name || row?.remote?.path || '',
+        verdict,
+        reason: verdict === 'DOWNLOAD'
+          ? 'Rezultatul curent DDG îl marchează ca lipsă.'
+          : verdict === 'DUPLICATE'
+            ? 'Rezultatul curent DDG/manual indică faptul că există deja.'
+            : 'Rezultatul curent necesită verificare.'
+      };
+    });
+    return {mode:'current-results', decisions, counts, durationMs:0, fastCurrentResults:true};
+  }
+
   function idsByVerdict(report, verdict) {
     return (report?.decisions || [])
       .filter(x => String(x?.verdict || '').toUpperCase() === verdict)
@@ -217,60 +252,103 @@
       .filter(Number.isFinite);
   }
 
-  function ensureSafeOnlyButton() {
-    let b = document.getElementById('guardJDSafeOnly');
-    if (b) return b;
-    const override = document.getElementById('guardReviewOverride');
-    if (!override?.parentElement) return null;
-    b = document.createElement('button');
-    b.className = 'btn';
-    b.id = 'guardJDSafeOnly';
-    override.parentElement.insertBefore(b, override);
-    return b;
+  function installDecisionModal() {
+    if (document.getElementById('ddgJDBatchDecision')) return;
+    const style = document.createElement('style');
+    style.id = 'ddgJDBatchDecisionStyle';
+    style.textContent = `
+      #ddgJDBatchDecision{position:fixed;inset:0;z-index:10150;background:rgba(3,7,12,.78);display:flex;align-items:center;justify-content:center;padding:24px}
+      #ddgJDBatchDecision.hidden{display:none}
+      #ddgJDBatchDecision .box{width:min(760px,94vw);background:#0e1721;border:1px solid #32465a;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.45);overflow:hidden}
+      #ddgJDBatchDecision .head{padding:16px 18px;border-bottom:1px solid #26394b;font-size:17px;font-weight:800}
+      #ddgJDBatchDecision .body{padding:16px 18px;color:#c7d7e7;line-height:1.5}
+      #ddgJDBatchDecision .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:13px 0}
+      #ddgJDBatchDecision .card{border:1px solid #2c4053;border-radius:10px;padding:11px;background:#0a121a}
+      #ddgJDBatchDecision .card b{display:block;font-size:20px;margin-bottom:2px}
+      #ddgJDBatchDecision .note{padding:10px 12px;border-left:3px solid #65b7ff;background:#102030;border-radius:8px;font-size:12px}
+      #ddgJDBatchDecision .fullwarn{margin-top:9px;color:#d4b777;font-size:11px}
+      #ddgJDBatchDecision .foot{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;padding:13px 18px;border-top:1px solid #26394b}
+      @media(max-width:620px){#ddgJDBatchDecision .summary{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="ddgJDBatchDecision" class="hidden" role="dialog" aria-modal="true">
+        <div class="box">
+          <div class="head">Confirmare JDownloader</div>
+          <div class="body">
+            <div id="ddgJDBatchDecisionText"></div>
+            <div class="summary">
+              <div class="card"><b id="ddgJDSafeCount">0</b>Recomandate</div>
+              <div class="card"><b id="ddgJDHaveCount">0</b>Ai deja</div>
+              <div class="card"><b id="ddgJDReviewCount">0</b>De verificat</div>
+            </div>
+            <div class="note" id="ddgJDBatchNote"></div>
+            <div class="fullwarn">„Reverifică HDD complet” face intenționat o scanare live a tuturor locațiilor și poate dura multe minute pe colecții foarte mari.</div>
+          </div>
+          <div class="foot">
+            <button class="btn" type="button" id="ddgJDCancel">Anulează</button>
+            <button class="btn" type="button" id="ddgJDFullRecheck">Reverifică HDD complet</button>
+            <button class="btn" type="button" id="ddgJDSendSafe">Trimite recomandate</button>
+            <button class="btn primary" type="button" id="ddgJDSendAll">Trimite TOATE</button>
+          </div>
+        </div>
+      </div>`);
+    document.getElementById('ddgJDCancel')?.addEventListener('click', closeDecision);
+    document.getElementById('ddgJDSendSafe')?.addEventListener('click', sendSafeOnly);
+    document.getElementById('ddgJDSendAll')?.addEventListener('click', confirmAll);
+    document.getElementById('ddgJDFullRecheck')?.addEventListener('click', fullRecheck);
+    document.getElementById('ddgJDBatchDecision')?.addEventListener('click', e => {
+      if (e.target?.id === 'ddgJDBatchDecision') closeDecision();
+    });
   }
 
-  function showDecision(report, ids) {
+  function closeDecision() {
+    document.getElementById('ddgJDBatchDecision')?.classList.add('hidden');
+  }
+
+  function showDecision(report, ids, rows, sourceLabel) {
+    installDecisionModal();
     const safe = idsByVerdict(report, 'DOWNLOAD');
     const review = idsByVerdict(report, 'REVIEW');
     const duplicates = idsByVerdict(report, 'DUPLICATE');
-    pending = {all: ids.slice(), safe, review, duplicates};
+    pending = {all:ids.slice(), safe, review, duplicates, rows:rows.slice(), report};
 
-    window.ddgShowGuardReportV8545?.(report, {
-      ids,
-      destination:guardDestination(),
-      guardMode:guardMode(),
-      engine:'jdownloader'
-    }, 0);
+    const text = document.getElementById('ddgJDBatchDecisionText');
+    const note = document.getElementById('ddgJDBatchNote');
+    const safeEl = document.getElementById('ddgJDSafeCount');
+    const dupEl = document.getElementById('ddgJDHaveCount');
+    const revEl = document.getElementById('ddgJDReviewCount');
+    if (safeEl) safeEl.textContent = String(safe.length);
+    if (dupEl) dupEl.textContent = String(duplicates.length);
+    if (revEl) revEl.textContent = String(review.length);
+    if (text) text.innerHTML = `<b>${ids.length} fișiere selectate.</b> DDG nu trimite nimic până nu confirmi.`;
+    if (note) note.textContent = sourceLabel === 'full'
+      ? `Reverificarea live s-a terminat. Au fost verificate ${Number(report?.scannedFiles || 0).toLocaleString('ro-RO')} fișiere locale în ${(Number(report?.durationMs || 0)/1000).toFixed(1)} secunde.`
+      : 'Verificare rapidă: folosesc rezultatele deja obținute în scanarea curentă. NU rescanez cele sute de mii de fișiere de pe HDD.';
 
-    const info = document.getElementById('guardScanInfo');
-    if (info) {
-      info.innerHTML += `<br><b>JDownloader:</b> nimic nu a fost trimis încă. Poți respecta verdictul DDG sau poți confirma explicit trimiterea întregii selecții.`;
-    }
-
-    const allBtn = document.getElementById('guardReviewOverride');
-    if (allBtn) {
-      allBtn.classList.remove('hidden');
-      allBtn.disabled = false;
-      allBtn.textContent = `Trimite TOATE oricum în JDownloader (${ids.length})`;
-      allBtn.title = `Include și ${duplicates.length} duplicate + ${review.length} de verificat. Va cere confirmare explicită.`;
-    }
-
-    const safeBtn = ensureSafeOnlyButton();
+    const safeBtn = document.getElementById('ddgJDSendSafe');
+    const allBtn = document.getElementById('ddgJDSendAll');
     if (safeBtn) {
-      safeBtn.classList.toggle('hidden', safe.length === 0);
-      safeBtn.disabled = false;
-      safeBtn.textContent = `Trimite doar recomandate (${safe.length})`;
-      safeBtn.title = 'Trimite numai fișierele pe care DDG le-a marcat DESCARCĂ.';
+      safeBtn.disabled = safe.length === 0;
+      safeBtn.textContent = `Trimite recomandate (${safe.length})`;
     }
+    if (allBtn) {
+      allBtn.disabled = ids.length === 0;
+      allBtn.textContent = `Trimite TOATE (${ids.length})`;
+    }
+    document.getElementById('ddgJDBatchDecision')?.classList.remove('hidden');
   }
 
-  async function sendIDs(ids, closeModal = true) {
+  async function sendIDs(ids) {
     if (busy || !ids.length) return;
     busy = true;
     try {
-      const rows = await rowsForIDs(ids);
+      const rows = pending?.rows?.length
+        ? pending.rows.filter(r => ids.includes(Number(r.id)))
+        : await rowsForIDs(ids);
       const result = await submitRows(rows);
-      if (closeModal) window.closeGuardReport?.();
+      closeDecision();
+      window.closeGuardReport?.();
       window.toast?.(`JDownloader: ${result.count} fișier(e) într-un singur pachet „${result.packageName}”`);
       pending = null;
     } catch (error) {
@@ -285,7 +363,7 @@
     const blocked = pending.duplicates.length;
     const review = pending.review.length;
     const ok = window.confirm(
-      `DDG a găsit ${blocked} fișier(e) pe care spune că le ai deja și ${review} de verificat.\n\nConfirmi că vrei să trimiți TOATE cele ${pending.all.length} fișiere în JDownloader oricum?`
+      `Confirmi trimiterea TUTUROR celor ${pending.all.length} fișiere în JDownloader?\n\nDDG indică ${blocked} „ai deja” și ${review} de verificat. Acestea vor fi trimise și ele.`
     );
     if (!ok) return;
     await sendIDs(pending.all);
@@ -296,6 +374,28 @@
     await sendIDs(pending.safe);
   }
 
+  async function fullRecheck() {
+    if (!pending?.all?.length || busy) return;
+    busy = true;
+    const btn = document.getElementById('ddgJDFullRecheck');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Scanez HDD…';
+    }
+    try {
+      const report = await preflight(pending.all, guardDestination(), guardMode());
+      showDecision(report, pending.all, pending.rows, 'full');
+    } catch (error) {
+      window.toast?.(error?.message || String(error));
+    } finally {
+      busy = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Reverifică HDD complet';
+      }
+    }
+  }
+
   async function sendBatchAware() {
     if (busy) return;
     const ids = selectedIDs();
@@ -304,49 +404,31 @@
     busy = true;
     if (button) {
       button.disabled = true;
-      button.textContent = '⏳ Verific înainte de JDownloader…';
+      button.textContent = '⏳ Pregătesc confirmarea…';
     }
     try {
-      const report = await preflight(ids, guardDestination(), guardMode());
-      const review = idsByVerdict(report, 'REVIEW');
-      const duplicates = idsByVerdict(report, 'DUPLICATE');
-      if (review.length || duplicates.length) {
-        showDecision(report, ids);
-      } else {
-        const rows = await rowsForIDs(ids);
-        const result = await submitRows(rows);
-        window.toast?.(`JDownloader: ${result.count} fișier(e) într-un singur pachet „${result.packageName}”`);
-      }
+      // Deliberately do NOT call /api/download/preflight here. The user already
+      // has a current result set; walking 300k+ files a second time made this
+      // action take 10+ minutes. Full live recheck is available in the modal.
+      const rows = await rowsForIDs(ids);
+      const report = currentReport(rows);
+      showDecision(report, ids, rows, 'current');
     } catch (error) {
       window.toast?.(error?.message || String(error));
     } finally {
       busy = false;
       if (button) {
         button.disabled = false;
-        button.textContent = liveEngine() === 'jdownloader' ? '⬇ Trimite în JDownloader' : '⬇ Descarcă';
+        button.textContent = liveEngine() === 'jdownloader' ? '⬇ Verifică și trimite în JDownloader' : '⬇ Descarcă';
       }
     }
   }
 
-  // Loaded before jdownloader_final_v8551.js. Capture first and stop the legacy
-  // handler so a mixed batch cannot be split into multiple JD submissions.
+  // Capture before legacy handlers. JDownloader always uses this confirmation
+  // flow; integrated DDG downloads keep their existing guard behavior.
   document.addEventListener('click', event => {
-    const target = event.target?.closest?.('#guardReviewOverride, #guardJDSafeOnly, #jdSelectedBtn, button[onclick="sendSelectedJD2()"], #downloadGuardBtn, button[onclick="downloadSelected()"]');
+    const target = event.target?.closest?.('#jdSelectedBtn, button[onclick="sendSelectedJD2()"], #downloadGuardBtn, button[onclick="downloadSelected()"]');
     if (!target) return;
-
-    if (target.id === 'guardReviewOverride' && pending?.all?.length) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      confirmAll();
-      return;
-    }
-    if (target.id === 'guardJDSafeOnly' && pending?.safe?.length) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      sendSafeOnly();
-      return;
-    }
-
     const explicitJD = target.id === 'jdSelectedBtn' || target.getAttribute('onclick') === 'sendSelectedJD2()';
     const primaryJD = (target.id === 'downloadGuardBtn' || target.getAttribute('onclick') === 'downloadSelected()') && liveEngine() === 'jdownloader';
     if (!explicitJD && !primaryJD) return;
@@ -355,8 +437,7 @@
     sendBatchAware();
   }, true);
 
-  // Also win over programmatic calls after the older module finishes installing.
   setTimeout(() => { window.sendSelectedJD2 = sendBatchAware; }, 1000);
 
-  window.ddgJDownloaderBatchConfirmV8564 = {sendBatchAware, confirmAll, sendSafeOnly, onePackageName};
+  window.ddgJDownloaderBatchConfirmV8564 = {sendBatchAware, confirmAll, sendSafeOnly, fullRecheck, onePackageName};
 })();
