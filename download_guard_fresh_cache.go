@@ -8,9 +8,11 @@ import (
 )
 
 // The source comparison already performs a live HDD walk. A download started
-// immediately afterwards can safely reuse that exact snapshot instead of
-// walking the same roots again. The TTL is intentionally short.
-const guardFreshIndexTTLV8545 = 30 * time.Second
+// shortly afterwards should reuse that exact snapshot instead of walking the
+// same roots again. Five minutes is long enough to inspect a result set and
+// decide what to download, while still keeping the snapshot intentionally
+// short-lived. A later preflight falls back to a new live scan.
+const guardFreshIndexTTLV8545 = 5 * time.Minute
 
 type guardRefreshSnapshotV8545 struct {
 	At       time.Time
