@@ -1,8 +1,8 @@
 {
-  "version": "8.5.45",
+  "version": "8.5.46",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/releases/DuplicateDownloadGuard_PRO_LATEST.exe",
-  "sha256": "f0583aa74a22656ff838938b600ce2948b396837de1f33d877d407fd0eefc3e9",
-  "notes": "Noutăți 8.5.45: Downloadul nu mai rescanează imediat aceleași HDD-uri când comparația tocmai a actualizat indexul local; reutilizează temporar indexul proaspăt și păstrează verificarea de siguranță. • Când toate fișierele selectate sunt sigure, un singur click pe „Descarcă” le pune direct în coadă și pornește transferul fără raport modal inutil. • Raportul Smart/Exact Guard apare numai când există duplicate, cazuri neclare sau erori; verificarea de integritate după download rămâne activă. • Rezultatele selectate pot fi trimise direct în JDownloader LinkGrabber prin interfața locală Click'n'Load/FlashGot. • Pentru GoFile se trimite un URL stabil bazat pe folder și ProviderID, nu URL-ul CDN temporar extras pentru preview/download intern. • FolderWatch rămâne fallback, iar fișierele .crawljob sunt generate în format JSON valid JDownloader.",
-  "publishedAt": "2026-09-06T11:36:05.6704498Z",
+  "sha256": "f66d68a1c24fe7007164940a7a462d6672187b66125795fc7500c3432526e027",
+  "notes": "Noutăți 8.5.46: Adaugă un canal TEST separat de Stable pentru build-uri de probă, astfel încât fixurile să poată fi verificate înainte de publicarea normală. • Când există o versiune nouă, în colțul din dreapta sus apare direct butonul de update; Stable și TEST sunt diferențiate clar. • Butonul din colț poate instala direct versiunea disponibilă, fără să fie necesară deschiderea manuală a secțiunii Updater. • Build-urile TEST folosesc același mecanism local de backup, health-check și rollback ca updaterul existent. • Adaugă pipeline separat pentru ramura `testing`, cu teste, vet, verificare JavaScript, build Windows x64, SHA-256 și manifest `update-test.json`. • Canalul Stable rămâne independent; un build TEST nu modifică `update.json` și nu este publicat automat tuturor utilizatorilor.",
+  "publishedAt": "2026-09-06T13:35:57.3343690Z",
   "channel": "stable"
 }
