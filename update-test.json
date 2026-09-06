@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.55",
+  "version": "8.5.49-test.56",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "92e9eba584ee9f14343db7b57bffe6ab8f44444edecb4d69d80fe1b044a1fdc6",
-  "notes": "TEST: TEST load fast update watcher",
-  "publishedAt": "2026-09-06T20:37:37.8900286Z",
+  "sha256": "c2f0deff16413867fff34dfb48fb98559c021cb496017fbfc0f1e05f974049e6",
+  "notes": "TEST: TEST remove GitHub API rate-limit dependency from updater",
+  "publishedAt": "2026-09-06T20:40:38.7434712Z",
   "channel": "test"
 }
