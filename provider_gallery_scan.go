@@ -230,6 +230,20 @@ func shouldEnrichGalleryHTTPV86(source string) bool {
 	}
 }
 
+// galleryScanArgsV8555 keeps provider-specific compatibility local to the
+// metadata-only scan. Bunkr changes/proxies domains frequently; gallery-dl's
+// bunkr.tlds option allows its maintained Bunkr extractor to accept those
+// domains instead of rejecting an otherwise valid album before extraction.
+// No other provider is changed by this option.
+func galleryScanArgsV8555(sourceURL, cookiePath string) []string {
+	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true"}
+	if providerSourceLabelV86(sourceURL) == "BUNKR" {
+		args = append(args, "-o", "extractor.bunkr.tlds=true")
+	}
+	args = append(args, "--cookies-export", cookiePath, sourceURL)
+	return args
+}
+
 func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]RemoteItem, error) {
 	source := providerSourceLabelV86(sourceURL)
 	var nativeErr error
@@ -273,7 +287,7 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 	}
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true", "--cookies-export", cookiePath, sourceURL}
+	args := galleryScanArgsV8555(sourceURL, cookiePath)
 	cmd := exec.CommandContext(cmdCtx, exe, args...)
 	hideChildWindow(cmd)
 	output, err := cmd.Output()
