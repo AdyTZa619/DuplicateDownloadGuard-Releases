@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.43",
+  "version": "8.5.49-test.44",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "032aec94a452749f7925e07594a7040c097417e7746aae4063dc4a30693dbeb4",
-  "notes": "TEST: TEST cover Bunkr size enrichment and media slug",
-  "publishedAt": "2026-09-06T19:40:51.5833610Z",
+  "sha256": "926a6d25d34e358fc30b5c3a0efde64dfc914cb459d30b367dc82b5edfe54390",
+  "notes": "TEST: TEST open selected Bunkr media page from Compare Studio",
+  "publishedAt": "2026-09-06T19:42:51.7788803Z",
   "channel": "test"
 }
