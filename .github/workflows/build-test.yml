@@ -51,12 +51,23 @@ jobs:
           if (-not $main.Contains($oldQueueRoute)) { throw 'Nu am găsit ruta /api/queue/add pentru protecția JDownloader.' }
           $main = $main.Replace($oldQueueRoute, $newQueueRoute)
 
+          # Existing configs created by older builds may still point to the old
+          # portable <exe>\downloads default. Migrate only that exact old default
+          # (or an empty value); folders explicitly chosen by the user stay intact.
+          $defaultPattern = 'if\s+strings\.TrimSpace\(a\.cfg\.DownloadDir\)\s*==\s*""\s*\{\s*a\.cfg\.DownloadDir\s*=\s*portableDownloadsDir\(\)\s*\}'
+          $newDefaultBlock = @'
+          currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
+          legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
+          if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
+          	a.cfg.DownloadDir = portableDownloadsDir()
+          }
+          '@
+          if (-not [regex]::IsMatch($main, $defaultPattern)) { throw 'Nu am găsit blocul implicit DownloadDir pentru migrare.' }
+          $main = [regex]::Replace($main, $defaultPattern, $newDefaultBlock.TrimEnd(), 1)
           [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
 
           # Default pentru descărcările integrate: folderul principal Downloads
           # al utilizatorului Windows, nu folderul portabil de lângă EXE.
-          # Configurațiile vechi care încă indică exact vechiul <exe>\downloads
-          # sunt migrate automat; un folder ales manual de utilizator rămâne intact.
           $extra = Get-Content -Raw v8_extra.go
           $oldPortable = 'func portableDownloadsDir() string { return filepath.Join(executableDir(), "downloads") }'
           $newPortable = @'
@@ -72,17 +83,6 @@ jobs:
           '@
           if (-not $extra.Contains($oldPortable)) { throw 'Nu am găsit funcția portableDownloadsDir pentru noul default Downloads.' }
           $extra = $extra.Replace($oldPortable, $newPortable.TrimEnd())
-
-          $defaultPattern = 'if\s+strings\.TrimSpace\(a\.cfg\.DownloadDir\)\s*==\s*""\s*\{\s*a\.cfg\.DownloadDir\s*=\s*portableDownloadsDir\(\)\s*\}'
-          $newDefaultBlock = @'
-          currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
-          legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
-          if currentDownloadDir == "" || strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) {
-          	a.cfg.DownloadDir = portableDownloadsDir()
-          }
-          '@
-          if (-not [regex]::IsMatch($extra, $defaultPattern)) { throw 'Nu am găsit blocul implicit DownloadDir pentru migrare.' }
-          $extra = [regex]::Replace($extra, $defaultPattern, $newDefaultBlock.TrimEnd(), 1)
           [System.IO.File]::WriteAllText((Resolve-Path v8_extra.go), $extra, [System.Text.UTF8Encoding]::new($false))
 
           $subject = (git log -1 --pretty=%s).Trim()
