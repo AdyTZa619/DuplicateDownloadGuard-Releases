@@ -108,7 +108,7 @@ type guestRoundTripFuncV8541 func(*http.Request) (*http.Response, error)
 
 func (f guestRoundTripFuncV8541) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestGofileGuestTokenRequestV8541(t *testing.T) {
+func TestGofileGuestTokenRequestBrowserLikeV8543(t *testing.T) {
 	setupGofileStateTestV8542(t)
 	defer invalidateGoFileGuestTokenV86()
 	calls := 0
@@ -117,23 +117,28 @@ func TestGofileGuestTokenRequestV8541(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.String() != "https://api.gofile.io/accounts" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
 		}
-		if got := r.Header.Get("X-BL"); got != "en-US" {
-			t.Fatalf("X-BL=%q", got)
+		if got := r.Header.Get("X-BL"); got != "" {
+			t.Fatalf("X-BL must not be sent on guest account creation: %q", got)
 		}
-		if got := r.Header.Get("X-Website-Token"); len(got) != 64 {
-			t.Fatalf("website token missing: %q", got)
+		if got := r.Header.Get("X-Website-Token"); got != "" {
+			t.Fatalf("website token must not be sent on guest account creation: %q", got)
 		}
-		if got := r.Header.Get("Content-Type"); got != "application/json" {
-			t.Fatalf("content type=%q", got)
+		if got := r.Header.Get("Content-Type"); got != "" {
+			t.Fatalf("content type must stay empty for bodyless POST: %q", got)
 		}
-		body, _ := io.ReadAll(r.Body)
-		if strings.TrimSpace(string(body)) != "{}" {
-			t.Fatalf("guest body=%q", string(body))
+		if r.Body != nil {
+			body, _ := io.ReadAll(r.Body)
+			if len(body) != 0 {
+				t.Fatalf("guest request must be bodyless: %q", string(body))
+			}
+		}
+		if r.Header.Get("Origin") != "https://gofile.io" || r.Header.Get("Referer") != "https://gofile.io/" {
+			t.Fatalf("browser origin/referer missing: origin=%q referer=%q", r.Header.Get("Origin"), r.Header.Get("Referer"))
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"token":"guest-8541"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"token":"guest-8543"}}`)),
 			Request:    r,
 		}, nil
 	})
@@ -141,32 +146,30 @@ func TestGofileGuestTokenRequestV8541(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token != "guest-8541" || calls != 1 {
+	if token != "guest-8543" || calls != 1 {
 		t.Fatalf("token=%q calls=%d", token, calls)
 	}
 }
 
-func TestGofileGuestTokenRetriesTransientTimeoutV8541(t *testing.T) {
+func TestGofileGuestTokenTransportFailureDoesNotRetryV8543(t *testing.T) {
 	setupGofileStateTestV8542(t)
 	defer invalidateGoFileGuestTokenV86()
 	calls := 0
 	tr := guestRoundTripFuncV8541(func(r *http.Request) (*http.Response, error) {
 		calls++
-		if calls == 1 {
-			return nil, context.DeadlineExceeded
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"token":"guest-retry"}}`)),
-			Request:    r,
-		}, nil
+		return nil, context.DeadlineExceeded
 	})
-	token, err := gofileGuestTokenV86(context.Background(), tr)
-	if err != nil {
-		t.Fatal(err)
+	_, err := gofileGuestTokenV86(context.Background(), tr)
+	if err == nil {
+		t.Fatal("expected transport failure")
 	}
-	if token != "guest-retry" || calls != 2 {
-		t.Fatalf("token=%q calls=%d", token, calls)
+	if calls != 1 {
+		t.Fatalf("stalled guest creation must not be retried, calls=%d", calls)
+	}
+	if gofileGuestAttemptTimeoutV8543 > 10*time.Second {
+		t.Fatalf("guest timeout too long: %s", gofileGuestAttemptTimeoutV8543)
+	}
+	if !strings.Contains(err.Error(), "trec la fallback") {
+		t.Fatalf("fallback intent missing from error: %v", err)
 	}
 }
