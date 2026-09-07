@@ -8,4 +8,5 @@ func registerLocalPreviewDiagnosticsV8599(mux *http.ServeMux, a *App) {
 	mux.HandleFunc("/api/local-preview", a.handleLocalPreviewDiagV8599)
 	mux.HandleFunc("/api/local-preview-buffered", a.handleLocalPreviewBufferedV8599)
 	mux.HandleFunc("/api/local-preview/trace", a.handleLocalPreviewClientTraceV8599)
+	mux.HandleFunc("/api/local-preview/base", a.handleLocalPreviewBaseV85102)
 }

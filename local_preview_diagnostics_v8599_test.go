@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testLocalPreviewAppV8599(t *testing.T) (*App, string, []byte) {
@@ -52,8 +54,39 @@ func TestLocalPreviewBufferedAlternativeServesImageV8599(t *testing.T) {
 	}
 }
 
+func TestLocalPreviewFastAuthDoesNotWaitForGlobalWriterV85102(t *testing.T) {
+	appDir := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "slow-before.jpg")
+	if err := os.WriteFile(path, []byte{0xff, 0xd8, 0xff, 0xd9}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf(`{"localPaths":[%q],"downloadDir":""}`, root)
+	if err := os.WriteFile(filepath.Join(appDir, "config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{appDir: appDir, index: map[string]FileEntry{}}
+
+	a.mu.Lock()
+	started := time.Now()
+	allowed := a.localPreviewPathAllowedV85102(path)
+	elapsed := time.Since(started)
+	a.mu.Unlock()
+
+	if !allowed {
+		t.Fatal("configured LOCAL root should authorize without App.mu")
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("preview authorization waited behind App.mu: %v", elapsed)
+	}
+}
+
 func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 	goSrc, err := os.ReadFile("local_preview_diagnostics_v8599.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fastSrc, err := os.ReadFile("local_preview_fastpath_v85102.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,12 +103,17 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, marker := range []string{"LOCAL PREVIEW diag DIRECT", "first-byte=", "LOCAL PREVIEW diag BUFFER", "read=%dms", "handleLocalPreviewClientTraceV8599"} {
+	for _, marker := range []string{"LOCAL PREVIEW diag DIRECT", "first-byte=", "LOCAL PREVIEW diag BUFFER", "read=%dms", "localPreviewPathAllowedV85102"} {
 		if !strings.Contains(string(goSrc), marker) {
 			t.Fatalf("backend diagnostic marker missing: %q", marker)
 		}
 	}
-	for _, marker := range []string{"PENDING_MS = 1500", "resourceTiming", "ALT • citește întâi în memorie", "/api/local-preview-buffered", "button.addEventListener('click'"} {
+	for _, marker := range []string{"TryRLock", "LOCAL Preview media listener dedicat", "Timing-Allow-Origin", "handleLocalPreviewBaseV85102"} {
+		if !strings.Contains(string(fastSrc), marker) {
+			t.Fatalf("fast-path marker missing: %q", marker)
+		}
+	}
+	for _, marker := range []string{"PENDING_MS = 1500", "queue=", "BASE_URL = '/api/local-preview/base'", "LOCAL BUFFER", "ALT • DIRECT vechi", "mediaURL(path, 'BUFFER')"} {
 		if !strings.Contains(string(js), marker) {
 			t.Fatalf("client diagnostic marker missing: %q", marker)
 		}
@@ -87,13 +125,13 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 		t.Fatal("TEST build does not wire the diagnostic local-preview route")
 	}
 
-	combined := string(goSrc) + "\n" + string(js)
+	combined := string(goSrc) + "\n" + string(fastSrc) + "\n" + string(js)
 	for _, forbidden := range []string{"/api/index/start", "/api/mega/scan", "/api/download/preflight"} {
 		if strings.Contains(combined, forbidden) {
-			t.Fatalf("local preview diagnostics must not invoke %s", forbidden)
+			t.Fatalf("local preview fast path must not invoke %s", forbidden)
 		}
 	}
-	if strings.Contains(string(js), "setTimeout(() => { img.src = `/api/local-preview-buffered") {
-		t.Fatal("buffered method must remain explicit; no automatic timeout fallback")
+	if strings.Contains(string(js), "setTimeout(() => { img.src") {
+		t.Fatal("there must be no timeout-driven competing image request")
 	}
 }
