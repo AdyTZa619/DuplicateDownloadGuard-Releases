@@ -21,6 +21,10 @@
     // Window capture is above every legacy document-level capture handler.
     ['/jdownloader_window_capture_v8566.js', 'ddgJDownloaderWindowCaptureV8566Script'],
     ['/jdownloader_fast_v8567.js', 'ddgJDownloaderFastV8567Script'],
+
+    // Evidence-first state/reconciliation layer. It observes the verified JD
+    // handoff but does not replace or rescan inside that handoff.
+    ['/smart_state_engine_v8568.js', 'ddgSmartStateEngineV8568Script'],
     ['/media_picker_v8566.js', 'ddgMediaPickerV8566Script'],
 
     // Kept for backwards compatibility/tests. They can no longer steal a JD click.
