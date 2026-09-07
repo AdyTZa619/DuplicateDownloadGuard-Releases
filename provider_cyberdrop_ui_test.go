@@ -6,17 +6,17 @@ import (
 )
 
 func TestCyberdropStableMediaRoutingIsEmbedded(t *testing.T) {
-	jd, err := webFS.ReadFile("web/jdownloader_final_v8551.js")
+	jd, err := webFS.ReadFile("web/jdownloader_fast_v8567.js")
 	if err != nil {
-		t.Fatalf("read JDownloader final module: %v", err)
+		t.Fatalf("read JDownloader fast module: %v", err)
 	}
 	jds := string(jd)
 	for _, marker := range []string{
-		"function cyberdropURL(row)",
-		"CYBERDROP",
-		"providerId",
-		"/f/${encodeURIComponent(String(r.providerId))}",
-		"gofileURL(row) || bunkrURL(row) || cyberdropURL(row)",
+		"function stableProviderURL(row)",
+		"source === 'CYBERDROP'",
+		"remote.providerId",
+		"/f/${encodeURIComponent(String(remote.providerId))}",
+		"stableProviderURL(row) || String(remote.directUrl || remote.url || '').trim()",
 	} {
 		if !strings.Contains(jds, marker) {
 			t.Fatalf("JDownloader Cyberdrop routing missing marker %q", marker)
