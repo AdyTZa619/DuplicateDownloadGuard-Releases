@@ -1,0 +1,95 @@
+name: DDG stability boundary
+
+on:
+  pull_request:
+    branches: [testing]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protect-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject protected-core changes from feature work
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            echo "Manual run: no PR diff to enforce."
+            exit 0
+          fi
+
+          head_ref="${GITHUB_HEAD_REF:-}"
+          if [[ "$head_ref" == core-migration/* ]]; then
+            echo "Explicit core migration branch: protected-core changes are allowed for review."
+            exit 0
+          fi
+
+          git fetch origin "${GITHUB_BASE_REF}" --depth=1
+          changed="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+          failed=0
+          while IFS= read -r protected; do
+            [[ -z "$protected" || "$protected" == \#* ]] && continue
+            if grep -Fxq "$protected" <<<"$changed"; then
+              echo "ERROR: feature work modified protected core: $protected"
+              failed=1
+            fi
+          done < stability/protected_paths.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Use a separate core-migration/* branch if a stable core file genuinely must change."
+            exit 1
+          fi
+
+      - name: Guard isolated frontend features
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          files=(web/features/**/*.js web/features/*.js)
+          [[ ${#files[@]} -eq 0 ]] && exit 0
+
+          forbidden=(
+            'window.showDetail[[:space:]]*='
+            'window.localPreviewHTML[[:space:]]*='
+            'window.loadRemotePreview[[:space:]]*='
+            'window.remotePreviewError[[:space:]]*='
+            'window.currentRow[[:space:]]*='
+            'window.detailSeq[[:space:]]*='
+          )
+          for f in "${files[@]}"; do
+            for pat in "${forbidden[@]}"; do
+              if grep -En "$pat" "$f"; then
+                echo "ERROR: isolated feature $f overwrites shared UI state/function."
+                exit 1
+              fi
+            done
+          done
+
+      - name: Guard isolated backend features
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(feature_*.go)
+          [[ ${#files[@]} -eq 0 ]] && exit 0
+
+          forbidden=(
+            'a\.mu\.(Lock|RLock|TryLock|TryRLock)'
+            'a\.results'
+            'a\.preview'
+          )
+          for f in "${files[@]}"; do
+            for pat in "${forbidden[@]}"; do
+              if grep -En "$pat" "$f"; then
+                echo "ERROR: isolated backend feature $f touches shared core state directly."
+                exit 1
+              fi
+            done
+          done
