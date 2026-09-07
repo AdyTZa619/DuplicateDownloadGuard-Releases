@@ -32,19 +32,20 @@ func TestLocalPreviewV8571HasSilentHangRecovery(t *testing.T) {
 	}
 }
 
-func TestPreviewBootstrapUsesOnlyLocalPreviewV8574(t *testing.T) {
+func TestPreviewBootstrapUsesOnlyLocalPreviewV8575(t *testing.T) {
 	b, err := os.ReadFile("web/preview_quick_v86.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if !strings.Contains(s, "/local_preview_thumb_v8574.js") {
-		t.Fatal("preview bootstrap does not load thumbnail-first local preview v8574")
+	if !strings.Contains(s, "/local_preview_robust_v8575.js") {
+		t.Fatal("preview bootstrap does not load robust local preview v8575")
 	}
 	for _, stale := range []string{
 		"/local_preview_resilience_v8570.js",
 		"/local_preview_resilience_v8571.js",
 		"/local_preview_fast_v8573.js",
+		"/local_preview_thumb_v8574.js",
 	} {
 		if strings.Contains(s, stale) {
 			t.Fatalf("preview bootstrap still loads stale local preview owner %s", stale)

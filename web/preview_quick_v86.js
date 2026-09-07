@@ -6,11 +6,10 @@
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
 
-    // TEST89: one owner for LOCAL preview. Do not load the TEST85-88 resilience/
-    // timeout layers at the same time; they caused duplicate requests and slow
-    // media startup. The new thumbnail-first module uses a persistent FFmpeg
-    // derivative cache and opens full video/audio only on explicit Play.
-    ['/local_preview_thumb_v8574.js', 'ddgLocalPreviewThumbV8574Script'],
+    // TEST90: restore the normal direct LOCAL preview UX. Images get exactly one
+    // browser-safe fallback if the original errors or stalls; video/audio stay on
+    // the proven Range-capable direct path. Do not stack TEST85-89 preview owners.
+    ['/local_preview_robust_v8575.js', 'ddgLocalPreviewRobustV8575Script'],
 
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
