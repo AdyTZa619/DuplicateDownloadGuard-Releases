@@ -7,6 +7,7 @@
     {id:'gofile', name:'GoFile', adapter:'gallery-dl', hosts:[/(^|\.)gofile\.io$/i], note:'gallery-dl • foldere recursive'},
     {id:'bunkr', name:'Bunkr', adapter:'gallery-dl', hosts:[/(^|\.)bunkr[a-z0-9-]*\.[a-z]{2,}$/i, /(^|\.)bunkrr\.[a-z]{2,}$/i], note:'gallery-dl • albume/media'},
     {id:'cyberdrop', name:'Cyberdrop', adapter:'gallery-dl', hosts:[/(^|\.)cyberdrop\.[a-z]{2,}$/i], note:'gallery-dl • albume/media'},
+    {id:'erome', name:'Erome', adapter:'gallery-dl', hosts:[/(^|\.)erome\.com$/i], note:'gallery-dl • albume foto/video'},
     {id:'pixeldrain', name:'Pixeldrain', adapter:'auto', hosts:[/(^|\.)pixeldrain\.com$/i], note:'detecție automată'},
     {id:'mediafire', name:'MediaFire', adapter:'auto', hosts:[/(^|\.)mediafire\.com$/i], note:'detecție automată'}
   ];
@@ -54,7 +55,13 @@
 
   async function jsonFetch(url, options) {
     const response = await fetch(url, options);
-    if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = (await response.text()).trim();
+      const message = detail || response.statusText || 'cerere eșuată';
+      const error = new Error(`${message} [HTTP ${response.status}]`);
+      error.status = response.status;
+      throw error;
+    }
     const type = response.headers.get('content-type') || '';
     return type.includes('json') ? response.json() : response.text();
   }
@@ -176,7 +183,9 @@
       if (top) top.textContent = `${used}: analiză terminată`;
       if (typeof window.goTab === 'function') window.goTab('results');
     } catch (err) {
-      const message = String(err?.message || err || 'Eroare necunoscută');
+      const detail = String(err?.message || err || 'Eroare necunoscută');
+      const prefix = provider?.name ? `${provider.name} / ${provider.adapter || 'auto'}` : 'Sursă online';
+      const message = `${prefix}: ${detail}`;
       if (typeof window.toast === 'function') window.toast(message);
       if (top) top.textContent = `Eroare sursă: ${message}`;
     } finally {
@@ -201,14 +210,14 @@
     const input = document.getElementById('directUrl');
     if (!input) return;
     restoreLastSource(input);
-    input.placeholder = 'GoFile, Bunkr, Cyberdrop, MEGA, link direct, galerie sau pagină video…';
+    input.placeholder = 'GoFile, Bunkr, Cyberdrop, Erome, MEGA, link direct, galerie sau pagină video…';
     const section = input.closest('.section');
     const head = section?.querySelector('.sectionHead h3');
     if (head) head.textContent = 'Sursă online — universal';
     const body = input.closest('.sectionBody');
     if (body && !stateBox()) {
       const firstRow = input.nextElementSibling;
-      const html = `<div id="universalProviderState" class="providerStateBox"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div><div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>MEGA</span><span>HTTP</span></div>`;
+      const html = `<div id="universalProviderState" class="providerStateBox"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div><div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>Erome</span><span>MEGA</span><span>HTTP</span></div>`;
       if (firstRow) firstRow.insertAdjacentHTML('afterend', html);
       else body.insertAdjacentHTML('beforeend', html);
     }
