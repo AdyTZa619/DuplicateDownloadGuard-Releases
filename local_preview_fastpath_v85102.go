@@ -19,11 +19,11 @@ import (
 // exact-index fallback without ever blocking the media request.
 
 type localPreviewRootSnapshotV85102 struct {
-	mu      sync.Mutex
-	stamp   int64
-	size    int64
-	loaded  bool
-	roots   []string
+	mu     sync.Mutex
+	stamp  int64
+	size   int64
+	loaded bool
+	roots  []string
 }
 
 var localPreviewRootSnapshotsV85102 sync.Map // map[*App]*localPreviewRootSnapshotV85102
