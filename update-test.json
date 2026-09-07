@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.84",
+  "version": "8.5.49-test.97",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "808f06b5ba4878e18de9a8bb59d13d49ceeba529bdcb5384e207efa727f68ca8",
-  "notes": "TEST: TEST: best-candidate reconciliation after JDownloader",
-  "publishedAt": "2026-09-07T12:12:15.8886226Z",
+  "sha256": "5f623042e5d60c54c046f3388b70fe0112521051bf4250595f7ebc8b74ec480d",
+  "notes": "TEST: Rollback TEST to pre-local-preview state (TEST84 tree)",
+  "publishedAt": "2026-09-07T17:29:34.0253634Z",
   "channel": "test"
 }
