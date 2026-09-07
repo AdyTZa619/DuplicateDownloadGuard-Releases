@@ -1,0 +1,1 @@
+Focused validation for the local preview single-winner/race guard passed on commit 4403d5653e196206ef17203ffd2485112bd1c4ac: all UI JavaScript syntax, gofmt, go test ./..., go vet ./..., and Windows x64 build.
