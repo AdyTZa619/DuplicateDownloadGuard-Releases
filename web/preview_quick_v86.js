@@ -6,6 +6,10 @@
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
     ['/local_preview_resilience_v8571.js', 'ddgLocalPreviewV8571Script'],
+    // TEST88 performance override: stable direct URLs restore browser/Windows cache
+    // and Range metadata reuse for local images/video/audio. The older resilience
+    // module remains loaded for backwards compatibility but no longer owns the UI.
+    ['/local_preview_fast_v8573.js', 'ddgLocalPreviewFastV8573Script'],
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
