@@ -20,7 +20,7 @@
 
     // Window capture is above every legacy document-level capture handler.
     ['/jdownloader_window_capture_v8566.js', 'ddgJDownloaderWindowCaptureV8566Script'],
-    ['/jdownloader_fast_v8566.js', 'ddgJDownloaderFastV8566Script'],
+    ['/jdownloader_fast_v8567.js', 'ddgJDownloaderFastV8567Script'],
     ['/media_picker_v8566.js', 'ddgMediaPickerV8566Script'],
 
     // Kept for backwards compatibility/tests. They can no longer steal a JD click.
