@@ -44,15 +44,18 @@ func TestMegaScanPathIsPresentAndIndependentFromLocalPreview(t *testing.T) {
 	if !strings.Contains(boot, "/provider_sources.js") {
 		t.Fatal("provider_sources.js is not loaded by the UI bootstrap")
 	}
+	if !strings.Contains(boot, "/local_preview_direct_safe_v8576.js") {
+		t.Fatal("TEST92 direct-safe local preview is not loaded")
+	}
 
-	localBytes, err := os.ReadFile("web/local_preview_thumb_v8574.js")
+	localBytes, err := os.ReadFile("web/local_preview_direct_safe_v8576.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	local := string(localBytes)
-	for _, forbidden := range []string{"/api/mega/scan", "scanMega(", "window.scanMega"} {
+	for _, forbidden := range []string{"/api/mega/scan", "scanMega(", "window.scanMega", "/api/remote-preview/"} {
 		if strings.Contains(local, forbidden) {
-			t.Fatalf("LOCAL preview must not touch MEGA scan path: %q", forbidden)
+			t.Fatalf("LOCAL preview must not touch MEGA scan/preview path: %q", forbidden)
 		}
 	}
 }
