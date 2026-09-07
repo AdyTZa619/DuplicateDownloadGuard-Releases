@@ -12,12 +12,10 @@ import (
 	"time"
 )
 
-// TEST v8.5.99: diagnostic local-preview path.
-// The normal preview remains ServeFile-based. This wrapper only measures the
-// real phases (authorization, stat/open-to-first-byte, transfer) and writes
-// compact evidence into the existing DDG journal. A separate buffered image
-// endpoint is available as an explicit alternative; it is never selected
-// automatically by the backend and never scans HDD/MEGA/JDownloader.
+// TEST v8.5.99 diagnostic local-preview path. The normal preview remains
+// ServeFile-based. This wrapper measures authorization, stat/open-to-first-byte
+// and transfer timings in the existing DDG journal. A separate buffered image
+// endpoint is an explicit A/B alternative; it never starts HDD scans, MEGA or JD.
 
 type localPreviewTimingWriterV8599 struct {
 	http.ResponseWriter
@@ -104,7 +102,7 @@ func (a *App) handleLocalPreviewDiagV8599(w http.ResponseWriter, r *http.Request
 	kind := remoteMediaKind(filepath.Base(p))
 
 	// Images are logged on every request so fast and slow files can be compared.
-	// Video/audio Range traffic is intentionally quiet unless it is slow/error.
+	// Video/audio Range traffic is quiet unless it is slow/error.
 	if kind == "image" || totalMS >= 500 || status >= 400 || authMS >= 100 || statMS >= 100 {
 		a.logf("LOCAL PREVIEW diag DIRECT: total=%dms auth=%dms stat=%dms first-byte=%dms serve=%dms status=%d sent=%d size=%d kind=%s range=%s path=%s",
 			totalMS, authMS, statMS, firstBodyMS, serveMS, status, tw.bytes, st.Size(), kind, previewRangeLabelV8599(r), p)
@@ -207,7 +205,12 @@ func (a *App) handleLocalPreviewClientTraceV8599(w http.ResponseWriter, r *http.
 	if req.Detail != "" && len(req.Detail) > 180 {
 		req.Detail = req.Detail[:180]
 	}
-	if req.Event == "PENDING" || req.Event == "ERROR" || req.Event == "ALT" || req.ElapsedMS >= 700 {
+	kind := remoteMediaKind(filepath.Base(req.Path))
+	logIt := req.Event == "PENDING" || req.Event == "ERROR" || req.Event == "ALT" || req.Event == "STALLED" || req.Event == "WAITING" || req.ElapsedMS >= 700
+	if kind == "image" && req.Event == "LOAD" {
+		logIt = true
+	}
+	if logIt {
 		a.logf("LOCAL PREVIEW client %s/%s: %.0fms %dx%d detail=%s path=%s",
 			req.Event, req.Method, req.ElapsedMS, req.NaturalWidth, req.NaturalHeight, req.Detail, req.Path)
 	}
