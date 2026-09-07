@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.80",
+  "version": "8.5.49-test.81",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "c24c408f8faaf62605b57c4ab9a3c387fcedd8a1ed49e4f0f21aee73e2b9cdca",
-  "notes": "TEST: TEST: JD one-shot handoff + generic Media Picker",
-  "publishedAt": "2026-09-07T09:44:30.5213869Z",
+  "sha256": "2a37ce9f160d1a54ec662d593fe045ba414ea858850c30748fa7df93f6552bcc",
+  "notes": "TEST: TEST: sync JDownloader popup with final DDG verdict",
+  "publishedAt": "2026-09-07T10:44:57.1224269Z",
   "channel": "test"
 }
