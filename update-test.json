@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.103",
+  "version": "8.5.49-test.104",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "f563c864c7e2094d4789346b4688b62c24b534b7f881107a2ec0b1a98dc607c3",
-  "notes": "TEST: TEST103: isolate local preview client from remote and selection UI (#63)",
-  "publishedAt": "2026-09-07T22:09:49.6639741Z",
+  "sha256": "68394698dff785346fb3db1ef463b9903cd940f5a682e9ecfd0ddd71d831d069",
+  "notes": "TEST: TEST104: isolate local media transport and diagnostic logging",
+  "publishedAt": "2026-09-07T22:30:01.5908368Z",
   "channel": "test"
 }
