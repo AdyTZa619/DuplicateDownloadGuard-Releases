@@ -111,7 +111,8 @@
 
     if (kind === 'image') {
       const p = escAttr(path);
-      return `<img id="localImage" data-ddg-direct-safe="1" data-ddg-stage="direct" data-ddg-path="${p}" src="${direct}" alt="Preview local" decoding="async" onload="ddgLocalPreviewDirectSafeV8576.imageReady(this)" onerror="ddgLocalPreviewDirectSafeV8576.imageFailed(this)"><span class="miniInfo">${ext}</span>`;
+      // Intentionally matches the pre-TEST85 fast path: one plain <img> request.
+      return `<img id="localImage" data-ddg-direct-safe="1" data-ddg-stage="direct" data-ddg-path="${p}" src="${direct}" alt="Preview local" onload="ddgLocalPreviewDirectSafeV8576.imageReady(this)" onerror="ddgLocalPreviewDirectSafeV8576.imageFailed(this)"><span class="miniInfo">${ext}</span>`;
     }
     if (kind === 'video') {
       return `<video id="localVideo" controls preload="metadata" src="${direct}"></video><span class="miniInfo">${ext} • local</span>`;
