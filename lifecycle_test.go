@@ -69,3 +69,49 @@ func TestSettleMegaOnShutdownClearsWarmPreview(t *testing.T) {
 		t.Fatal("MEGA preview timer survived shutdown")
 	}
 }
+
+func TestUIWatchdogDoesNotStopOnPagehideWhileWindowExistsV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-20 * time.Second).UnixNano()
+	hint := now.Add(-15 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, true, 100) {
+		t.Fatal("pagehide must never stop DDG while the native app window still exists")
+	}
+}
+
+func TestUIWatchdogRequiresSustainedWindowAbsenceV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-20 * time.Second).UnixNano()
+	hint := now.Add(-15 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112-1) {
+		t.Fatal("a transient missing-window observation must not stop DDG")
+	}
+	if !shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a real close should stop DDG after sustained native-window absence")
+	}
+}
+
+func TestUIWatchdogFreshHeartbeatCancelsPagehideV85112(t *testing.T) {
+	now := time.Now()
+	hint := now.Add(-20 * time.Second).UnixNano()
+	last := now.Add(-2 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a heartbeat newer than pagehide proves the UI recovered/reloaded")
+	}
+}
+
+func TestUIWatchdogDoesNotKillMinimizedOrSuspendedWindowV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-30 * time.Minute).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, 0, true, 1000) {
+		t.Fatal("stale heartbeat alone must not kill a backend whose native window still exists")
+	}
+}
+
+func TestUIWatchdogFallbackNeedsWindowGoneAndVeryStaleHeartbeatV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-11 * time.Minute).UnixNano()
+	if !shouldStopUIWatchdogV85112(now, last, 0, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("orphan backend should eventually stop when the native window is gone and heartbeat is very stale")
+	}
+}
