@@ -5,11 +5,13 @@
 
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
-    ['/local_preview_resilience_v8571.js', 'ddgLocalPreviewV8571Script'],
-    // TEST88 performance override: stable direct URLs restore browser/Windows cache
-    // and Range metadata reuse for local images/video/audio. The older resilience
-    // module remains loaded for backwards compatibility but no longer owns the UI.
-    ['/local_preview_fast_v8573.js', 'ddgLocalPreviewFastV8573Script'],
+
+    // TEST89: one owner for LOCAL preview. Do not load the TEST85-88 resilience/
+    // timeout layers at the same time; they caused duplicate requests and slow
+    // media startup. The new thumbnail-first module uses a persistent FFmpeg
+    // derivative cache and opens full video/audio only on explicit Play.
+    ['/local_preview_thumb_v8574.js', 'ddgLocalPreviewThumbV8574Script'],
+
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
