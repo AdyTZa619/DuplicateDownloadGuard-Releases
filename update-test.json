@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.104",
+  "version": "8.5.49-test.109",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "68394698dff785346fb3db1ef463b9903cd940f5a682e9ecfd0ddd71d831d069",
-  "notes": "TEST: TEST104: isolate local media transport and diagnostic logging",
-  "publishedAt": "2026-09-07T22:30:01.5908368Z",
+  "sha256": "c22036b9f3d5a8de6c710f169293ccd3f9439d0437d5da97891c8b24ffc1483a",
+  "notes": "TEST: Stability: document protected-core manifest",
+  "publishedAt": "2026-09-07T22:43:01.4208158Z",
   "channel": "test"
 }
