@@ -31,6 +31,26 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	}
 }
 
+func TestJDFinalRouterUsesBatchWithoutLegacyPreflightV8565(t *testing.T) {
+	b, err := os.ReadFile("web/jdownloader_final_v8551.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{
+		"ddgJDownloaderBatchConfirmV8564",
+		"batch.sendBatchAware()",
+		"event.stopImmediatePropagation()",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("final JD router missing %q", want)
+		}
+	}
+	if strings.Contains(s, "window.api('/api/download/preflight'") {
+		t.Fatal("final JD router must not run the full HDD preflight")
+	}
+}
+
 func TestJDBatchModuleLoadsBeforeLegacyFinalV8564(t *testing.T) {
 	b, err := os.ReadFile("web/preview_quick_v86.js")
 	if err != nil {
