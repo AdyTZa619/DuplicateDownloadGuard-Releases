@@ -1,0 +1,1 @@
+Final runtime code at `7d591355ef8e6061b8eceee7025581471a20bbbe` passed the focused Windows validation pipeline (JavaScript syntax, all Go tests, vet, Windows x64 build). Subsequent commits only remove the temporary workflow and add documentation/regression-test coverage; runtime preview files are unchanged.
