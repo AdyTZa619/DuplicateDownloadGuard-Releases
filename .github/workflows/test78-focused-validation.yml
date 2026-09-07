@@ -1,0 +1,74 @@
+name: DDG TEST78 focused validation
+
+on:
+  push:
+    branches: [fix/test78-validation]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ddg-test78-focused-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Verify all UI JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          if ($scripts.Count -eq 0) { throw 'Nu exista fisiere JavaScript in web/.' }
+          foreach ($script in $scripts) {
+            node --check $script.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
+
+      - name: Verify Go formatting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = @()
+          Get-ChildItem -Filter *.go | ForEach-Object {
+            $out = gofmt -l $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+            if ($out) { $bad += $out }
+          }
+          if ($bad.Count -gt 0) {
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Go formatting check failed'
+          }
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+
+      - name: Vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
+
+      - name: Windows x64 build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o ddg-test78-validation.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 build failed' }
