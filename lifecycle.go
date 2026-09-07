@@ -15,6 +15,16 @@ var (
 	appStopOnce   sync.Once
 )
 
+const (
+	// TEST112: pagehide is only a hint. Edge/WebView can emit it during a
+	// reload/navigation while the DDG app window is still alive. Require the
+	// native DDG window to be absent for a sustained period before shutdown.
+	uiWatchdogMissingWindowTicksV85112 = 12
+	// Heartbeat-only fallback is deliberately very generous. A minimized Edge
+	// window or a sleeping PC must not make the backend kill itself.
+	uiWatchdogHeartbeatGraceV85112 = 10 * time.Minute
+)
+
 func (a *App) handleUIHeartbeat(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixNano()
 	uiHeartbeatNS.Store(now)
@@ -36,14 +46,40 @@ func (a *App) handleUIExitHint(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// startUIWatchdog terminates the local backend after the app-mode UI has gone
-// away. pagehide gives a fast close path, while the heartbeat fallback is kept
-// deliberately generous because Edge can throttle timers when minimized and a
-// sleeping Windows machine can resume after a long wall-clock gap.
+// shouldStopUIWatchdogV85112 keeps the lifecycle decision isolated and
+// testable. A pagehide or a missing heartbeat alone is never enough to stop
+// DDG. The native app window must also be confirmed absent for several
+// consecutive watchdog ticks.
+func shouldStopUIWatchdogV85112(now time.Time, lastNS, hintNS int64, windowPresent bool, missingWindowTicks int) bool {
+	if lastNS <= 0 || windowPresent || missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
+		return false
+	}
+
+	last := time.Unix(0, lastNS)
+	if hintNS > 0 {
+		hint := time.Unix(0, hintNS)
+		// A real close has all three signals: no newer heartbeat than pagehide,
+		// the native DDG window is gone, and that absence persisted long enough.
+		if lastNS <= hintNS && now.Sub(hint) > 4*time.Second {
+			return true
+		}
+	}
+
+	// Fallback for a close where pagehide was never delivered. This is kept
+	// intentionally slow so timer throttling, suspend/resume or a busy renderer
+	// cannot kill a healthy backend.
+	return now.Sub(last) > uiWatchdogHeartbeatGraceV85112
+}
+
+// startUIWatchdog terminates the local backend only after the DDG app window
+// is genuinely gone. pagehide is a hint, not a shutdown command: Edge can emit
+// it during reload/navigation and that previously left a visible UI connected
+// to a dead localhost backend ("Failed to fetch").
 func startUIWatchdog(stop chan<- struct{}) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+		missingWindowTicks := 0
 		for now := range ticker.C {
 			if !uiSeen.Load() {
 				continue
@@ -52,16 +88,15 @@ func startUIWatchdog(stop chan<- struct{}) {
 			if lastNS <= 0 {
 				continue
 			}
-			last := time.Unix(0, lastNS)
-			hintNS := uiExitHintNS.Load()
-			shouldStop := now.Sub(last) > 90*time.Second
-			if hintNS > 0 {
-				hint := time.Unix(0, hintNS)
-				// If no heartbeat newer than pagehide arrived, this was a real
-				// window close rather than a reload/navigation.
-				shouldStop = lastNS <= hintNS && now.Sub(hint) > 4*time.Second
+
+			windowPresent := ddgAppWindowPresentNative()
+			if windowPresent {
+				missingWindowTicks = 0
+			} else if missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
+				missingWindowTicks++
 			}
-			if shouldStop {
+
+			if shouldStopUIWatchdogV85112(now, lastNS, uiExitHintNS.Load(), windowPresent, missingWindowTicks) {
 				appStopOnce.Do(func() {
 					select {
 					case stop <- struct{}{}:
