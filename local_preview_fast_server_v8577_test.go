@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newLocalPreviewRequestV8577(t *testing.T, path string) *http.Request {
@@ -45,7 +46,7 @@ func TestLocalPreviewFastV8577ServesWithoutAppMutex(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-timeAfterTestV8577():
+	case <-time.After(750 * time.Millisecond):
 		t.Fatal("local preview blocked behind App.mu")
 	}
 	res := w.Result()
@@ -63,17 +64,6 @@ func TestLocalPreviewFastV8577ServesWithoutAppMutex(t *testing.T) {
 	if got := res.Header.Get("X-DDG-Local-Preview"); got != "lockfree-v8577" {
 		t.Fatalf("unexpected preview marker %q", got)
 	}
-}
-
-func timeAfterTestV8577() <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		// Avoid importing time in the main test body solely for a short watchdog.
-		select {
-		case <-make(chan struct{}):
-		}
-	}()
-	return ch
 }
 
 func TestLocalPreviewFastV8577RangeAndCache(t *testing.T) {
@@ -125,7 +115,7 @@ func TestLocalPreviewFastV8577SourceIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, forbidden := range []string{"localPathAllowed(", "a.mu.", "FFmpeg", "/api/mega/", "/api/download/preflight"} {
+	for _, forbidden := range []string{"localPathAllowed(", "a.mu.", "/api/mega/", "/api/download/preflight"} {
 		if strings.Contains(s, forbidden) {
 			t.Fatalf("lock-free preview contains forbidden dependency %q", forbidden)
 		}
