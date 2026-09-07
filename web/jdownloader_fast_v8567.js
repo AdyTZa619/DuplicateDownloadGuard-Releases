@@ -172,13 +172,16 @@
   }
 
   function classify(row) {
+    // guardVerdict is DDG's final authoritative decision and is the same verdict
+    // shown by Smart Guard in the main results table. Do not let an older manual
+    // or auto status reclassify it inside the JDownloader popup.
+    const guard = String(row?.guardVerdict || '').trim().toUpperCase();
+    if (['DOWNLOAD','DUPLICATE','REVIEW'].includes(guard)) return guard;
+
+    // Legacy fallback only for rows that have no final Guard verdict yet.
     const manual = Boolean(row?.manual);
     const status = String(row?.status || row?.autoStatus || '').trim().toUpperCase();
-    const guard = String(row?.guardVerdict || '').trim().toUpperCase();
     if (manual && ['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
-    if (guard === 'DUPLICATE') return 'DUPLICATE';
-    if (guard === 'REVIEW') return 'REVIEW';
-    if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';
     if (['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
     if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
