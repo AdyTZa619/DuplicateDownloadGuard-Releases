@@ -1,1 +1,0 @@
-Direct fast path + isolated fallback. Remove after validation.
