@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.110",
+  "version": "8.5.49-test.111",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "050e2b1ad22a221fe87e505204ffddb053ba03ddc25ca89e5597477d255b9867",
-  "notes": "TEST: Maintenance: ignore docs-only stability commits for TEST builds",
-  "publishedAt": "2026-09-07T23:02:45.9422437Z",
+  "sha256": "37913ba3c9c4f7d0c524d0e7726306018a9d11ffe7837e6ba1b541fc5732cd5d",
+  "notes": "TEST: Maintenance: remove confirmed unused legacy modules",
+  "publishedAt": "2026-09-07T23:11:03.8287886Z",
   "channel": "test"
 }
