@@ -38,6 +38,10 @@ func matchingDDGAppWindows() []uintptr {
 	return windows
 }
 
+func ddgAppWindowPresentNative() bool {
+	return len(matchingDDGAppWindows()) > 0
+}
+
 func closeDDGAppWindowsNative() int {
 	windows := matchingDDGAppWindows()
 	for _, hwnd := range windows {
