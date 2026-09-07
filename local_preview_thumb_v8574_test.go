@@ -1,5 +1,8 @@
 package main
 
+// Final TEST89 validation runs after the route registration commit so the
+// complete thumbnail-first pipeline is checked together on Windows.
+
 import (
 	"os"
 	"path/filepath"
