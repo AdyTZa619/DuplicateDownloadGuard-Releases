@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.89",
+  "version": "8.5.49-test.90",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "0c9e87ade89c20cc3397c29425954198715682d671014f9301c321458726d80e",
-  "notes": "TEST: TEST89: thumbnail-first local preview cache",
-  "publishedAt": "2026-09-07T14:43:11.7383009Z",
+  "sha256": "1b51f7cd785efeaa82624a317fa64721d1650e73644ab7788adcde6e2568c33d",
+  "notes": "TEST: TEST90: restore direct local preview + native image fallback",
+  "publishedAt": "2026-09-07T15:40:04.1620067Z",
   "channel": "test"
 }
