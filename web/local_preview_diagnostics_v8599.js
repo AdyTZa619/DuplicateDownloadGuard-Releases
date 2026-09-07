@@ -1,64 +1,16 @@
-// TEST .102 LOCAL preview: BUFFER is primary for images and uses a dedicated
-// loopback media origin when available. DIRECT stays as an explicit A/B method.
-// No automatic timeout fallback, HDD scan, MEGA scan or JDownloader work.
+// TEST .103 LOCAL preview diagnostics. The backend keeps the .102 nonblocking
+// authorization fix, but this client module does not replace shared preview
+// renderers or touch REMOTE/MEGA/selection behavior. BUFFER stays explicit A/B.
 (() => {
   'use strict';
 
   const TRACE_URL = '/api/local-preview/trace';
-  const BASE_URL = '/api/local-preview/base';
   const PENDING_MS = 1500;
   const watched = new WeakSet();
   const state = new WeakMap();
-  let dedicatedBase = '';
 
   function round(v) {
     return Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0;
-  }
-
-  function imageKind(path) {
-    const e = String(path || '').split('.').pop().toLowerCase();
-    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif'].includes(e);
-  }
-
-  function safeDedicatedBase(raw) {
-    try {
-      const u = new URL(String(raw || ''));
-      if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(u.hostname)) return '';
-      return u.origin;
-    } catch (_) {
-      return '';
-    }
-  }
-
-  function mediaURL(path, method) {
-    const endpoint = method === 'DIRECT' ? '/api/local-preview' : '/api/local-preview-buffered';
-    return `${dedicatedBase}${endpoint}?path=${encodeURIComponent(path)}&_ddg=${Date.now()}`;
-  }
-
-  function installPrimaryRenderer() {
-    const original = window.localPreviewHTML;
-    if (typeof original !== 'function' || original.__ddgLocalPreview102) return;
-    const wrapped = function(path) {
-      if (!path || !imageKind(path)) return original(path);
-      const ext = String(path).split('.').pop().toUpperCase();
-      const src = mediaURL(path, 'BUFFER');
-      return `<img id="localImage" src="${src}" alt="Preview local"><span class="miniInfo">${ext} • LOCAL BUFFER</span>`;
-    };
-    wrapped.__ddgLocalPreview102 = true;
-    wrapped.__ddgOriginal = original;
-    window.localPreviewHTML = wrapped;
-  }
-
-  async function resolveDedicatedBase() {
-    try {
-      const resp = await fetch(BASE_URL, {cache: 'no-store'});
-      if (!resp.ok) return;
-      const data = await resp.json();
-      const base = safeDedicatedBase(data?.base);
-      if (!base) return;
-      dedicatedBase = base;
-      installPrimaryRenderer();
-    } catch (_) {}
   }
 
   function sourceInfo(el) {
@@ -68,11 +20,10 @@
       return {
         path: u.searchParams.get('path') || '',
         method: u.pathname.includes('/api/local-preview-buffered') ? 'BUFFER' : 'DIRECT',
-        origin: u.origin === location.origin ? 'MAIN' : 'DEDICATED',
         url: u.href
       };
     } catch (_) {
-      return {path: '', method: 'DIRECT', origin: 'UNKNOWN', url: raw};
+      return {path: '', method: 'DIRECT', url: raw};
     }
   }
 
@@ -102,7 +53,7 @@
         elapsedMs: round(elapsed),
         naturalWidth: width,
         naturalHeight: height,
-        detail: `${info.origin} ${String(detail || '')}`.slice(0, 180)
+        detail: String(detail || '').slice(0, 180)
       }),
       keepalive: true
     }).catch(() => {});
@@ -123,32 +74,31 @@
     document.head.appendChild(style);
   }
 
-  function offerAlternate(img, armPending) {
+  function offerBuffered(img) {
     const root = img?.closest?.('#localPreview');
     const s = state.get(img);
     const info = sourceInfo(img);
-    if (!root || !s || !info.path || root.querySelector('.ddgLocalPreviewAltV8599')) return;
+    if (!root || !s || !info.path || info.method === 'BUFFER' || root.querySelector('.ddgLocalPreviewAltV8599')) return;
     ensureStyle();
-    const target = info.method === 'BUFFER' ? 'DIRECT' : 'BUFFER';
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'ddgLocalPreviewAltV8599';
-    button.textContent = target === 'BUFFER' ? 'ALT • BUFFER memorie' : 'ALT • DIRECT vechi';
-    button.title = target === 'BUFFER'
-      ? 'Compară cu citirea completă în memorie.'
-      : 'Compară cu vechea metodă ServeFile. Ambele folosesc listenerul LOCAL dedicat când este disponibil.';
+    button.textContent = 'ALT • citește întâi în memorie';
+    button.title = 'Metodă A/B: citește imaginea complet în memorie, apoi o servește browserului.';
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
       const current = sourceInfo(img);
       if (!current.path || !img.isConnected) return;
-      postTrace('ALT', img, performance.now() - s.started, `${current.method} -> ${target}; înlocuire unică, fără două citiri paralele`);
+      const elapsed = performance.now() - s.started;
+      postTrace('ALT', img, elapsed, 'DIRECT -> BUFFER; înlocuire unică, fără două citiri paralele');
       clearTimeout(s.pendingTimer);
       s.started = performance.now();
+      s.method = 'BUFFER';
       s.settled = false;
-      button.remove();
-      img.src = mediaURL(current.path, target);
-      armPending();
+      button.disabled = true;
+      button.textContent = 'ALT • citesc…';
+      img.src = `/api/local-preview-buffered?path=${encodeURIComponent(current.path)}&_ddg=${Date.now()}`;
     });
     root.appendChild(button);
   }
@@ -156,7 +106,7 @@
   function watchImage(img) {
     if (!img || watched.has(img)) return;
     watched.add(img);
-    const s = {started: performance.now(), settled: false, pendingTimer: 0};
+    const s = {started: performance.now(), method: sourceInfo(img).method, settled: false, pendingTimer: 0};
     state.set(img, s);
 
     const armPending = () => {
@@ -165,35 +115,28 @@
         if (!img.isConnected || s.settled) return;
         const info = sourceInfo(img);
         postTrace('PENDING', img, performance.now() - s.started, `${resourceTiming(info.url)} complete=${Boolean(img.complete)}`);
-        offerAlternate(img, armPending);
+        if (info.method === 'DIRECT') offerBuffered(img);
       }, PENDING_MS);
     };
-
-    const loaded = () => {
-      if (s.settled) return;
-      s.settled = true;
-      clearTimeout(s.pendingTimer);
-      const info = sourceInfo(img);
-      postTrace('LOAD', img, performance.now() - s.started, `${resourceTiming(info.url)} complete=${Boolean(img.complete)}`);
-      removeAlt(img.closest('#localPreview'));
-    };
-
-    const failed = () => {
-      if (s.settled) return;
-      s.settled = true;
-      clearTimeout(s.pendingTimer);
-      const info = sourceInfo(img);
-      postTrace('ERROR', img, performance.now() - s.started, `${resourceTiming(info.url)} complete=${Boolean(img.complete)}`);
-      s.settled = false;
-      offerAlternate(img, armPending);
-    };
-
-    img.addEventListener('load', loaded);
-    img.addEventListener('error', failed);
     armPending();
 
-    // Very small buffered images can finish before MutationObserver attaches.
-    if (img.complete) queueMicrotask(() => img.naturalWidth > 0 ? loaded() : failed());
+    img.addEventListener('load', () => {
+      const elapsed = performance.now() - s.started;
+      s.settled = true;
+      clearTimeout(s.pendingTimer);
+      const info = sourceInfo(img);
+      postTrace('LOAD', img, elapsed, `${resourceTiming(info.url)} complete=${Boolean(img.complete)}`);
+      removeAlt(img.closest('#localPreview'));
+    });
+
+    img.addEventListener('error', () => {
+      const elapsed = performance.now() - s.started;
+      s.settled = true;
+      clearTimeout(s.pendingTimer);
+      const info = sourceInfo(img);
+      postTrace('ERROR', img, elapsed, `${resourceTiming(info.url)} complete=${Boolean(img.complete)}`);
+      if (info.method === 'DIRECT') offerBuffered(img);
+    });
   }
 
   function watchAV(el) {
@@ -232,8 +175,6 @@
 
   function boot() {
     ensureStyle();
-    installPrimaryRenderer();
-    resolveDedicatedBase();
     scan();
     const root = document.getElementById('localPreview');
     if (!root || root.dataset.ddgLocalDiagObserverV8599 === '1') return;
@@ -244,5 +185,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 
-  window.ddgLocalPreviewDiagnosticsV8599 = {scan, resolveDedicatedBase};
+  window.ddgLocalPreviewDiagnosticsV8599 = {scan};
 })();
