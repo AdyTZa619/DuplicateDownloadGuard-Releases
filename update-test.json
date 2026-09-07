@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.109",
+  "version": "8.5.49-test.110",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "c22036b9f3d5a8de6c710f169293ccd3f9439d0437d5da97891c8b24ffc1483a",
-  "notes": "TEST: Stability: document protected-core manifest",
-  "publishedAt": "2026-09-07T22:43:01.4208158Z",
+  "sha256": "050e2b1ad22a221fe87e505204ffddb053ba03ddc25ca89e5597477d255b9867",
+  "notes": "TEST: Maintenance: ignore docs-only stability commits for TEST builds",
+  "publishedAt": "2026-09-07T23:02:45.9422437Z",
   "channel": "test"
 }
