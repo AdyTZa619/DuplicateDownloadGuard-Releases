@@ -69,7 +69,7 @@ func TestSmartStateEngineLoadOrderPreservesJDOneShot(t *testing.T) {
 	}
 	s := string(b)
 	fast := strings.Index(s, "/jdownloader_fast_v8567.js")
-	state := strings.Index(s, "/smart_state_engine_v8568.js")
+	state := strings.Index(s, "/smart_state_engine_v8569.js")
 	picker := strings.Index(s, "/media_picker_v8566.js")
 	legacy := strings.Index(s, "/jdownloader_batch_confirm_v8564.js")
 	if fast < 0 || state < 0 || picker < 0 || legacy < 0 {
