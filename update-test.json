@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.77",
+  "version": "8.5.49-test.80",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "134de1eb56a88f4b2f7c05adea4e6cae0992b9cf063ada3d28f2274e63609797",
-  "notes": "TEST: TEST align JD confirmation tests with fast explicit send-all flow",
-  "publishedAt": "2026-09-06T23:43:47.6561638Z",
+  "sha256": "c24c408f8faaf62605b57c4ab9a3c387fcedd8a1ed49e4f0f21aee73e2b9cdca",
+  "notes": "TEST: TEST: JD one-shot handoff + generic Media Picker",
+  "publishedAt": "2026-09-07T09:44:30.5213869Z",
   "channel": "test"
 }
