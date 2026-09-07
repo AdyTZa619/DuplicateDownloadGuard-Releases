@@ -54,17 +54,17 @@ func TestLocalPreviewV8570KeepsVideoAudioStreaming(t *testing.T) {
 	}
 }
 
-func TestLocalPreviewV8570LoadsBeforeProviderCompare(t *testing.T) {
+func TestLocalPreviewV8571LoadsBeforeProviderCompare(t *testing.T) {
 	b, err := os.ReadFile("web/preview_quick_v86.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
 	core := strings.Index(s, "/preview_quick_core.js")
-	local := strings.Index(s, "/local_preview_resilience_v8570.js")
+	local := strings.Index(s, "/local_preview_resilience_v8571.js")
 	provider := strings.Index(s, "/provider_compare_ui_v8558.js")
 	if core < 0 || local < 0 || provider < 0 {
-		t.Fatal("expected preview core, resilient local preview and provider compare modules")
+		t.Fatal("expected preview core, resilient local preview v8571 and provider compare modules")
 	}
 	if !(core < local && local < provider) {
 		t.Fatalf("unsafe preview module order: core=%d local=%d provider=%d", core, local, provider)
