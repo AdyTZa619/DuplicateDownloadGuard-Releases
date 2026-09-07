@@ -1,9 +1,13 @@
 package main
 
-// Final TEST89 validation runs after the route registration commit so the
-// complete thumbnail-first pipeline is checked together on Windows.
+// TEST90 validates the browser-safe image fallback independently of an FFmpeg
+// installation, while retaining the existing cache-key and cache-bound checks.
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +58,45 @@ func TestLocalThumbKeyV8574ChangesWithCurrentEvidence(t *testing.T) {
 	}
 	if k1 == localThumbKeyV8574(filepath.Join("H:\\media", "x.jpg"), three) {
 		t.Fatal("cache key must change when mtime changes")
+	}
+}
+
+func TestLocalThumbNativeImageV8575WorksWithoutFFmpeg(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sample.png")
+	src := image.NewRGBA(image.Rect(0, 0, 24, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 24; x++ {
+			src.Set(x, y, color.RGBA{R: uint8(x * 7), G: uint8(y * 11), B: 120, A: 255})
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, src); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := localThumbNativeImageV8575(path)
+	if err != nil {
+		t.Fatalf("native image fallback failed: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("native image fallback returned empty JPEG")
+	}
+	decoded, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("native image fallback emitted invalid image: %v", err)
+	}
+	if format != "jpeg" {
+		t.Fatalf("native image fallback format = %q, want jpeg", format)
+	}
+	if decoded.Bounds().Dx() <= 0 || decoded.Bounds().Dy() <= 0 {
+		t.Fatal("native image fallback emitted invalid dimensions")
 	}
 }
 
