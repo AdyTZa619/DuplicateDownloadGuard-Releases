@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.101",
+  "version": "8.5.49-test.102",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "866585f6f2519ee01fd5adf971aedcac67c19876bdb4257bb5ba69e88f1d4682",
-  "notes": "TEST: TEST: local preview diagnostics and buffered A/B",
-  "publishedAt": "2026-09-07T21:15:54.6345133Z",
+  "sha256": "c7b7adba3dca41990b5e7053cf70b59fce2cf556312d2d1145e68db3926572de",
+  "notes": "TEST: TEST: fix local preview mutex stalls and use dedicated buffered image path",
+  "publishedAt": "2026-09-07T21:54:59.8766906Z",
   "channel": "test"
 }
