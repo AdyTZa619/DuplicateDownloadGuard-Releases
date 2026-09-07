@@ -1,11 +1,13 @@
 (() => {
   'use strict';
 
-  // TEST92: keep the original fast local preview path. Only images that really
-  // fail (or stay unresolved for several seconds) are switched once to the
-  // existing safe JPEG derivative endpoint. Video/audio are never intercepted.
-  const IMAGE_WATCHDOG_MS = 4000;
-  const armed = new WeakMap();
+  // TEST93: native browser image formats stay on the original direct request.
+  // Do NOT abort a slow JPEG/PNG/WebP/AVIF read just because the HDD needed a
+  // few seconds to answer: aborting and starting FFmpeg was the source of the
+  // long delays seen in TEST92. Only a real direct decode/load error switches
+  // to the safe JPEG derivative. Formats that WebView normally cannot decode
+  // reliably (HEIC/HEIF/TIFF) go straight to the safe derivative.
+  const SAFE_FIRST_IMAGE_EXTS = new Set(['heic', 'heif', 'tif', 'tiff']);
 
   function escAttr(value) {
     return String(value ?? '')
@@ -36,14 +38,7 @@
     return '/api/local-thumb?path=' + encodeURIComponent(path);
   }
 
-  function clearArm(img) {
-    const timer = armed.get(img);
-    if (timer) clearTimeout(timer);
-    armed.delete(img);
-  }
-
   function renderFailure(img, message) {
-    clearArm(img);
     if (!img || !img.isConnected) return;
     const host = img.parentElement;
     if (!host) return;
@@ -54,22 +49,21 @@
     if (!img || !img.isConnected) return;
     if (img.dataset.ddgStage !== 'direct') return;
 
-    clearArm(img);
     img.dataset.ddgStage = 'switching';
     const path = img.dataset.ddgPath || '';
     if (!path) return renderFailure(img, 'Calea locală lipsește.');
 
-    // Stop the old request before starting the fallback. This is important for
-    // HDDs: there must never be two full reads racing for the same image.
+    // A fallback is allowed only after a real direct load/decode error. Stop
+    // that failed request before starting the safe derivative so we still have
+    // at most one HDD read for the selected image.
     img.removeAttribute('src');
     img.dataset.ddgStage = 'safe';
-    img.dataset.ddgWhy = why || 'fallback';
+    img.dataset.ddgWhy = why || 'direct-error';
     img.src = safeURL(path);
   }
 
   function imageReady(img) {
     if (!img) return;
-    clearArm(img);
     img.dataset.ddgDone = '1';
     img.style.objectFit = 'contain';
     img.style.maxWidth = '100%';
@@ -87,20 +81,11 @@
     }
   }
 
+  // Kept for API compatibility with TEST92 observers. There is intentionally
+  // no watchdog/timer for native images anymore.
   function armImage(img) {
-    if (!img || img.dataset.ddgDirectSafe !== '1' || armed.has(img)) return;
-    if (img.complete && img.naturalWidth > 0) {
-      imageReady(img);
-      return;
-    }
-    const timer = setTimeout(() => {
-      armed.delete(img);
-      if (!img.isConnected || img.dataset.ddgDone === '1') return;
-      if (img.dataset.ddgStage === 'direct' && (!img.complete || img.naturalWidth <= 0)) {
-        switchSafe(img, 'direct-watchdog');
-      }
-    }, IMAGE_WATCHDOG_MS);
-    armed.set(img, timer);
+    if (!img || img.dataset.ddgDirectSafe !== '1') return;
+    if (img.complete && img.naturalWidth > 0) imageReady(img);
   }
 
   function localHTML(path) {
@@ -111,8 +96,12 @@
 
     if (kind === 'image') {
       const p = escAttr(path);
-      // Intentionally matches the pre-TEST85 fast path: one plain <img> request.
-      return `<img id="localImage" data-ddg-direct-safe="1" data-ddg-stage="direct" data-ddg-path="${p}" src="${direct}" alt="Preview local" onload="ddgLocalPreviewDirectSafeV8576.imageReady(this)" onerror="ddgLocalPreviewDirectSafeV8576.imageFailed(this)"><span class="miniInfo">${ext}</span>`;
+      const lowerExt = ext.toLowerCase();
+      const safeFirst = SAFE_FIRST_IMAGE_EXTS.has(lowerExt);
+      const stage = safeFirst ? 'safe' : 'direct';
+      const src = safeFirst ? safeURL(path) : direct;
+      const why = safeFirst ? ' data-ddg-why="format-safe-first"' : '';
+      return `<img id="localImage" data-ddg-direct-safe="1" data-ddg-stage="${stage}" data-ddg-path="${p}"${why} src="${src}" alt="Preview local" loading="eager" decoding="async" fetchpriority="high" onload="ddgLocalPreviewDirectSafeV8576.imageReady(this)" onerror="ddgLocalPreviewDirectSafeV8576.imageFailed(this)"><span class="miniInfo">${ext}</span>`;
     }
     if (kind === 'video') {
       return `<video id="localVideo" controls preload="metadata" src="${direct}"></video><span class="miniInfo">${ext} • local</span>`;
