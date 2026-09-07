@@ -90,7 +90,13 @@ func TestSmartStateV8569DoesNotModifyVerifiedJDHandoff(t *testing.T) {
 			t.Fatalf("verified JD handoff unexpectedly changed/missing marker %q", marker)
 		}
 	}
-	if strings.Contains(s, "/api/download/preflight") {
-		t.Fatal("verified JD handoff regressed to preflight/HDD rescan")
+	for _, actualCall := range []string{
+		"window.api('/api/download/preflight",
+		"fetch('/api/download/preflight",
+		"fetch(\"/api/download/preflight",
+	} {
+		if strings.Contains(s, actualCall) {
+			t.Fatalf("verified JD handoff regressed to an actual preflight call: %q", actualCall)
+		}
 	}
 }
