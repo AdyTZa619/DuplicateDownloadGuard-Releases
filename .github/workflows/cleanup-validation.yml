@@ -1,0 +1,63 @@
+name: Cleanup full validation
+
+on:
+  push:
+    branches:
+      - maintenance/cleanup-after-104
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Verify removed modules are not referenced
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $needles = @('smart_state_engine_v8568.js','jdownloader_route_hotfix_v8549.js')
+          foreach ($needle in $needles) {
+            $hits = Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\.git\\' } | Select-String -SimpleMatch $needle
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "$($_.Path):$($_.LineNumber): $($_.Line)" }
+              throw "Obsolete module still referenced: $needle"
+            }
+          }
+
+      - name: Verify Go formatting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bad = gofmt -l .
+          if ($bad) { $bad; throw 'Go formatting check failed' }
+
+      - name: Verify all UI JavaScript syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem web -Filter *.js -File | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax failed: $($_.Name)" }
+          }
+
+      - name: Tests
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:CGO_ENABLED='0'
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_CLEANUP_VALIDATION.exe .
