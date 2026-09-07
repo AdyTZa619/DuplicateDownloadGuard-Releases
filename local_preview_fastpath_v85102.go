@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +28,45 @@ type localPreviewRootSnapshotV85102 struct {
 }
 
 var localPreviewRootSnapshotsV85102 sync.Map // map[*App]*localPreviewRootSnapshotV85102
+
+// LOCAL preview diagnostics must never hold an HTTP response open while the
+// shared App mutex is busy. Queue journal writes onto one worker instead of
+// calling a.logf synchronously from media/trace handlers.
+type localPreviewLogEntryV85102 struct {
+	a      *App
+	format string
+	args   []any
+}
+
+var localPreviewLogStateV85102 = struct {
+	once sync.Once
+	q    chan localPreviewLogEntryV85102
+}{q: make(chan localPreviewLogEntryV85102, 2048)}
+
+func startLocalPreviewLogWorkerV85102() {
+	go func() {
+		for entry := range localPreviewLogStateV85102.q {
+			if entry.a != nil {
+				entry.a.logf(entry.format, entry.args...)
+			}
+		}
+	}()
+}
+
+func localPreviewLogfV85102(a *App, format string, args ...any) {
+	if a == nil || strings.TrimSpace(format) == "" {
+		return
+	}
+	localPreviewLogStateV85102.once.Do(startLocalPreviewLogWorkerV85102)
+	copyArgs := append([]any(nil), args...)
+	select {
+	case localPreviewLogStateV85102.q <- localPreviewLogEntryV85102{a: a, format: format, args: copyArgs}:
+	default:
+		// Never block preview for diagnostics. stderr is not available in the
+		// windowsgui build, so a full diagnostic queue is simply dropped.
+		_ = fmt.Sprintf(format, args...)
+	}
+}
 
 func localPreviewRootStateV85102(a *App) *localPreviewRootSnapshotV85102 {
 	if raw, ok := localPreviewRootSnapshotsV85102.Load(a); ok {
@@ -181,7 +221,7 @@ func (a *App) ensureLocalPreviewDedicatedV85102() (string, error) {
 		go func() {
 			_ = srv.Serve(ln)
 		}()
-		a.logf("LOCAL Preview media listener dedicat: %s", st.base)
+		localPreviewLogfV85102(a, "LOCAL Preview media listener dedicat: %s", st.base)
 	})
 	return st.base, st.err
 }
