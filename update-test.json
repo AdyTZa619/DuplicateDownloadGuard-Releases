@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.86",
+  "version": "8.5.49-test.87",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "b8b0a4632a60ac4f242be2dd9a7aacc80a2054dcf4797d29aa929e28879adc3c",
-  "notes": "TEST: TEST: local preview watchdog + real MIME sniffing",
-  "publishedAt": "2026-09-07T13:35:36.0638718Z",
+  "sha256": "f24120338af3f619f17570ffe39f662850c71725fd47de6f2a320edf0de58e25",
+  "notes": "TEST: TEST: local preview single-winner race guard",
+  "publishedAt": "2026-09-07T13:55:58.1973899Z",
   "channel": "test"
 }
