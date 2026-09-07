@@ -1,0 +1,1 @@
+This directory defines the DDG no-touch stability boundary introduced after TEST .104. `protected_paths.txt` is the authoritative list consumed by CI. Feature work may add files outside the protected core, but protected paths require an explicit `core-migration/*` branch.
