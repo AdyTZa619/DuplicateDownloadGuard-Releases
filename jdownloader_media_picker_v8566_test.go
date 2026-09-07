@@ -38,6 +38,27 @@ func TestJDownloaderFastV8567UsesOneShotCurrentFlashGotShape(t *testing.T) {
 	}
 }
 
+func TestJDownloaderPopupUsesFinalGuardVerdictV8568(t *testing.T) {
+	b, err := os.ReadFile("web/jdownloader_fast_v8567.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	finalVerdict := "if (['DOWNLOAD','DUPLICATE','REVIEW'].includes(guard)) return guard;"
+	if !strings.Contains(s, finalVerdict) {
+		t.Fatalf("JD popup is not using DDG's final guard verdict first: missing %q", finalVerdict)
+	}
+	if strings.Contains(s, "if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';") {
+		t.Fatal("manual flag must not override a final DOWNLOAD guard verdict")
+	}
+	guardPos := strings.Index(s, "const guard = String(row?.guardVerdict")
+	finalPos := strings.Index(s, finalVerdict)
+	statusPos := strings.Index(s, "const status = String(row?.status")
+	if guardPos < 0 || finalPos < 0 || statusPos < 0 || !(guardPos < finalPos && finalPos < statusPos) {
+		t.Fatalf("final guard verdict must take precedence before legacy/manual status fallback: guard=%d final=%d status=%d", guardPos, finalPos, statusPos)
+	}
+}
+
 func TestJDownloaderFastV8567LoadsBehindWindowGuardAndBeforeLegacyHandlers(t *testing.T) {
 	b, err := os.ReadFile("web/preview_quick_v86.js")
 	if err != nil {
