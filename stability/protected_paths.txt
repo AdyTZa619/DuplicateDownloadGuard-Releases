@@ -1,0 +1,15 @@
+# DDG protected core baseline: TEST .104
+# Feature work must not modify these paths. Core migrations are separate work.
+main.go
+web/index.html
+web/preview_quick_v86.js
+web/preview_quick_core.js
+web/mega_preview_v8526.js
+web/jdownloader_fast_v8567.js
+web/jdownloader_window_capture_v8566.js
+web/smart_state_engine_v8569.js
+web/media_picker_v8566.js
+local_preview_fastpath_v85102.go
+local_preview_diagnostics_v8599.go
+local_preview_routes_v8599.go
+web/local_preview_diagnostics_v8599.js
