@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.100",
+  "version": "8.5.49-test.101",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "1bd0a43cd16aff0e52de8bb65605b419a02b9b17c2b9aabec7a433eed874ffae",
-  "notes": "TEST: Remove accidental temporary probe",
-  "publishedAt": "2026-09-07T20:59:25.4966772Z",
+  "sha256": "866585f6f2519ee01fd5adf971aedcac67c19876bdb4257bb5ba69e88f1d4682",
+  "notes": "TEST: TEST: local preview diagnostics and buffered A/B",
+  "publishedAt": "2026-09-07T21:15:54.6345133Z",
   "channel": "test"
 }
