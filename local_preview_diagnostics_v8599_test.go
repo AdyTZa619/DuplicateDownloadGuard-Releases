@@ -108,12 +108,15 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 			t.Fatalf("backend diagnostic marker missing: %q", marker)
 		}
 	}
-	for _, marker := range []string{"TryRLock", "localPreviewLogfV85102"} {
+	for _, marker := range []string{"TryRLock", "localPreviewLogfV85102", "appendLocalPreviewJournalV85104", "a.mu.TryLock()", "dedicated-direct-local-media"} {
 		if !strings.Contains(string(fastSrc), marker) {
 			t.Fatalf("fast-path marker missing: %q", marker)
 		}
 	}
-	for _, marker := range []string{"PENDING_MS = 1500", "resourceTiming", "queue=", "ALT • citește întâi în memorie", "/api/local-preview-buffered", "button.addEventListener('click'"} {
+	if strings.Contains(string(fastSrc), "entry.a.logf") {
+		t.Fatal("LOCAL diagnostic worker must never queue App.logf/App.mu writer")
+	}
+	for _, marker := range []string{"PENDING_MS = 1500", "resourceTiming", "queue=", "ALT • citește întâi în memorie", "/api/local-preview-buffered", "button.addEventListener('click'", "BASE_URL", "resolveDedicatedBase", "routeLocalElement", "ddgLocalDedicatedV85104", "DEDICATED"} {
 		if !strings.Contains(string(js), marker) {
 			t.Fatalf("client diagnostic marker missing: %q", marker)
 		}
@@ -131,7 +134,7 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 			t.Fatalf("local preview fast path must not invoke %s", forbidden)
 		}
 	}
-	for _, forbidden := range []string{"window.localPreviewHTML", "BASE_URL", "resolveDedicatedBase", "loadRemotePreview", "remotePreview", "detailSeq", "currentRow", "megaPreview"} {
+	for _, forbidden := range []string{"window.localPreviewHTML", "loadRemotePreview", "remotePreview", "detailSeq", "currentRow", "megaPreview"} {
 		if strings.Contains(string(js), forbidden) {
 			t.Fatalf("local preview UI must not touch shared/remote selection state: %s", forbidden)
 		}
