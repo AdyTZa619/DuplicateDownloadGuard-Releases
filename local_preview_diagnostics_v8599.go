@@ -71,7 +71,7 @@ func (a *App) handleLocalPreviewDiagV8599(w http.ResponseWriter, r *http.Request
 	allowed := a.localPreviewPathAllowedV85102(p)
 	authMS := previewMSV8599(time.Since(authAt))
 	if !allowed {
-		a.logf("LOCAL PREVIEW diag DIRECT REFUZAT: auth=%dms path=%s", authMS, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag DIRECT REFUZAT: auth=%dms path=%s", authMS, p)
 		http.Error(w, "Fișier local neautorizat", 403)
 		return
 	}
@@ -80,7 +80,7 @@ func (a *App) handleLocalPreviewDiagV8599(w http.ResponseWriter, r *http.Request
 	st, err := os.Stat(p)
 	statMS := previewMSV8599(time.Since(statAt))
 	if err != nil || st.IsDir() {
-		a.logf("LOCAL PREVIEW diag DIRECT LIPSEȘTE: auth=%dms stat=%dms err=%v path=%s", authMS, statMS, err, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag DIRECT LIPSEȘTE: auth=%dms stat=%dms err=%v path=%s", authMS, statMS, err, p)
 		http.Error(w, "Fișierul local nu mai există", 404)
 		return
 	}
@@ -103,7 +103,7 @@ func (a *App) handleLocalPreviewDiagV8599(w http.ResponseWriter, r *http.Request
 	kind := remoteMediaKind(filepath.Base(p))
 
 	if kind == "image" || totalMS >= 500 || status >= 400 || authMS >= 100 || statMS >= 100 {
-		a.logf("LOCAL PREVIEW diag DIRECT: total=%dms auth=%dms stat=%dms first-byte=%dms serve=%dms status=%d sent=%d size=%d kind=%s range=%s path=%s",
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag DIRECT: total=%dms auth=%dms stat=%dms first-byte=%dms serve=%dms status=%d sent=%d size=%d kind=%s range=%s path=%s",
 			totalMS, authMS, statMS, firstBodyMS, serveMS, status, tw.bytes, st.Size(), kind, previewRangeLabelV8599(r), p)
 	}
 }
@@ -119,7 +119,7 @@ func (a *App) handleLocalPreviewBufferedV8599(w http.ResponseWriter, r *http.Req
 	allowed := a.localPreviewPathAllowedV85102(p)
 	authMS := previewMSV8599(time.Since(authAt))
 	if !allowed {
-		a.logf("LOCAL PREVIEW diag BUFFER REFUZAT: auth=%dms path=%s", authMS, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag BUFFER REFUZAT: auth=%dms path=%s", authMS, p)
 		http.Error(w, "Fișier local neautorizat", 403)
 		return
 	}
@@ -127,7 +127,7 @@ func (a *App) handleLocalPreviewBufferedV8599(w http.ResponseWriter, r *http.Req
 	st, err := os.Stat(p)
 	statMS := previewMSV8599(time.Since(statAt))
 	if err != nil || st.IsDir() {
-		a.logf("LOCAL PREVIEW diag BUFFER LIPSEȘTE: auth=%dms stat=%dms err=%v path=%s", authMS, statMS, err, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag BUFFER LIPSEȘTE: auth=%dms stat=%dms err=%v path=%s", authMS, statMS, err, p)
 		http.Error(w, "Fișierul local nu mai există", 404)
 		return
 	}
@@ -137,7 +137,7 @@ func (a *App) handleLocalPreviewBufferedV8599(w http.ResponseWriter, r *http.Req
 	}
 	const maxBuffered = int64(64 << 20)
 	if st.Size() > maxBuffered {
-		a.logf("LOCAL PREVIEW diag BUFFER OMIS: size=%d > limit=%d path=%s", st.Size(), maxBuffered, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag BUFFER OMIS: size=%d > limit=%d path=%s", st.Size(), maxBuffered, p)
 		http.Error(w, "Imaginea depășește limita metodei alternative (64 MiB)", 413)
 		return
 	}
@@ -146,7 +146,7 @@ func (a *App) handleLocalPreviewBufferedV8599(w http.ResponseWriter, r *http.Req
 	data, err := os.ReadFile(p)
 	readMS := previewMSV8599(time.Since(readAt))
 	if err != nil {
-		a.logf("LOCAL PREVIEW diag BUFFER EROARE CITIRE: auth=%dms stat=%dms read=%dms err=%v path=%s", authMS, statMS, readMS, err, p)
+		localPreviewLogfV85102(a, "LOCAL PREVIEW diag BUFFER EROARE CITIRE: auth=%dms stat=%dms read=%dms err=%v path=%s", authMS, statMS, readMS, err, p)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -168,7 +168,7 @@ func (a *App) handleLocalPreviewBufferedV8599(w http.ResponseWriter, r *http.Req
 	http.ServeContent(w, r, filepath.Base(p), st.ModTime(), bytes.NewReader(data))
 	serveMS := previewMSV8599(time.Since(serveAt))
 	totalMS := previewMSV8599(time.Since(started))
-	a.logf("LOCAL PREVIEW diag BUFFER: total=%dms auth=%dms stat=%dms read=%dms memory-serve=%dms bytes=%d size=%d path=%s",
+	localPreviewLogfV85102(a, "LOCAL PREVIEW diag BUFFER: total=%dms auth=%dms stat=%dms read=%dms memory-serve=%dms bytes=%d size=%d path=%s",
 		totalMS, authMS, statMS, readMS, serveMS, len(data), st.Size(), p)
 }
 
@@ -210,7 +210,7 @@ func (a *App) handleLocalPreviewClientTraceV8599(w http.ResponseWriter, r *http.
 		logIt = true
 	}
 	if logIt {
-		a.logf("LOCAL PREVIEW client %s/%s: %.0fms %dx%d detail=%s path=%s",
+		localPreviewLogfV85102(a, "LOCAL PREVIEW client %s/%s: %.0fms %dx%d detail=%s path=%s",
 			req.Event, req.Method, req.ElapsedMS, req.NaturalWidth, req.NaturalHeight, req.Detail, req.Path)
 	}
 	w.Header().Set("Content-Type", "application/json")
