@@ -1,1 +1,0 @@
-TEST92 runtime change: restore direct local preview fast path; fallback only for failed/stuck images.
