@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-// TEST95: local preview must never wait behind App.mu. The old
-// handleLocalPreview called localPathAllowed(), which takes a.mu.RLock() and can
-// therefore stall behind long-running result/index writers even though the file
-// itself is local and already known to the UI. This endpoint is deliberately
-// isolated from MEGA/JDownloader/index work.
+// TEST95: local preview must never wait behind App.mu. The old preview
+// authorization path took the global application read lock and could therefore
+// stall behind long-running result/index writers even though the file itself is
+// local and already known to the UI. This endpoint is deliberately isolated
+// from MEGA/JDownloader/index work.
 var localPreviewExtV8577 = map[string]bool{
 	".jpg": true, ".jpeg": true, ".jpe": true, ".jfif": true,
 	".png": true, ".gif": true, ".webp": true, ".bmp": true,
