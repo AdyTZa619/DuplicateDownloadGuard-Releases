@@ -1,0 +1,36 @@
+name: TEST112 focused validation
+
+on:
+  push:
+    branches:
+      - 'fix/test112-lifecycle-backend-survival'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Verify Go formatting
+        shell: pwsh
+        run: |
+          $bad = @(gofmt -l (Get-ChildItem -Filter *.go | ForEach-Object FullName))
+          if ($bad.Count -gt 0) { $bad | Write-Host; throw 'gofmt required' }
+      - name: Go tests
+        run: go test ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Windows x64 build
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED='0'
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DDG_TEST112_VALIDATION.exe .
