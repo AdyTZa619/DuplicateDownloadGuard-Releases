@@ -1,16 +1,28 @@
-// TEST .103 LOCAL preview diagnostics. The backend keeps the .102 nonblocking
-// authorization fix, but this client module does not replace shared preview
-// renderers or touch REMOTE/MEGA/selection behavior. BUFFER stays explicit A/B.
+// TEST .104 LOCAL preview diagnostics. LOCAL media is moved onto its own
+// loopback origin without replacing shared renderers or touching REMOTE/MEGA/
+// selection state. DIRECT stays primary; BUFFER remains an explicit A/B method.
 (() => {
   'use strict';
 
   const TRACE_URL = '/api/local-preview/trace';
+  const BASE_URL = '/api/local-preview/base';
   const PENDING_MS = 1500;
   const watched = new WeakSet();
   const state = new WeakMap();
+  let dedicatedBase = '';
 
   function round(v) {
     return Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0;
+  }
+
+  function safeDedicatedBase(raw) {
+    try {
+      const u = new URL(String(raw || ''));
+      if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(u.hostname)) return '';
+      return u.origin;
+    } catch (_) {
+      return '';
+    }
   }
 
   function sourceInfo(el) {
@@ -20,11 +32,55 @@
       return {
         path: u.searchParams.get('path') || '',
         method: u.pathname.includes('/api/local-preview-buffered') ? 'BUFFER' : 'DIRECT',
+        origin: u.origin === location.origin ? 'MAIN' : 'DEDICATED',
+        pathname: u.pathname,
         url: u.href
       };
     } catch (_) {
-      return {path: '', method: 'DIRECT', url: raw};
+      return {path: '', method: 'DIRECT', origin: 'UNKNOWN', pathname: '', url: raw};
     }
+  }
+
+  function mediaURL(path, method) {
+    const endpoint = method === 'BUFFER' ? '/api/local-preview-buffered' : '/api/local-preview';
+    const suffix = method === 'BUFFER' ? `&_ddg=${Date.now()}` : '';
+    return `${dedicatedBase || ''}${endpoint}?path=${encodeURIComponent(path)}${suffix}`;
+  }
+
+  function restartTiming(el) {
+    const s = state.get(el);
+    if (!s) return;
+    clearTimeout(s.pendingTimer);
+    s.started = performance.now();
+    s.settled = false;
+    if (typeof s.armPending === 'function') s.armPending();
+  }
+
+  function routeLocalElement(el) {
+    if (!el || !dedicatedBase) return false;
+    const info = sourceInfo(el);
+    if (!info.path) return false;
+    if (info.pathname !== '/api/local-preview' && info.pathname !== '/api/local-preview-buffered') return false;
+    let currentOrigin = '';
+    try { currentOrigin = new URL(info.url, location.href).origin; } catch (_) {}
+    if (currentOrigin === dedicatedBase) return false;
+    const next = `${dedicatedBase}${info.pathname}?path=${encodeURIComponent(info.path)}${info.method === 'BUFFER' ? `&_ddg=${Date.now()}` : ''}`;
+    el.dataset.ddgLocalDedicatedV85104 = '1';
+    el.src = next;
+    restartTiming(el);
+    return true;
+  }
+
+  async function resolveDedicatedBase() {
+    if (dedicatedBase) return dedicatedBase;
+    try {
+      const resp = await fetch(BASE_URL, {cache: 'no-store'});
+      if (!resp.ok) return '';
+      const data = await resp.json();
+      dedicatedBase = safeDedicatedBase(data?.base);
+      if (dedicatedBase) scan();
+    } catch (_) {}
+    return dedicatedBase;
   }
 
   function resourceTiming(url) {
@@ -53,7 +109,7 @@
         elapsedMs: round(elapsed),
         naturalWidth: width,
         naturalHeight: height,
-        detail: String(detail || '').slice(0, 180)
+        detail: `${info.origin} ${String(detail || '')}`.slice(0, 180)
       }),
       keepalive: true
     }).catch(() => {});
@@ -98,7 +154,8 @@
       s.settled = false;
       button.disabled = true;
       button.textContent = 'ALT • citesc…';
-      img.src = `/api/local-preview-buffered?path=${encodeURIComponent(current.path)}&_ddg=${Date.now()}`;
+      img.src = mediaURL(current.path, 'BUFFER');
+      if (typeof s.armPending === 'function') s.armPending();
     });
     root.appendChild(button);
   }
@@ -106,7 +163,7 @@
   function watchImage(img) {
     if (!img || watched.has(img)) return;
     watched.add(img);
-    const s = {started: performance.now(), method: sourceInfo(img).method, settled: false, pendingTimer: 0};
+    const s = {started: performance.now(), method: sourceInfo(img).method, settled: false, pendingTimer: 0, armPending: null};
     state.set(img, s);
 
     const armPending = () => {
@@ -118,6 +175,7 @@
         if (info.method === 'DIRECT') offerBuffered(img);
       }, PENDING_MS);
     };
+    s.armPending = armPending;
     armPending();
 
     img.addEventListener('load', () => {
@@ -142,13 +200,18 @@
   function watchAV(el) {
     if (!el || watched.has(el)) return;
     watched.add(el);
-    const s = {started: performance.now(), settled: false, pendingTimer: 0};
+    const s = {started: performance.now(), settled: false, pendingTimer: 0, armPending: null};
     state.set(el, s);
-    s.pendingTimer = setTimeout(() => {
-      if (!el.isConnected || s.settled) return;
-      const info = sourceInfo(el);
-      postTrace('PENDING', el, performance.now() - s.started, `${resourceTiming(info.url)} readyState=${el.readyState} networkState=${el.networkState}`);
-    }, PENDING_MS);
+    const armPending = () => {
+      clearTimeout(s.pendingTimer);
+      s.pendingTimer = setTimeout(() => {
+        if (!el.isConnected || s.settled) return;
+        const info = sourceInfo(el);
+        postTrace('PENDING', el, performance.now() - s.started, `${resourceTiming(info.url)} readyState=${el.readyState} networkState=${el.networkState}`);
+      }, PENDING_MS);
+    };
+    s.armPending = armPending;
+    armPending();
     const done = eventName => {
       if (s.settled) return;
       s.settled = true;
@@ -166,16 +229,26 @@
     const root = document.getElementById('localPreview');
     if (!root) return;
     const image = root.querySelector('#localImage');
-    if (image) watchImage(image);
+    if (image) {
+      routeLocalElement(image);
+      watchImage(image);
+    }
     const video = root.querySelector('#localVideo, video');
-    if (video) watchAV(video);
+    if (video) {
+      routeLocalElement(video);
+      watchAV(video);
+    }
     const audio = root.querySelector('audio');
-    if (audio) watchAV(audio);
+    if (audio) {
+      routeLocalElement(audio);
+      watchAV(audio);
+    }
   }
 
   function boot() {
     ensureStyle();
     scan();
+    resolveDedicatedBase();
     const root = document.getElementById('localPreview');
     if (!root || root.dataset.ddgLocalDiagObserverV8599 === '1') return;
     root.dataset.ddgLocalDiagObserverV8599 = '1';
@@ -185,5 +258,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 
-  window.ddgLocalPreviewDiagnosticsV8599 = {scan};
+  window.ddgLocalPreviewDiagnosticsV8599 = {scan, resolveDedicatedBase};
 })();
