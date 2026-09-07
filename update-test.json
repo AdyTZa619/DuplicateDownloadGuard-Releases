@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.97",
+  "version": "8.5.49-test.98",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "5f623042e5d60c54c046f3388b70fe0112521051bf4250595f7ebc8b74ec480d",
-  "notes": "TEST: Rollback TEST to pre-local-preview state (TEST84 tree)",
-  "publishedAt": "2026-09-07T17:29:34.0253634Z",
+  "sha256": "e474fb0d5bb1a6f338e865e105d5afd71fc129e9aa3790ed9619615fff8abaa2",
+  "notes": "TEST: TEST: show MEGA results after scan and block duplicate rescans",
+  "publishedAt": "2026-09-07T17:47:22.7682336Z",
   "channel": "test"
 }
