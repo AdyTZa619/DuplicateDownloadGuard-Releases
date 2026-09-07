@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,8 +23,8 @@ import (
 
 const (
 	localThumbMaxBytesV8574 = int64(256 << 20) // 256 MiB persistent cache cap
-	localThumbWidthV8574    = 1280
-	localThumbHeightV8574   = 960
+	localThumbWidthV8574    = 1600
+	localThumbHeightV8574   = 1600
 )
 
 type localThumbCallV8574 struct {
@@ -51,7 +56,8 @@ func localThumbCacheDirV8574(a *App) string {
 
 func localThumbKeyV8574(path string, st os.FileInfo) string {
 	clean := strings.ToLower(filepath.Clean(path))
-	s := fmt.Sprintf("%s\n%d\n%d\n%d\n%d", clean, st.Size(), st.ModTime().UnixNano(), localThumbWidthV8574, localThumbHeightV8574)
+	// v8575 in the key intentionally invalidates derivatives produced by TEST89.
+	s := fmt.Sprintf("v8575\n%s\n%d\n%d\n%d\n%d", clean, st.Size(), st.ModTime().UnixNano(), localThumbWidthV8574, localThumbHeightV8574)
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
@@ -63,7 +69,7 @@ func localThumbPathV8574(a *App, key string) string {
 func localThumbServeV8574(w http.ResponseWriter, r *http.Request, path, etag string) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Content-Disposition", "inline")
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.Header().Set("ETag", `"`+etag+`"`)
 	if strings.TrimSpace(r.Header.Get("If-None-Match")) == `"`+etag+`"` {
 		w.WriteHeader(http.StatusNotModified)
@@ -72,9 +78,98 @@ func localThumbServeV8574(w http.ResponseWriter, r *http.Request, path, etag str
 	http.ServeFile(w, r, path)
 }
 
+func localThumbNativeImageV8575(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, format, err := image.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decoder imagine Go: %w", err)
+	}
+	b := img.Bounds()
+	if b.Dx() <= 0 || b.Dy() <= 0 {
+		return nil, fmt.Errorf("decoder imagine Go: dimensiuni invalide pentru %s", format)
+	}
+
+	out := image.Image(img)
+	w, h := b.Dx(), b.Dy()
+	if w > localThumbWidthV8574 || h > localThumbHeightV8574 {
+		rw, rh := localThumbFitV8575(w, h, localThumbWidthV8574, localThumbHeightV8574)
+		out = localThumbResizeNearestV8575(img, rw, rh)
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: 88}); err != nil {
+		return nil, fmt.Errorf("encoder JPEG preview: %w", err)
+	}
+	if buf.Len() == 0 {
+		return nil, fmt.Errorf("encoder JPEG preview nu a produs date")
+	}
+	return buf.Bytes(), nil
+}
+
+func localThumbFitV8575(w, h, maxW, maxH int) (int, int) {
+	if w <= 0 || h <= 0 || maxW <= 0 || maxH <= 0 {
+		return 1, 1
+	}
+	if w <= maxW && h <= maxH {
+		return w, h
+	}
+	if int64(w)*int64(maxH) >= int64(h)*int64(maxW) {
+		rw := maxW
+		rh := int(int64(h) * int64(maxW) / int64(w))
+		if rh < 1 {
+			rh = 1
+		}
+		return rw, rh
+	}
+	rh := maxH
+	rw := int(int64(w) * int64(maxH) / int64(h))
+	if rw < 1 {
+		rw = 1
+	}
+	return rw, rh
+}
+
+func localThumbResizeNearestV8575(src image.Image, width, height int) *image.RGBA {
+	b := src.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		sy := b.Min.Y + (y*b.Dy())/height
+		if sy >= b.Max.Y {
+			sy = b.Max.Y - 1
+		}
+		for x := 0; x < width; x++ {
+			sx := b.Min.X + (x*b.Dx())/width
+			if sx >= b.Max.X {
+				sx = b.Max.X - 1
+			}
+			dst.Set(x, y, src.At(sx, sy))
+		}
+	}
+	return dst
+}
+
+func localThumbImageFallbackV8575(path string, cause error) ([]byte, error) {
+	data, nativeErr := localThumbNativeImageV8575(path)
+	if nativeErr == nil {
+		return data, nil
+	}
+	if cause == nil {
+		return nil, nativeErr
+	}
+	return nil, fmt.Errorf("%v; fallback nativ: %w", cause, nativeErr)
+}
+
 func localThumbFFmpegV8574(path, kind string) ([]byte, error) {
 	ff := fallbackFFmpegV85()
 	if strings.TrimSpace(ff) == "" {
+		if kind == "image" {
+			return localThumbImageFallbackV8575(path, fmt.Errorf("FFmpeg indisponibil"))
+		}
 		return nil, fmt.Errorf("FFmpeg nu este disponibil pentru thumbnail local")
 	}
 
@@ -99,13 +194,25 @@ func localThumbFFmpegV8574(path, kind string) ([]byte, error) {
 	hideChildWindow(cmd)
 	out, err := cmd.Output()
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("thumbnail local a depășit 12 secunde: %w", ctx.Err())
+		cause := fmt.Errorf("thumbnail local a depășit 12 secunde: %w", ctx.Err())
+		if kind == "image" {
+			return localThumbImageFallbackV8575(path, cause)
+		}
+		return nil, cause
 	}
 	if err != nil {
-		return nil, fmt.Errorf("FFmpeg thumbnail local: %w", err)
+		cause := fmt.Errorf("FFmpeg thumbnail local: %w", err)
+		if kind == "image" {
+			return localThumbImageFallbackV8575(path, cause)
+		}
+		return nil, cause
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("FFmpeg nu a produs thumbnail")
+		cause := fmt.Errorf("FFmpeg nu a produs thumbnail")
+		if kind == "image" {
+			return localThumbImageFallbackV8575(path, cause)
+		}
+		return nil, cause
 	}
 	return out, nil
 }
@@ -163,8 +270,6 @@ func ensureLocalThumbV8574(a *App, sourcePath, cachePath, key, kind string) erro
 		return err
 	}
 	if err = os.Rename(tmpName, cachePath); err != nil {
-		// Same-key requests are deduplicated in-process. Still accept a valid
-		// cache entry if an external process happened to create it first.
 		if st, statErr := os.Stat(cachePath); statErr != nil || st.IsDir() || st.Size() == 0 {
 			call.err = err
 			return err
@@ -242,6 +347,7 @@ func (a *App) handleLocalThumbV8574(w http.ResponseWriter, r *http.Request) {
 	key := localThumbKeyV8574(p, st)
 	cachePath := localThumbPathV8574(a, key)
 	if err := ensureLocalThumbV8574(a, p, cachePath, key, kind); err != nil {
+		a.logf("LOCAL preview SAFE eșuat pentru %s: %v", p, err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
