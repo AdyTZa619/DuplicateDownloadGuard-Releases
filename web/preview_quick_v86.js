@@ -5,6 +5,7 @@
 
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
+    ['/mega_scan_result_ui_v8578.js', 'ddgMegaScanResultUIV8578Script'],
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],
