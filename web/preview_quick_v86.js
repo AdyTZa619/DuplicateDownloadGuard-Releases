@@ -18,13 +18,12 @@
     ['/update_sound_v8552.js', 'ddgUpdateSoundV8552Script'],
     ['/update_fast_watch_v8562.js', 'ddgFastUpdateWatchV8562Script'],
 
-    // Must load before every legacy JD capture listener. It owns the click,
-    // uses current DDG rows only and performs exactly one FlashGot form POST.
+    // Window capture is above every legacy document-level capture handler.
+    ['/jdownloader_window_capture_v8566.js', 'ddgJDownloaderWindowCaptureV8566Script'],
     ['/jdownloader_fast_v8566.js', 'ddgJDownloaderFastV8566Script'],
     ['/media_picker_v8566.js', 'ddgMediaPickerV8566Script'],
 
-    // Kept for backwards compatibility/tests, but their capture listeners are
-    // later in registration order and therefore cannot steal JD clicks.
+    // Kept for backwards compatibility/tests. They can no longer steal a JD click.
     ['/jdownloader_bunkr_compat_v8563.js', 'ddgJDownloaderBunkrCompatV8563Script'],
     ['/jdownloader_batch_confirm_v8564.js', 'ddgJDownloaderBatchConfirmV8564Script'],
     ['/jdownloader_final_v8551.js', 'ddgJDownloaderFinalV8551Script']
