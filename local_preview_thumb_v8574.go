@@ -22,14 +22,14 @@ const (
 	localThumbHeightV8574   = 960
 )
 
-type localThumbInflightV8574 struct {
+type localThumbCallV8574 struct {
 	done chan struct{}
 	err  error
 }
 
 var (
 	localThumbMuV8574       sync.Mutex
-	localThumbInflightV8574 = map[string]*localThumbInflightV8574{}
+	localThumbInflightV8574 = map[string]*localThumbCallV8574{}
 	localThumbCleanupV8574  atomic.Bool
 )
 
@@ -121,7 +121,7 @@ func ensureLocalThumbV8574(a *App, sourcePath, cachePath, key, kind string) erro
 		<-call.done
 		return call.err
 	}
-	call := &localThumbInflightV8574{done: make(chan struct{})}
+	call := &localThumbCallV8574{done: make(chan struct{})}
 	localThumbInflightV8574[key] = call
 	localThumbMuV8574.Unlock()
 
@@ -147,10 +147,10 @@ func ensureLocalThumbV8574(a *App, sourcePath, cachePath, key, kind string) erro
 		return err
 	}
 	tmpName := tmp.Name()
-	ok := false
+	renamed := false
 	defer func() {
 		_ = tmp.Close()
-		if !ok {
+		if !renamed {
 			_ = os.Remove(tmpName)
 		}
 	}()
@@ -163,14 +163,16 @@ func ensureLocalThumbV8574(a *App, sourcePath, cachePath, key, kind string) erro
 		return err
 	}
 	if err = os.Rename(tmpName, cachePath); err != nil {
-		// Another completed generator may have won the rename race. Accept an
-		// already valid cache entry before surfacing the rename failure.
+		// Same-key requests are deduplicated in-process. Still accept a valid
+		// cache entry if an external process happened to create it first.
 		if st, statErr := os.Stat(cachePath); statErr != nil || st.IsDir() || st.Size() == 0 {
 			call.err = err
 			return err
 		}
+		_ = os.Remove(tmpName)
+	} else {
+		renamed = true
 	}
-	ok = true
 	call.err = nil
 	go cleanupLocalThumbCacheV8574(localThumbCacheDirV8574(a), localThumbMaxBytesV8574)
 	return nil
