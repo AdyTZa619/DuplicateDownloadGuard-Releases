@@ -1,0 +1,50 @@
+name: TEST101 local preview diagnostics validation
+
+on:
+  push:
+    branches:
+      - work/test101-local-preview-diagnostics
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Wire TEST local preview routes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $main = Get-Content -Raw main.go
+          $old = 'mux.HandleFunc("/api/local-preview", a.handleLocalPreview)'
+          $new = 'registerLocalPreviewDiagnosticsV8599(mux, a)'
+          if (-not $main.Contains($old)) { throw 'local-preview route missing' }
+          $main = $main.Replace($old, $new)
+          [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
+      - name: Verify UI JavaScript syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem web -Filter *.js | ForEach-Object { node --check $_.FullName; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+      - name: Verify Go formatting
+        shell: pwsh
+        run: |
+          gofmt -w main.go local_preview_diagnostics_v8599.go local_preview_routes_v8599.go local_preview_diagnostics_v8599_test.go
+          $bad = gofmt -l .
+          if ($bad) { $bad; exit 1 }
+      - name: Tests
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build Windows x64
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED='0'
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          go build -o DuplicateDownloadGuard_TEST101.exe .
