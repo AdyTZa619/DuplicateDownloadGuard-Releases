@@ -12,7 +12,7 @@
 
   function esc(value) {
     if (typeof window.esc === 'function') return window.esc(value);
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[ch]));
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   }
 
   function extOf(path) {
@@ -146,7 +146,7 @@
       return `<video id="localVideo" data-ddg-local-path="${safePath}" controls playsinline preload="metadata" src="${direct}" onloadedmetadata="ddgLocalPreviewRobustV8575.onMediaReady(this,'VIDEO')" onerror="ddgLocalPreviewRobustV8575.onMediaError(this)"></video><span class="miniInfo">${esc(ext)} • local</span>`;
     }
     if (kind === 'audio') {
-      return `<audio data-ddg-local-path="${safePath}" controls preload="metadata" src="${direct}" onloadedmetadata="ddgLocalPreviewRobustV8575.onMediaReady(this,'AUDIO')" onerror="ddgLocalPreviewRobustV8575.onMediaError(this)"></audio><span class="miniInfo">${esc(ext)} • local</span>`;
+      return `<audio data-ddg-local-path="${safePath}" controls preload="metadata" src="${direct}" onloadedmetadata="ddgLocalPreviewRobustV8575.onMediaReady(this,'AUDIO')" onerror="ddgLocalPreviewRobustV8575.onMediaError(this)"></audio><span class="miniInfo">${esc(ext)}</span>`;
     }
     return '<div class="previewEmpty">Previzualizarea încorporată nu este disponibilă pentru acest format.<br>Folosește <b>Local extern</b>.</div>';
   }
