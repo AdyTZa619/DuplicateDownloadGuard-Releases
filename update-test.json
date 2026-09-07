@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.96",
+  "version": "8.5.49-test.84",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "e2e4bced2fcef6561284e5b6aa418b716b01658c1bfe1ccee110bdea041bfa5d",
-  "notes": "TEST: Fix TEST95 source-isolation assertion",
-  "publishedAt": "2026-09-07T17:17:15.0928537Z",
+  "sha256": "808f06b5ba4878e18de9a8bb59d13d49ceeba529bdcb5384e207efa727f68ca8",
+  "notes": "TEST: TEST: best-candidate reconciliation after JDownloader",
+  "publishedAt": "2026-09-07T12:12:15.8886226Z",
   "channel": "test"
 }

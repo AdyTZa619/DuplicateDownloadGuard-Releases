@@ -322,7 +322,6 @@ func main() {
 	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
 	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
-	mux.HandleFunc("/api/local-thumb", a.handleLocalThumbV8574)
 	mux.HandleFunc("/api/local-meta", a.handleLocalMeta)
 	mux.HandleFunc("/api/logs", a.handleLogs)
 	mux.HandleFunc("/api/index/stats", a.handleIndexStats)

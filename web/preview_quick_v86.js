@@ -5,13 +5,6 @@
 
   const modules = [
     ['/preview_quick_core.js', 'ddgPreviewQuickCore'],
-
-    // TEST92: restore the original fast direct LOCAL preview behavior. Images
-    // use /api/local-preview immediately; only an explicit image failure or a
-    // >4s unresolved image switches once to /api/local-thumb. Video/audio stay
-    // on the original direct Range-capable path with preload=metadata.
-    ['/local_preview_direct_safe_v8576.js', 'ddgLocalPreviewDirectSafeV8576Script'],
-
     ['/provider_compare_ui_v8558.js', 'ddgProviderCompareUIV8558'],
     ['/provider_buffer_v8561.js', 'ddgProviderBufferV8561'],
     ['/provider_sources.js', 'ddgProviderSources'],

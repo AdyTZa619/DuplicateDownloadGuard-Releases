@@ -54,14 +54,6 @@ jobs:
           if (-not $main.Contains($oldQueueRoute)) { throw 'Nu am găsit ruta /api/queue/add pentru protecția JDownloader.' }
           $main = $main.Replace($oldQueueRoute, $newQueueRoutes.TrimEnd())
 
-          # TEST95: local preview must not wait behind the global App mutex used
-          # by scan/result reconciliation. Route only this endpoint through the
-          # isolated lock-free file server; MEGA/JDownloader routes stay untouched.
-          $oldLocalPreviewRoute = 'mux.HandleFunc("/api/local-preview", a.handleLocalPreview)'
-          $newLocalPreviewRoute = 'mux.HandleFunc("/api/local-preview", a.handleLocalPreviewFastV8577)'
-          if (-not $main.Contains($oldLocalPreviewRoute)) { throw 'Nu am găsit ruta /api/local-preview pentru TEST95.' }
-          $main = $main.Replace($oldLocalPreviewRoute, $newLocalPreviewRoute)
-
           # Default pentru downloadurile integrate = folderul principal DDG
           # (directorul în care se află EXE-ul). Migrăm doar vechile default-uri:
           # <exe>\downloads și Windows Downloads. Orice alt folder ales manual rămâne.
@@ -168,7 +160,6 @@ jobs:
 
           if ($main -notmatch '/api/download/jdownloader-direct') { throw 'Ruta dedicată JDownloader nu a fost injectată.' }
           if ($main -notmatch '/api/update/native-notify') { throw 'Ruta nativă pentru notificarea update-ului nu a fost injectată.' }
-          if ($main -notmatch 'handleLocalPreviewFastV8577') { throw 'Ruta lock-free pentru preview local nu a fost injectată.' }
           if ($index -notmatch 'jdownloader_final_v8551\.js') { throw 'Guardul final JDownloader nu a fost injectat în UI.' }
           if ($index -notmatch 'option value="jdownloader"') { throw 'Motorul JDownloader nu este vizibil în UI.' }
 
@@ -187,7 +178,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go provider_bunkr_official_v8560.go provider_gallery_scan.go provider_http_transport.go local_preview_fast_server_v8577.go local_preview_fast_server_v8577_test.go
+          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go provider_bunkr_official_v8560.go provider_gallery_scan.go provider_http_transport.go
           if ($LASTEXITCODE -ne 0) { throw 'gofmt failed while normalizing TEST source patches' }
           $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
