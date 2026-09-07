@@ -13,18 +13,26 @@ func TestLocalPreviewDirectSafeV8576ExactFastPathAndIsolation(t *testing.T) {
 	}
 	s := string(b)
 	for _, marker := range []string{
-		"IMAGE_WATCHDOG_MS = 4000",
+		"SAFE_FIRST_IMAGE_EXTS",
+		"['heic', 'heif', 'tif', 'tiff']",
 		"return '/api/local-preview?path=' + encodeURIComponent(path)",
 		"return '/api/local-thumb?path=' + encodeURIComponent(path)",
 		"img.removeAttribute('src')",
+		"loading=\"eager\"",
+		"decoding=\"async\"",
+		"fetchpriority=\"high\"",
 		"preload=\"metadata\"",
-		"data-ddg-stage=\"direct\"",
+		"data-ddg-stage=\"${stage}\"",
+		"switchSafe(img, 'direct-error')",
 	} {
 		if !strings.Contains(s, marker) {
-			t.Fatalf("missing TEST92 fast-preview marker %q", marker)
+			t.Fatalf("missing TEST93 fast-preview marker %q", marker)
 		}
 	}
 	for _, forbidden := range []string{
+		"IMAGE_WATCHDOG_MS",
+		"setTimeout(",
+		"direct-watchdog",
 		"&_ddg=",
 		"URL.createObjectURL",
 		"arrayBuffer()",
@@ -35,7 +43,7 @@ func TestLocalPreviewDirectSafeV8576ExactFastPathAndIsolation(t *testing.T) {
 		"/api/index/start",
 	} {
 		if strings.Contains(s, forbidden) {
-			t.Fatalf("TEST92 fast path contains forbidden regression %q", forbidden)
+			t.Fatalf("TEST93 fast path contains forbidden regression %q", forbidden)
 		}
 	}
 }
