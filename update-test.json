@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.91",
+  "version": "8.5.49-test.92",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "0d42a870373705d46d367ca412de3b7574ac57c9b8b4c98d8605d580056c3174",
-  "notes": "TEST: TEST91: restore MEGA scan stability after TEST90 regression",
-  "publishedAt": "2026-09-07T16:06:56.2307841Z",
+  "sha256": "389360f55b58c9bca18537dd2e9e1301ef22a4a35b5e4a7aaeef03e24c9db81e",
+  "notes": "TEST: TEST92: restore fast direct local preview + isolated fallback",
+  "publishedAt": "2026-09-07T16:27:05.8772416Z",
   "channel": "test"
 }
