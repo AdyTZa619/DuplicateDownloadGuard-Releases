@@ -8,11 +8,13 @@
   const RAW_ROOT = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases';
   const TEST_MANIFEST_URL = `${RAW_ROOT}/testing/update-test.json`;
   const DEFAULT_TEST_EXE_URL = `${RAW_ROOT}/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe`;
+  const RECOVERY_PORTS = [51289, 51290, 51291, 51292];
   const CORNER_ID = 'ddgUpdateCorner';
   const TEST_BOX_ID = 'ddgTestUpdaterBox';
   let stableState = null;
   let testState = null;
   let currentVersion = '';
+  let currentAppDir = '';
   let checking = false;
   let cornerObserver = null;
 
@@ -131,6 +133,7 @@
     if (currentVersion) return currentVersion;
     const info = await window.api('/api/about');
     currentVersion = info.version || '';
+    currentAppDir = info.appDir || '';
     return currentVersion;
   }
 
@@ -269,7 +272,66 @@
     throw new Error(`SHA-256 TEST diferit după reîncercări (${lastMismatch})`);
   }
 
+  async function backendAliveForUpdate() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1400);
+    try {
+      const response = await fetch('/api/app/heartbeat', {cache:'no-store', signal:controller.signal});
+      return response.ok;
+    } catch (_) {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function findRecoveryHelper() {
+    for (const port of RECOVERY_PORTS) {
+      const base = `http://127.0.0.1:${port}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 700);
+      try {
+        const response = await fetch(`${base}/status?ddg=${Date.now()}`, {cache:'no-store', signal:controller.signal});
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (!data?.ok) continue;
+        if (currentAppDir && data.appDir && String(data.appDir).toLowerCase() !== String(currentAppDir).toLowerCase()) continue;
+        return {base, data};
+      } catch (_) {
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return null;
+  }
+
+  async function applyTestViaRecovery(manifest) {
+    const helper = await findRecoveryHelper();
+    if (!helper) throw new Error('recovery helper local nu răspunde');
+    const response = await fetch(`${helper.base}/apply-test`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({expectedVersion: manifest.version, appDir: currentAppDir || helper.data?.appDir || ''})
+    });
+    if (!response.ok) throw new Error((await response.text()).trim() || `recovery helper HTTP ${response.status}`);
+    return response.json();
+  }
+
+  function saveVerifiedTestToDownloads(verified) {
+    const manifest = verified.state.manifest;
+    const blob = new Blob([verified.bytes], {type:'application/vnd.microsoft.portable-executable'});
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = `DuplicateDownloadGuard_PRO_TEST_${manifest.version}.exe`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 5000);
+  }
+
   async function installTest(button) {
+    const btn = button || document.getElementById('ddgInstallTestUpdate');
     try {
       if (!testState?.newer) await checkTest(false);
       if (!testState?.newer) {
@@ -277,24 +339,55 @@
         return;
       }
       if (!confirm(`Instalez DDG ${testState.manifest.version} din canalul TEST?\n\nEste un build de probă. Updaterul păstrează backup și face rollback automat dacă noua versiune nu pornește.`)) return;
-      const btn = button || document.getElementById('ddgInstallTestUpdate');
       if (btn) {
         btn.disabled = true;
         btn.classList.add('busy');
-        btn.textContent = 'Descarc TEST…';
       }
+
+      // TEST119: if the main API already died, do not download 9+ MB into the
+      // stale Edge renderer only to discover that /api/update/apply is gone.
+      // The independent recovery helper verifies/downloads the official build
+      // itself and can replace/restart DDG even while this window says OFFLINE.
+      if (!(await backendAliveForUpdate())) {
+        if (btn) btn.textContent = 'Recovery TEST…';
+        try {
+          const recovered = await applyTestViaRecovery(testState.manifest);
+          const status = document.getElementById('ddgTestUpdateStatus');
+          if (status) status.textContent = `${recovered.message || 'Recovery helper aplică update-ul.'} Fereastra se va redeschide.`;
+          if (typeof window.toast === 'function') window.toast('Backend OFFLINE: recovery helper aplică update-ul TEST.');
+          return;
+        } catch (recoveryErr) {
+          if (btn) btn.textContent = 'Descarc fallback…';
+          const verifiedFallback = await downloadVerifiedTestSnapshot(testState);
+          saveVerifiedTestToDownloads(verifiedFallback);
+          throw new Error(`${recoveryErr.message}. Am salvat EXE-ul TEST verificat în Downloads ca fallback.`);
+        }
+      }
+
+      if (btn) btn.textContent = 'Descarc TEST…';
       const verified = await downloadVerifiedTestSnapshot(testState);
       const manifest = verified.state.manifest;
       testState = {...testState, ...verified.state};
       if (btn) btn.textContent = 'Aplic TEST…';
       const form = new FormData();
       form.append('file', new Blob([verified.bytes], {type: 'application/vnd.microsoft.portable-executable'}), `DuplicateDownloadGuard_TEST_${manifest.version}.exe`);
-      const apply = await fetch('/api/update/apply', {method: 'POST', body: form});
-      if (!apply.ok) throw new Error((await apply.text()).trim() || `updater local HTTP ${apply.status}`);
-      await apply.json();
+      try {
+        const apply = await fetch('/api/update/apply', {method: 'POST', body: form});
+        if (!apply.ok) throw new Error((await apply.text()).trim() || `updater local HTTP ${apply.status}`);
+        await apply.json();
+      } catch (localApplyErr) {
+        if (btn) btn.textContent = 'Recovery TEST…';
+        try {
+          await applyTestViaRecovery(manifest);
+          if (typeof window.toast === 'function') window.toast('Updaterul principal nu a răspuns; recovery helper continuă update-ul.');
+          return;
+        } catch (recoveryErr) {
+          saveVerifiedTestToDownloads(verified);
+          throw new Error(`${localApplyErr.message} | recovery: ${recoveryErr.message}. EXE-ul TEST verificat a fost salvat în Downloads.`);
+        }
+      }
     } catch (err) {
       if (typeof window.toast === 'function') window.toast('Update TEST: ' + err.message);
-      const btn = button || document.getElementById('ddgInstallTestUpdate');
       if (btn) {
         btn.disabled = false;
         btn.classList.remove('busy');
