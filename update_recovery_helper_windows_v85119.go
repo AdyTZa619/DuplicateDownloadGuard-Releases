@@ -168,7 +168,9 @@ func recoveryApplyUpdateV85119(st *recoveryStateV85119, m recoveryManifestV85119
 	}
 
 	if err := repairInterruptedExecutableV85119(current); err != nil {
-		st.mu.Lock(); st.applying = false; st.mu.Unlock()
+		st.mu.Lock()
+		st.applying = false
+		st.mu.Unlock()
 		return
 	}
 	updatesDir := filepath.Join(appDir, "updates")
@@ -176,17 +178,23 @@ func recoveryApplyUpdateV85119(st *recoveryStateV85119, m recoveryManifestV85119
 	_ = os.MkdirAll(backupDir, 0755)
 	backup := filepath.Join(backupDir, "DuplicateDownloadGuard_recovery_"+time.Now().Format("20060102-150405")+".exe")
 	if err := copyFileDurable(current, backup); err != nil {
-		st.mu.Lock(); st.applying = false; st.mu.Unlock()
+		st.mu.Lock()
+		st.applying = false
+		st.mu.Unlock()
 		return
 	}
 	if err := copyFileDurable(pending, current); err != nil {
 		_ = copyFileDurable(backup, current)
-		st.mu.Lock(); st.applying = false; st.mu.Unlock()
+		st.mu.Lock()
+		st.applying = false
+		st.mu.Unlock()
 		return
 	}
 	if got, err := sha256Path(current); err != nil || !strings.EqualFold(got, strings.TrimSpace(m.SHA256)) {
 		_ = copyFileDurable(backup, current)
-		st.mu.Lock(); st.applying = false; st.mu.Unlock()
+		st.mu.Lock()
+		st.applying = false
+		st.mu.Unlock()
 		return
 	}
 
@@ -195,7 +203,9 @@ func recoveryApplyUpdateV85119(st *recoveryStateV85119, m recoveryManifestV85119
 	if err != nil {
 		_ = copyFileDurable(backup, current)
 		_, _ = startUpdatedExecutable(current)
-		st.mu.Lock(); st.applying = false; st.mu.Unlock()
+		st.mu.Lock()
+		st.applying = false
+		st.mu.Unlock()
 		return
 	}
 	if waitForExpectedHealth(updateHealthPath(appDir), m.Version, 35*time.Second) {
@@ -216,7 +226,9 @@ func recoveryApplyUpdateV85119(st *recoveryStateV85119, m recoveryManifestV85119
 	if old, err := startUpdatedExecutable(current); err == nil {
 		_ = old.Release()
 	}
-	st.mu.Lock(); st.applying = false; st.mu.Unlock()
+	st.mu.Lock()
+	st.applying = false
+	st.mu.Unlock()
 }
 
 func runRecoveryHelperV85119(args []string) int {
@@ -237,8 +249,14 @@ func runRecoveryHelperV85119(args []string) int {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-		if !recoveryOriginAllowedV85119(r.Header.Get("Origin")) {
-			http.Error(w, "origin refuzat", http.StatusForbidden); return
+		origin := r.Header.Get("Origin")
+		if !recoveryOriginAllowedV85119(origin) {
+			http.Error(w, "origin refuzat", http.StatusForbidden)
+			return
+		}
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
 		}
 		st.mu.Lock()
 		resp := map[string]any{"ok": true, "version": st.version, "appDir": st.appDir, "parentPid": st.parentPID, "parentAlive": recoveryProcessAliveV85119(st.parentPID), "applying": st.applying}
@@ -247,37 +265,95 @@ func runRecoveryHelperV85119(args []string) int {
 	})
 	mux.HandleFunc("/adopt", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
-			if recoveryOriginAllowedV85119(r.Header.Get("Origin")) { w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin")); w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS"); w.Header().Set("Access-Control-Allow-Headers", "Content-Type"); w.WriteHeader(http.StatusNoContent); return }
-			http.Error(w, "origin refuzat", http.StatusForbidden); return
+			if recoveryOriginAllowedV85119(r.Header.Get("Origin")) {
+				w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+				w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			http.Error(w, "origin refuzat", http.StatusForbidden)
+			return
 		}
-		if r.Method != http.MethodPost || !recoveryOriginAllowedV85119(r.Header.Get("Origin")) { http.Error(w, "refuzat", http.StatusForbidden); return }
+		if r.Method != http.MethodPost || !recoveryOriginAllowedV85119(r.Header.Get("Origin")) {
+			http.Error(w, "refuzat", http.StatusForbidden)
+			return
+		}
 		var req recoveryAdoptV85119
-		if err := json.NewDecoder(io.LimitReader(r.Body, 16*1024)).Decode(&req); err != nil { http.Error(w, "cerere invalidă", 400); return }
-		if req.ParentPID <= 0 || !strings.EqualFold(filepath.Clean(req.Current), current) || !strings.EqualFold(filepath.Clean(req.AppDir), appDir) { http.Error(w, "altă instanță DDG", http.StatusConflict); return }
-		st.mu.Lock(); st.parentPID = req.ParentPID; st.version = strings.TrimSpace(req.Version); st.lastAdopt = time.Now(); st.mu.Unlock()
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16*1024)).Decode(&req); err != nil {
+			http.Error(w, "cerere invalidă", 400)
+			return
+		}
+		if req.ParentPID <= 0 || !strings.EqualFold(filepath.Clean(req.Current), current) || !strings.EqualFold(filepath.Clean(req.AppDir), appDir) {
+			http.Error(w, "altă instanță DDG", http.StatusConflict)
+			return
+		}
+		st.mu.Lock()
+		st.parentPID = req.ParentPID
+		st.version = strings.TrimSpace(req.Version)
+		st.lastAdopt = time.Now()
+		st.mu.Unlock()
 		recoveryJSONV85119(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/apply-test", func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && recoveryOriginAllowedV85119(origin) { w.Header().Set("Access-Control-Allow-Origin", origin); w.Header().Set("Vary", "Origin") }
-		if r.Method == http.MethodOptions {
-			if !recoveryOriginAllowedV85119(origin) { http.Error(w, "origin refuzat", 403); return }
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS"); w.Header().Set("Access-Control-Allow-Headers", "Content-Type"); w.WriteHeader(http.StatusNoContent); return
+		if origin != "" && recoveryOriginAllowedV85119(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
 		}
-		if r.Method != http.MethodPost || !recoveryOriginAllowedV85119(origin) { http.Error(w, "refuzat", 403); return }
+		if r.Method == http.MethodOptions {
+			if !recoveryOriginAllowedV85119(origin) {
+				http.Error(w, "origin refuzat", 403)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost || !recoveryOriginAllowedV85119(origin) {
+			http.Error(w, "refuzat", 403)
+			return
+		}
 		var req recoveryApplyV85119
 		_ = json.NewDecoder(io.LimitReader(r.Body, 16*1024)).Decode(&req)
 		st.mu.Lock()
-		if st.applying { st.mu.Unlock(); http.Error(w, "update deja în curs", http.StatusConflict); return }
-		if req.AppDir != "" && !strings.EqualFold(filepath.Clean(req.AppDir), st.appDir) { st.mu.Unlock(); http.Error(w, "helperul aparține altei instanțe DDG", http.StatusConflict); return }
+		if st.applying {
+			st.mu.Unlock()
+			http.Error(w, "update deja în curs", http.StatusConflict)
+			return
+		}
+		if req.AppDir != "" && !strings.EqualFold(filepath.Clean(req.AppDir), st.appDir) {
+			st.mu.Unlock()
+			http.Error(w, "helperul aparține altei instanțe DDG", http.StatusConflict)
+			return
+		}
 		st.applying = true
 		st.mu.Unlock()
 
 		m, err := recoveryFetchManifestV85119()
-		if err != nil { st.mu.Lock(); st.applying = false; st.mu.Unlock(); http.Error(w, err.Error(), 502); return }
-		if req.ExpectedVersion != "" && !strings.EqualFold(strings.TrimSpace(req.ExpectedVersion), strings.TrimSpace(m.Version)) { st.mu.Lock(); st.applying = false; st.mu.Unlock(); http.Error(w, "manifestul s-a schimbat; verifică din nou update-ul", http.StatusConflict); return }
+		if err != nil {
+			st.mu.Lock()
+			st.applying = false
+			st.mu.Unlock()
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		if req.ExpectedVersion != "" && !strings.EqualFold(strings.TrimSpace(req.ExpectedVersion), strings.TrimSpace(m.Version)) {
+			st.mu.Lock()
+			st.applying = false
+			st.mu.Unlock()
+			http.Error(w, "manifestul s-a schimbat; verifică din nou update-ul", http.StatusConflict)
+			return
+		}
 		pending := filepath.Join(appDir, "updates", "recovery.pending.exe")
-		if err := recoveryDownloadEXEV85119(m, pending); err != nil { st.mu.Lock(); st.applying = false; st.mu.Unlock(); http.Error(w, err.Error(), 502); return }
+		if err := recoveryDownloadEXEV85119(m, pending); err != nil {
+			st.mu.Lock()
+			st.applying = false
+			st.mu.Unlock()
+			http.Error(w, err.Error(), 502)
+			return
+		}
 		recoveryJSONV85119(w, http.StatusAccepted, map[string]any{"ok": true, "version": m.Version, "message": "Recovery helper aplică update-ul și repornește DDG."})
 		go recoveryApplyUpdateV85119(st, m, pending)
 	})
@@ -285,7 +361,10 @@ func runRecoveryHelperV85119(args []string) int {
 	var ln net.Listener
 	for _, port := range recoveryPortsV85119 {
 		candidate, e := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if e == nil { ln = candidate; break }
+		if e == nil {
+			ln = candidate
+			break
+		}
 	}
 	if ln == nil {
 		return 7
@@ -318,8 +397,11 @@ func tryAdoptRecoveryHelperV85119(current, appDir string, pid int) bool {
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err == nil {
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)); resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 { return true }
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return true
+			}
 		}
 	}
 	return false
@@ -327,9 +409,13 @@ func tryAdoptRecoveryHelperV85119(current, appDir string, pid int) bool {
 
 func cleanupStaleRecoveryHelpersV85119(updatesDir string) {
 	entries, err := os.ReadDir(updatesDir)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	for _, entry := range entries {
-		if entry.IsDir() { continue }
+		if entry.IsDir() {
+			continue
+		}
 		lower := strings.ToLower(entry.Name())
 		if strings.HasPrefix(lower, "duplicatedownloadguard.recovery_") && strings.HasSuffix(lower, ".exe") {
 			_ = os.Remove(filepath.Join(updatesDir, entry.Name()))
@@ -339,19 +425,30 @@ func cleanupStaleRecoveryHelpersV85119(updatesDir string) {
 
 func ensureRecoveryHelperV85119() {
 	current, err := os.Executable()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	current, _ = filepath.Abs(current)
 	appDir, err := portableDataDir()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	_ = repairInterruptedExecutableV85119(current)
-	if tryAdoptRecoveryHelperV85119(current, appDir, os.Getpid()) { return }
+	if tryAdoptRecoveryHelperV85119(current, appDir, os.Getpid()) {
+		return
+	}
 	updatesDir := filepath.Join(appDir, "updates")
 	cleanupStaleRecoveryHelpersV85119(updatesDir)
 	helper := filepath.Join(updatesDir, fmt.Sprintf("DuplicateDownloadGuard.recovery_%d.exe", os.Getpid()))
-	if err := copyFileDurable(current, helper); err != nil { return }
+	if err := copyFileDurable(current, helper); err != nil {
+		return
+	}
 	cmd := exec.Command(helper, recoveryHelperModeArgV85119, strconv.Itoa(os.Getpid()), current, appVersion, appDir)
 	detachUpdaterProcess(cmd)
-	if err := cmd.Start(); err != nil { _ = os.Remove(helper); return }
+	if err := cmd.Start(); err != nil {
+		_ = os.Remove(helper)
+		return
+	}
 	_ = cmd.Process.Release()
 }
 
