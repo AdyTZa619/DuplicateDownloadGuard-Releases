@@ -108,7 +108,7 @@
   }
 
   function escapeHTML(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[ch]));
   }
 
   async function installGalleryDL() {
@@ -213,6 +213,7 @@
   function loadFeatureModules() {
     loadFeatureModule('ddgGenericMediaPickerScriptV85114', '/feature_generic_media_picker_v85114.js');
     loadFeatureModule('ddgSourceFolderHintScriptV85114', '/feature_source_folder_hint_v85114.js');
+    loadFeatureModule('ddgSourceHistoryScriptV85117', '/features/source_history_v85117.js');
   }
 
   function installUI() {
