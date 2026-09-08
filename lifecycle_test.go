@@ -108,10 +108,19 @@ func TestUIWatchdogDoesNotKillMinimizedOrSuspendedWindowV85112(t *testing.T) {
 	}
 }
 
-func TestUIWatchdogFallbackNeedsWindowGoneAndVeryStaleHeartbeatV85112(t *testing.T) {
+func TestUIWatchdogDoesNotKillIdleBackendWhenWindowEnumerationTemporarilyFailsV85115(t *testing.T) {
 	now := time.Now()
-	last := now.Add(-11 * time.Minute).UnixNano()
-	if !shouldStopUIWatchdogV85112(now, last, 0, false, uiWatchdogMissingWindowTicksV85112) {
-		t.Fatal("orphan backend should eventually stop when the native window is gone and heartbeat is very stale")
+	last := now.Add(-2 * time.Hour).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, 0, false, 10000) {
+		t.Fatal("idle/minimize/lock without an explicit pagehide hint must never stop DDG")
+	}
+}
+
+func TestUIWatchdogStillStopsAfterExplicitExitHintV85115(t *testing.T) {
+	now := time.Now()
+	hint := now.Add(-30 * time.Second).UnixNano()
+	last := now.Add(-31 * time.Second).UnixNano()
+	if !shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("explicit exit hint plus sustained native-window absence should stop DDG")
 	}
 }
