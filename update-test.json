@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.114",
+  "version": "8.5.49-test.116",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "bde3065272b3187f81e44dc1b0367e505320e9c52e4347df0865409f304fe5fd",
-  "notes": "TEST: TEST114: generic Media Picker + source folder advisor",
-  "publishedAt": "2026-09-08T10:31:36.3531563Z",
+  "sha256": "9ba9bc85188f8936c3546c303ddbee477199c6820eba72337b2b7937a2ef5387",
+  "notes": "TEST: TEST115: keep backend alive during long idle/minimized sessions",
+  "publishedAt": "2026-09-08T10:48:07.2416005Z",
   "channel": "test"
 }
