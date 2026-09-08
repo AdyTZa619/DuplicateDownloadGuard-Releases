@@ -2,6 +2,12 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.48] — 2026-09-08
+
+### Validare TEST updater handoff
+- Validează închiderea ferestrei DDG vechi în timpul handoff-ului de update și pornirea unei singure instanțe per instalare portabilă.
+- Menține neschimbate MEGA Preview, LOCAL Preview, JDownloader și motoarele providerilor.
+
 ## [8.5.46] — 2026-09-06
 
 ### Updater — Stable + TEST separat
