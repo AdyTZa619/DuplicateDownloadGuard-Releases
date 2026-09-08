@@ -70,7 +70,7 @@ func copyProviderPreviewResponseHeadersV86(dst, src http.Header) {
 
 func providerRefreshableSourceV86(source string) bool {
 	switch strings.ToUpper(strings.TrimSpace(source)) {
-	case "GOFILE", "BUNKR", "CYBERDROP", "GALLERY-DL":
+	case "GOFILE", "BUNKR", "CYBERDROP", "EROME", "GALLERY-DL":
 		return true
 	default:
 		return false

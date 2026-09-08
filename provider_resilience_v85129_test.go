@@ -11,13 +11,13 @@ import (
 
 func TestDedicatedProviderLabelsV85129(t *testing.T) {
 	cases := map[string]string{
-		"https://gofile.io/d/ABC":                "GOFILE",
-		"https://www.erome.com/a/ABC":           "EROME",
-		"https://bunkr.cr/a/ABC":                "BUNKR",
-		"https://app.bunkrrr.example/a/ABC":     "BUNKR",
-		"https://cyberdrop.me/a/ABC":            "CYBERDROP",
-		"https://fs-01.cyberdrop.to/f/ABC":      "CYBERDROP",
-		"https://example.org/gallery/ABC":        "GALLERY-DL",
+		"https://gofile.io/d/ABC":           "GOFILE",
+		"https://www.erome.com/a/ABC":       "EROME",
+		"https://bunkr.cr/a/ABC":            "BUNKR",
+		"https://app.bunkrrr.example/a/ABC": "BUNKR",
+		"https://cyberdrop.me/a/ABC":        "CYBERDROP",
+		"https://fs-01.cyberdrop.to/f/ABC":  "CYBERDROP",
+		"https://example.org/gallery/ABC":   "GALLERY-DL",
 	}
 	for raw, want := range cases {
 		if got := providerSourceLabelV86(raw); got != want {
