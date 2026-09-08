@@ -1,4 +1,4 @@
-// TEST125 — generic HTTP Media Picker bridge integrated into Source Intelligence.
+// TEST127 — generic HTTP Media Picker bridge integrated into Source Intelligence.
 // Media Picker is intentionally a generic-site tool only. Dedicated hosts such
 // as MEGA/GoFile/Bunkr/Cyberdrop/Erome keep their provider-specific flow.
 (() => {
@@ -40,6 +40,15 @@
 
   function mediaInfoBox() {
     return document.getElementById('ddgSourceMediaInfoV85124');
+  }
+
+  function loadAdvancedDiscoveryV85127() {
+    if (document.getElementById('ddgGenericMediaDiscoveryScriptV85127')) return;
+    const script = document.createElement('script');
+    script.id = 'ddgGenericMediaDiscoveryScriptV85127';
+    script.defer = true;
+    script.src = '/features/generic_media_discovery_v85127.js';
+    document.head.appendChild(script);
   }
 
   function syncPickerVisibility() {
@@ -90,7 +99,7 @@
       return;
     }
     if (kind === 'web') {
-      box.innerHTML = `<b>${String(u?.hostname || 'WEB')}</b> • site generic: HTTP → yt-dlp → gallery-dl. După analiză deschid automat Media Picker.`;
+      box.innerHTML = `<b>${String(u?.hostname || 'WEB')}</b> • site generic: HTML/iframe + HLS/DASH + yt-dlp + gallery-dl, fără download înainte de comparație. După analiză deschid automat Media Picker.`;
       return;
     }
     if (kind === 'mega') {
@@ -122,6 +131,7 @@
   }
 
   function bind() {
+    loadAdvancedDiscoveryV85127();
     const input = document.getElementById('directUrl');
     if (input && input.dataset.ddgGenericMediaPickerV85124 !== '1') {
       input.dataset.ddgGenericMediaPickerV85124 = '1';
