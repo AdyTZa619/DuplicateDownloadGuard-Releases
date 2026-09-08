@@ -132,6 +132,7 @@ func terminateOtherDDGProcessesSameImageNative() int {
 						killed++
 					}
 				}
+			}
 		}
 		if err := syscall.Process32Next(snapshot, &entry); err != nil {
 			break
