@@ -240,6 +240,7 @@ type App struct {
 	index              map[string]FileEntry
 	bySize             map[int64][]string
 	byName             map[string][]string
+	byIdentity         map[string][]string
 	results            []Result
 	decisions          map[string]Decision
 	undoMarks          []MarkHistory
@@ -470,7 +471,7 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	_ = migrateLegacyPortableData(dir)
-	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, decisions: map[string]Decision{}}
+	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, byIdentity: map[string][]string{}, decisions: map[string]Decision{}}
 	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 12, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadGuardMode: guardModeSmart, DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true, LiveRefreshCompare: true}
 	_ = a.loadConfig()
 	// v8.2 uses the project repository directly; no manifest URL setup is required.
@@ -702,9 +703,13 @@ func (a *App) saveResults() error {
 func (a *App) rebuildMaps() {
 	a.bySize = map[int64][]string{}
 	a.byName = map[string][]string{}
+	a.byIdentity = map[string][]string{}
 	for p, e := range a.index {
 		a.bySize[e.Size] = append(a.bySize[e.Size], p)
 		a.byName[strings.ToLower(e.Name)] = append(a.byName[strings.ToLower(e.Name)], p)
+		for _, token := range strongFilenameIdentityTokensV85130(e.Name) {
+			a.byIdentity[token] = append(a.byIdentity[token], p)
+		}
 	}
 }
 func (a *App) logf(format string, args ...any) {
@@ -1892,9 +1897,11 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	a.mu.RLock()
 	bySize := a.bySize
 	byName := a.byName
+	byIdentity := a.byIdentity
 	idx := a.index
 	a.mu.RUnlock()
 	res := make([]Result, 0, len(items))
+	staleDecisionKeys := map[string]bool{}
 	for i, it := range items {
 		if ctx.Err() != nil {
 			return
@@ -1902,6 +1909,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 		it.ID = i + 1
 		r := Result{ID: i + 1, Remote: it, Status: "MISSING", Confidence: "—", Reason: "Nu există candidat local cu aceeași dimensiune."}
 		nameKeys := byName[strings.ToLower(it.Name)]
+		identityKeys := identityCandidatePathsV85130(it.Name, byIdentity)
 		sameNameSameSize := ""
 		sameNameDifferent := false
 		for _, p := range nameKeys {
@@ -1954,6 +1962,21 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			r.LocalPath = best
 			r.NameScore = 100
 			r.Reason = "Există același nume local, dar dimensiunea diferă."
+		} else if len(identityKeys) > 0 {
+			best := bestResultCandidatePathV85130(it, identityKeys, idx)
+			if best != "" {
+				candidate := rankCandidate(it, idx[best])
+				r.Status = "POSSIBLE"
+				r.Confidence = "Medie • identificator comun"
+				r.LocalPath = best
+				r.NameScore = candidate.NameScore
+				r.Candidates = uniqueCandidateCountV85130(candidates, identityKeys)
+				if candidate.SameSize {
+					r.Reason = "Există un fișier local cu același identificator stabil în nume și exact același număr de bytes. Este candidat local, nu fișier lipsă; confirmarea bit-cu-bit necesită Smart Verify."
+				} else {
+					r.Reason = "Există un fișier local cu același identificator stabil în nume, dar cu altă dimensiune. Poate fi o versiune redimensionată sau recompresată; necesită verificare, nu poate fi declarat lipsă."
+				}
+			}
 		} else if len(candidates) > 0 {
 			best := candidates[0]
 			bestScore := nameSimilarity(it.Name, idx[best].Name)
@@ -1963,15 +1986,21 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 				}
 			}
 			r.NameScore = bestScore
-			if bestScore >= 55 {
+			bestCandidate := rankCandidate(it, idx[best])
+			if bestScore >= 55 || bestCandidate.SameExt {
 				r.Status = "POSSIBLE"
-				r.Confidence = "Medie"
 				r.LocalPath = best
+			}
+			if bestScore >= 55 {
+				r.Confidence = "Medie"
 				r.Reason = fmt.Sprintf("Aceeași dimensiune și nume suficient de apropiat; %d candidat(ți), cel mai bun nume: %d%%.", len(candidates), bestScore)
+			} else if bestCandidate.SameExt {
+				r.Confidence = "Scăzută • aceeași dimensiune și extensie"
+				r.Reason = fmt.Sprintf("Există %d fișier(e) local(e) cu exact același număr de bytes și același format, dar cu nume diferit (maxim %d%%). Fișierul rămâne DE VERIFICAT; nu este declarat lipsă fără verificarea candidatului.", len(candidates), bestScore)
 			} else {
 				r.Status = "MISSING"
-				r.Confidence = "Doar mărime — nu este potrivire"
-				r.Reason = fmt.Sprintf("Există %d fișier(e) cu aceeași dimensiune, dar numele sunt fără legătură (maxim %d%%). Nu sunt afișate ca POSIBIL; ExactGuard le verifică totuși înainte de download.", len(candidates), bestScore)
+				r.Confidence = "Doar mărime — format diferit"
+				r.Reason = fmt.Sprintf("Există %d fișier(e) cu aceeași dimensiune, dar numele și formatele sunt fără legătură (maxim %d%%). Nu sunt tratate drept copii locale.", len(candidates), bestScore)
 			}
 		}
 		if mode == "strict" && it.Hash == "" && r.Status == "HAVE" {
@@ -1983,6 +2012,10 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 		a.mu.RLock()
 		d, hasDecision := a.decisions[decisionKey(it)]
 		a.mu.RUnlock()
+		if hasDecision && !persistedDecisionAppliesV85130(d, r, idx) {
+			staleDecisionKeys[decisionKey(it)] = true
+			hasDecision = false
+		}
 		if hasDecision && (d.Status == "HAVE" || d.Status == "MISSING" || d.Status == "DIFFERENT") {
 			r.Status = d.Status
 			r.Manual = true
@@ -2010,8 +2043,16 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	}
 	a.mu.Lock()
 	a.results = res
+	for key := range staleDecisionKeys {
+		delete(a.decisions, key)
+	}
 	a.mu.Unlock()
 	a.revision.Add(1)
+	if len(staleDecisionKeys) > 0 {
+		if err := a.saveDecisions(); err != nil {
+			a.logf("Atenție: nu am putut elimina %d decizie(ii) manuală(e) depășită(e): %v", len(staleDecisionKeys), err)
+		}
+	}
 	if err := a.saveResults(); err != nil {
 		a.logf("Atenție: nu am putut salva ultima sesiune de rezultate: %v", err)
 	}
