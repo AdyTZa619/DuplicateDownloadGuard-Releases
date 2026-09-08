@@ -2,6 +2,11 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.48] — 2026-09-08
+
+### Validation-only
+- Secțiune temporară pe ramura de validare pentru a permite rularea completă a pipeline-ului curent.
+
 ## [8.5.46] — 2026-09-06
 
 ### Updater — Stable + TEST separat
