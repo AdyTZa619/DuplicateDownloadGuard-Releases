@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.123",
+  "version": "8.5.49-test.124",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "ef154d0b5dc860be9fb87f39595060645704ff1435101d2b8a1e6da16731d5cf",
-  "notes": "TEST: Finish TEST122 formatting fix",
-  "publishedAt": "2026-09-08T16:27:30.9036823Z",
+  "sha256": "75a7f7b3d6208db06dec92e8f2a198f663996f06c82fce748950b8d94931beef",
+  "notes": "TEST: Merge pull request #81 from AdyTZa619/feature/test124-source-intelligence-ui",
+  "publishedAt": "2026-09-08T16:58:56.1152076Z",
   "channel": "test"
 }
