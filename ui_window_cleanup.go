@@ -11,13 +11,25 @@ const (
 	updateHandoffRequestName = "apply_update.json"
 )
 
-// isDDGAppWindowTitle is intentionally strict. We only close the dedicated
-// Edge --app window whose title is exactly the DDG application title. We do
-// not match ordinary browser windows such as
-// "Duplicate Download Guard Pro - Microsoft Edge", because closing one of
-// those could also close unrelated tabs in the same browser window.
+// isDDGAppWindowTitle is intentionally strict and is used only when DDG wants
+// to close an old dedicated app window during startup/update handoff. We must
+// never close a normal browser window just because one tab contains DDG.
 func isDDGAppWindowTitle(title string) bool {
 	return strings.EqualFold(strings.TrimSpace(title), ddgAppWindowTitle)
+}
+
+// isDDGAppWindowPresenceTitle is deliberately more tolerant than the cleanup
+// matcher. Edge can temporarily decorate an --app window title (for example
+// with a browser/profile suffix) while minimized, suspended, restored or while
+// the renderer is being recreated. For lifecycle presence detection a false
+// positive is harmless (the backend stays alive a little longer), while a
+// false negative can kill a healthy backend and leave the visible UI offline.
+func isDDGAppWindowPresenceTitle(title string) bool {
+	t := strings.ToLower(strings.TrimSpace(title))
+	if t == "" {
+		return false
+	}
+	return strings.Contains(t, strings.ToLower(ddgAppWindowTitle))
 }
 
 func updateHandoffMarkerPathForRoot(root string) string {
