@@ -16,11 +16,13 @@ var (
 )
 
 const (
-	// TEST119: Edge can recycle/recreate an app window or transiently disappear
-	// from EnumWindows during a renderer/GPU failure. Twelve seconds was still
-	// aggressive enough to kill a usable backend. A close hint must now be
-	// accompanied by 90 consecutive seconds without a DDG native window.
+	// Slow fallback: if Edge loses/recreates its app window in an unusual way,
+	// keep the conservative protection that avoids killing a healthy backend.
 	uiWatchdogMissingWindowTicksV85112 = 90
+	// TEST122: a real click on X destroys the already-latched native HWND. Once
+	// that exact handle is gone and no replacement DDG window exists, four
+	// seconds are enough to distinguish a real close from a normal page reload.
+	uiNativeCloseGraceV85122 = 4 * time.Second
 )
 
 func (a *App) handleUIHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -44,11 +46,9 @@ func (a *App) handleUIExitHint(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// shouldStopUIWatchdogV85112 keeps the lifecycle decision isolated and
-// testable. TEST119 deliberately makes native-window absence a sustained,
-// high-confidence condition. Edge renderer/GPU crashes, desktop switching,
-// minimize/suspend and temporary title/handle recreation are not enough to
-// kill the local backend.
+// shouldStopUIWatchdogV85112 is the conservative fallback. It is deliberately
+// slow because it covers situations where Edge/GPU/desktop switching can make
+// window enumeration temporarily unreliable.
 func shouldStopUIWatchdogV85112(now time.Time, lastNS, hintNS int64, windowPresent bool, missingWindowTicks int) bool {
 	if lastNS <= 0 || windowPresent || missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
 		return false
@@ -58,18 +58,25 @@ func shouldStopUIWatchdogV85112(now time.Time, lastNS, hintNS int64, windowPrese
 	}
 
 	hint := time.Unix(0, hintNS)
-	// A real close has all three signals: no newer heartbeat than pagehide,
-	// the native DDG window is gone, and that absence persisted long enough.
-	// The extra age guard prevents a delayed watchdog tick from turning a fresh
-	// renderer pagehide into an application shutdown.
 	return lastNS <= hintNS && now.Sub(hint) > 30*time.Second
 }
 
-// startUIWatchdog terminates the local backend only after the DDG app window
-// is genuinely gone following an explicit UI exit hint. pagehide is a hint,
-// not a shutdown command: Edge can emit it during reload/navigation. Likewise,
-// stale heartbeats or temporary native-window invisibility during minimize,
-// screen lock, sleep/resume or desktop switching must never kill a healthy DDG.
+func shouldStopNativeCloseV85122(now time.Time, lastNS, hintNS int64, windowPresent, exactWindowDestroyed bool) bool {
+	if lastNS <= 0 || hintNS <= 0 || windowPresent || !exactWindowDestroyed {
+		return false
+	}
+	if lastNS > hintNS {
+		return false
+	}
+	return now.Sub(time.Unix(0, hintNS)) >= uiNativeCloseGraceV85122
+}
+
+// startUIWatchdog has two paths:
+//  1. fast, high-confidence graceful close when the exact HWND that DDG had
+//     latched is destroyed and no replacement DDG window exists;
+//  2. the old conservative 90-second fallback for uncertain Edge states.
+// This makes X close DDG promptly without reintroducing the OFFLINE regression
+// caused by renderer reloads/minimize/sleep.
 func startUIWatchdog(stop chan<- struct{}) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
@@ -84,6 +91,7 @@ func startUIWatchdog(stop chan<- struct{}) {
 				continue
 			}
 
+			exactWindowDestroyed := ddgNativeWindowDefinitelyClosedV85122()
 			windowPresent := ddgAppWindowPresentNative()
 			if windowPresent {
 				missingWindowTicks = 0
@@ -92,10 +100,17 @@ func startUIWatchdog(stop chan<- struct{}) {
 			}
 
 			hintNS := uiExitHintNS.Load()
+			if shouldStopNativeCloseV85122(now, lastNS, hintNS, windowPresent, exactWindowDestroyed) {
+				writeBackendExitDiagnosticV85119("ui_native_window_confirmed_close", now, lastNS, hintNS, windowPresent, missingWindowTicks)
+				appStopOnce.Do(func() {
+					select {
+					case stop <- struct{}{}:
+					default:
+					}
+				})
+				return
+			}
 			if shouldStopUIWatchdogV85112(now, lastNS, hintNS, windowPresent, missingWindowTicks) {
-				// Persist the exact watchdog evidence before stopping. If DDG is ever
-				// found OFFLINE again, backend_last_exit.json tells us immediately
-				// whether lifecycle logic was responsible instead of guessing.
 				writeBackendExitDiagnosticV85119("ui_watchdog_confirmed_close", now, lastNS, hintNS, windowPresent, missingWindowTicks)
 				appStopOnce.Do(func() {
 					select {
@@ -138,17 +153,12 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
-	// No previous MEGA account/session existed when DDG opened this public
-	// folder. Do not log out the folder just to log it back in on the next run.
-	// The hint contains only the public URL, never a MEGA session token.
 	if st.PreviousSession == "" && st.SourceURL != "" {
 		a.saveMegaPreviewRestartHintV859(st.SourceURL)
 		a.logf("MEGA shutdown: sesiunea folderului public a rămas activă pentru preview rapid la următoarea pornire")
 		return
 	}
 
-	// A real previous session existed. Preserve the public-folder cache but put
-	// MEGAcmd back exactly where the user had it before DDG opened the folder.
 	a.clearMegaPreviewRestartHintV859()
 	_, _ = runMegaControlTimed(ctx, 4*time.Second, st.Exe, "logout", "--keep-session")
 	if st.PreviousSession != "" && ctx.Err() == nil {
@@ -166,7 +176,9 @@ func shutdownApp(a *App) {
 		return
 	}
 
-	// Stop a scan/tool operation first.
+	// Stop a scan/tool operation first. exec.CommandContext children use the
+	// Windows tree-kill cancellation path, so gallery-dl/yt-dlp cannot keep DDG
+	// alive after the user closes the app.
 	a.mu.Lock()
 	cancel := a.cancel
 	a.cancel = nil
@@ -203,18 +215,19 @@ func shutdownApp(a *App) {
 		q.save(a)
 	}
 
-	// Stop WebDAV cleanly and preserve/restore the appropriate MEGA session.
 	settleMegaOnShutdown(a)
-
-	// aria2 is a long-lived helper. Stop it explicitly instead of leaving an
-	// orphan until Windows notices the parent process disappeared.
 	shutdownAriaRPC(a)
 
-	// Defensive final timer cleanup for the no-preview path.
 	a.previewMu.Lock()
 	if a.previewTTL != nil {
 		a.previewTTL.Stop()
 		a.previewTTL = nil
 	}
 	a.previewMu.Unlock()
+
+	// TEST122: recovery is intentionally detached so it can survive a crash,
+	// but a normal X-close is not a crash. Kill only the recovery helper that
+	// lives under THIS portable installation, otherwise Windows keeps an extra
+	// DuplicateDownloadGuard.recovery_*.exe process for up to 30 minutes.
+	stopRecoveryHelpersForAppDirV85122(a.appDir)
 }
