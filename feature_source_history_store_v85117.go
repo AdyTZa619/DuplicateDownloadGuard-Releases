@@ -25,28 +25,28 @@ const sourceHistoryMaxLinksV85117 = 1000
 const sourceHistoryMaxSnapshotsV85117 = 20
 
 type sourceHistorySnapshotV85117 struct {
-	At                int64 `json:"at"`
+	At                int64  `json:"at"`
 	Revision          uint64 `json:"revision,omitempty"`
-	Total             int   `json:"total"`
-	Local             int   `json:"local"`
-	Missing           int   `json:"missing"`
-	Review            int   `json:"review"`
-	Manual            int   `json:"manual"`
-	InternalCompleted int   `json:"internalCompleted,omitempty"`
+	Total             int    `json:"total"`
+	Local             int    `json:"local"`
+	Missing           int    `json:"missing"`
+	Review            int    `json:"review"`
+	Manual            int    `json:"manual"`
+	InternalCompleted int    `json:"internalCompleted,omitempty"`
 }
 
 type sourceHistoryEntryV85117 struct {
-	URL       string                           `json:"url"`
-	Key       string                           `json:"key"`
-	FirstAt   int64                            `json:"firstAt"`
-	LastAt    int64                            `json:"lastAt"`
-	Checks    int                              `json:"checks"`
-	Snapshots []sourceHistorySnapshotV85117    `json:"snapshots"`
+	URL       string                        `json:"url"`
+	Key       string                        `json:"key"`
+	FirstAt   int64                         `json:"firstAt"`
+	LastAt    int64                         `json:"lastAt"`
+	Checks    int                           `json:"checks"`
+	Snapshots []sourceHistorySnapshotV85117 `json:"snapshots"`
 }
 
 type sourceHistoryStoreV85117 struct {
-	Version int                                  `json:"version"`
-	Links   map[string]sourceHistoryEntryV85117  `json:"links"`
+	Version int                                 `json:"version"`
+	Links   map[string]sourceHistoryEntryV85117 `json:"links"`
 }
 
 type sourceHistorySnapshotRequestV85117 struct {
@@ -168,7 +168,12 @@ func sourceHistoryGetV85117(w http.ResponseWriter, r *http.Request) {
 	defer sourceHistoryStateV85117.mu.Unlock()
 	_ = sourceHistoryLoadLockedV85117()
 	entry, ok := sourceHistoryStateV85117.store.Links[key]
-	jsonOut(w, map[string]any{"ok": true, "known": ok, "key": key, "entry": func() any { if ok { return entry }; return nil }()})
+	jsonOut(w, map[string]any{"ok": true, "known": ok, "key": key, "entry": func() any {
+		if ok {
+			return entry
+		}
+		return nil
+	}()})
 }
 
 func sourceHistorySnapshotV85117Handler(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +304,10 @@ func sourceHistoryTrimLockedV85117() {
 	if len(sourceHistoryStateV85117.store.Links) <= sourceHistoryMaxLinksV85117 {
 		return
 	}
-	type pair struct { Key string; At int64 }
+	type pair struct {
+		Key string
+		At  int64
+	}
 	rows := make([]pair, 0, len(sourceHistoryStateV85117.store.Links))
 	for key, entry := range sourceHistoryStateV85117.store.Links {
 		rows = append(rows, pair{Key: key, At: entry.LastAt})
@@ -315,8 +323,12 @@ func sourceHistorySameCountsV85117(a, b sourceHistorySnapshotV85117) bool {
 }
 
 func clampSourceHistoryCountV85117(v, total int) int {
-	if v < 0 { return 0 }
-	if v > total { return total }
+	if v < 0 {
+		return 0
+	}
+	if v > total {
+		return total
+	}
 	return v
 }
 
