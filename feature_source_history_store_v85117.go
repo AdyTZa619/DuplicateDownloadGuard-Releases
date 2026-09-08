@@ -103,14 +103,18 @@ func startSourceHistoryServiceV85117() {
 	for i := 0; i < sourceHistoryPortAttemptsV85117; i++ {
 		port := base + i
 		ln, err = net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-		if err == nil {
-			sourceHistoryStateV85117.mu.Lock()
-			sourceHistoryStateV85117.path = filepath.Join(dataDir, "source_history.json")
-			sourceHistoryStateV85117.basePort = base
-			sourceHistoryStateV85117.port = port
-			sourceHistoryStateV85117.mu.Unlock()
-			break
+		if err != nil {
+			if sourceHistoryExistingServiceV85117(port) {
+				return
+			}
+			continue
 		}
+		sourceHistoryStateV85117.mu.Lock()
+		sourceHistoryStateV85117.path = filepath.Join(dataDir, "source_history.json")
+		sourceHistoryStateV85117.basePort = base
+		sourceHistoryStateV85117.port = port
+		sourceHistoryStateV85117.mu.Unlock()
+		break
 	}
 	if err != nil || ln == nil {
 		return
@@ -128,9 +132,42 @@ func startSourceHistoryServiceV85117() {
 	_ = server.Serve(ln)
 }
 
+func sourceHistoryExistingServiceV85117(port int) bool {
+	client := &http.Client{Timeout: 350 * time.Millisecond}
+	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var reply struct {
+		OK      bool   `json:"ok"`
+		Service string `json:"service"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&reply); err != nil {
+		return false
+	}
+	return reply.OK && reply.Service == sourceHistoryServiceV85117
+}
+
 func sourceHistoryCORSV85117(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			u, err := url.Parse(origin)
+			host := ""
+			if err == nil {
+				host = strings.ToLower(u.Hostname())
+			}
+			if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+				http.Error(w, "origine source-history refuzată", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Cache-Control", "no-store")
