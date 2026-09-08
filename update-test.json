@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.117",
+  "version": "8.5.49-test.118",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "0eed1c019d4df18feec3d84283d519968346d749aa2b7b85e120022f1ba41062",
-  "notes": "TEST: TEST117: harden backend lifetime after idle/minimize",
-  "publishedAt": "2026-09-08T13:50:35.2079804Z",
+  "sha256": "88b76c8573948ed7078d92a94c7eb5dedc43ad2212f2b2ee1c092d27e9b52c0c",
+  "notes": "TEST: TEST118: stop aggressive Edge buffering for Bunkr preview",
+  "publishedAt": "2026-09-08T14:08:48.7251509Z",
   "channel": "test"
 }
