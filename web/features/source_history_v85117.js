@@ -1,23 +1,26 @@
-// TEST117 — isolated source-link history.
-// Uses only existing public DDG APIs + localStorage. It does not override core UI,
-// preview, MEGA, JDownloader or selection functions.
+// TEST117 — persistent source-link history.
+// Isolated feature: reads existing DDG public APIs and persists only through the
+// dedicated loopback source-history service. No core preview/JD/selection globals are overwritten.
 (() => {
   'use strict';
 
   const NS = 'ddgSourceHistoryV85117';
-  const STORE_KEY = 'ddg.sourceHistory.v1';
-  const MAX_LINKS = 400;
-  const MAX_SNAPSHOTS = 12;
+  const SERVICE = 'ddg-source-history-v1';
+  const PORT_BASE = 38650;
+  const PORT_SPAN = 200;
+  const PORT_ATTEMPTS = 8;
   const TRACKING_KEYS = new Set(['fbclid','gclid','dclid','msclkid','mc_cid','mc_eid']);
-  const recordedRevisions = new Map();
+
+  let serviceURL = '';
+  let servicePromise = null;
   let pending = null;
   let knownRevision = 0;
   let revisionReady = false;
   let inputTimer = 0;
+  let requestSeq = 0;
 
-  function esc(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  }
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
   function canonicalURL(raw) {
     try {
@@ -41,27 +44,98 @@
     }
   }
 
-  function loadStore() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-      if (raw && raw.version === 1 && raw.links && typeof raw.links === 'object') return raw;
-    } catch (_) {}
-    return {version:1, links:{}};
+  async function api(url, options) {
+    const r = await fetch(url, {...options, cache:'no-store'});
+    if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
+    const type = r.headers.get('content-type') || '';
+    return type.includes('json') ? r.json() : r.text();
   }
 
-  function saveStore(store) {
-    try {
-      const rows = Object.entries(store.links || {}).sort((a,b) => Number(b[1]?.lastAt || 0) - Number(a[1]?.lastAt || 0));
-      if (rows.length > MAX_LINKS) store.links = Object.fromEntries(rows.slice(0, MAX_LINKS));
-      localStorage.setItem(STORE_KEY, JSON.stringify(store));
-    } catch (_) {}
+  function fnv1a32(value) {
+    let hash = 0x811c9dc5;
+    const bytes = new TextEncoder().encode(String(value || '').toLowerCase());
+    for (const b of bytes) {
+      hash ^= b;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash >>> 0;
   }
 
-  function getEntry(raw) {
-    const key = canonicalURL(raw);
-    if (!key) return {key:'', entry:null};
-    const store = loadStore();
-    return {key, entry:store.links[key] || null};
+  function seedVariants(appDir) {
+    const raw = String(appDir || '').trim();
+    if (!raw) return [];
+    const clean = raw.replace(/[\\/]+$/, '');
+    const out = [clean];
+    if (/[\\/]data$/i.test(clean)) out.push(clean.replace(/[\\/]data$/i, ''));
+    else out.push(clean + (clean.includes('\\') ? '\\data' : '/data'));
+    return [...new Set(out.map(x => x.toLowerCase()))];
+  }
+
+  async function discoverService() {
+    if (serviceURL) return serviceURL;
+    if (servicePromise) return servicePromise;
+    servicePromise = (async () => {
+      let about = null;
+      try { about = await api('/api/about'); } catch (_) {}
+      const bases = [];
+      for (const seed of seedVariants(about?.appDir)) {
+        const base = PORT_BASE + (fnv1a32(seed) % PORT_SPAN);
+        if (!bases.includes(base)) bases.push(base);
+      }
+      if (!bases.length) bases.push(PORT_BASE);
+
+      for (const base of bases) {
+        for (let i = 0; i < PORT_ATTEMPTS; i++) {
+          const candidate = `http://127.0.0.1:${base + i}`;
+          try {
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 450);
+            const r = await fetch(candidate + '/health', {cache:'no-store', signal:ctl.signal});
+            clearTimeout(timer);
+            if (!r.ok) continue;
+            const data = await r.json();
+            if (data?.service === SERVICE && data?.ok) {
+              serviceURL = candidate;
+              return serviceURL;
+            }
+          } catch (_) {}
+        }
+      }
+      return '';
+    })().finally(() => { servicePromise = null; });
+    return servicePromise;
+  }
+
+  async function historyGet(raw) {
+    const base = await discoverService();
+    if (!base) return {available:false, known:false, entry:null};
+    try {
+      const data = await api(`${base}/history?url=${encodeURIComponent(String(raw || '').trim())}`);
+      return {available:true, known:!!data?.known, entry:data?.entry || null};
+    } catch (_) {
+      serviceURL = '';
+      return {available:false, known:false, entry:null};
+    }
+  }
+
+  async function historySave(raw, revision, summary, internalCompleted) {
+    const counts = statusCounts(summary);
+    if (counts.total <= 0) return null;
+    const base = await discoverService();
+    if (!base) return null;
+    try {
+      return await api(base + '/snapshot', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          url:String(raw || '').trim(), revision:Number(revision || 0), total:counts.total,
+          local:counts.local, missing:counts.missing, review:counts.review, manual:counts.manual,
+          internalCompleted:Number(internalCompleted || 0)
+        })
+      });
+    } catch (_) {
+      serviceURL = '';
+      return null;
+    }
   }
 
   function formatDate(ts) {
@@ -71,37 +145,23 @@
     catch (_) { return new Date(n).toLocaleString('ro-RO'); }
   }
 
-  async function api(url) {
-    const r = await fetch(url, {cache:'no-store'});
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+  function statusCounts(summary) {
+    const eff = summary?.effective || {};
+    const wf = summary?.workflow || {};
+    const local = Number(eff.HAVE || 0) + Number(eff.VERIFIED || 0) + Number(eff.SAMPLED || 0);
+    return {
+      total:Number(summary?.total || 0), local,
+      missing:Number(eff.MISSING || 0), review:Number(wf.REVIEW || 0), manual:Number(wf.MANUAL || 0)
+    };
   }
 
   async function readRevision() {
     try {
       const data = await api('/api/results/summary');
       const rev = Number(data?.revision || 0);
-      if (rev >= 0) {
-        knownRevision = rev;
-        revisionReady = true;
-      }
+      if (rev >= 0) { knownRevision = rev; revisionReady = true; }
       return data;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function statusCounts(summary) {
-    const eff = summary?.effective || {};
-    const wf = summary?.workflow || {};
-    const local = Number(eff.HAVE || 0) + Number(eff.VERIFIED || 0) + Number(eff.SAMPLED || 0);
-    return {
-      total: Number(summary?.total || 0),
-      local,
-      missing: Number(eff.MISSING || 0),
-      review: Number(wf.REVIEW || 0),
-      manual: Number(wf.MANUAL || 0)
-    };
+    } catch (_) { return null; }
   }
 
   async function currentResultsBelongTo(raw) {
@@ -112,9 +172,7 @@
       const row = Array.isArray(d?.rows) ? d.rows[0] : null;
       const source = row?.remote?.url || '';
       return !!source && canonicalURL(source) === key;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   async function completedInternalDownloads(raw) {
@@ -127,35 +185,31 @@
         if (String(job?.status || '').toLowerCase() !== 'completed') continue;
         const origin = job?.remote?.url || job?.url || '';
         if (canonicalURL(origin) !== key) continue;
-        const id = String(job?.outputPath || job?.id || `${origin}\u001f${job?.name || ''}`);
-        seen.add(id);
+        seen.add(String(job?.outputPath || job?.id || `${origin}\u001f${job?.name || ''}`));
       }
       return seen.size;
-    } catch (_) {
-      return 0;
-    }
+    } catch (_) { return 0; }
   }
 
-  function ensureBox(input, id) {
+  function ensureBox(input) {
     if (!input) return null;
-    let box = document.getElementById(id);
+    const id = `${NS}-${input.id}`;
+    let box = $(id);
     if (box) return box;
     box = document.createElement('div');
     box.id = id;
     box.className = 'ddgSourceHistoryBox';
     box.style.display = 'none';
     if (input.id === 'directUrl') {
-      const provider = document.getElementById('universalProviderState');
+      const provider = $('universalProviderState');
       if (provider) provider.insertAdjacentElement('afterend', box);
       else input.insertAdjacentElement('afterend', box);
-    } else {
-      input.insertAdjacentElement('afterend', box);
-    }
+    } else input.insertAdjacentElement('afterend', box);
     return box;
   }
 
   function ensureStyle() {
-    if (document.getElementById(`${NS}Style`)) return;
+    if ($(`${NS}Style`)) return;
     const style = document.createElement('style');
     style.id = `${NS}Style`;
     style.textContent = `
@@ -168,88 +222,59 @@
     document.head.appendChild(style);
   }
 
-  function renderEntry(raw, box, internalCompleted = null) {
+  function renderHistory(box, state, internalCompleted = null) {
     if (!box) return;
-    const {entry} = getEntry(raw);
-    if (!canonicalURL(raw)) {
-      box.style.display = 'none';
-      box.innerHTML = '';
-      return;
-    }
     box.style.display = '';
     box.className = 'ddgSourceHistoryBox';
-    if (!entry || !entry.checks) {
-      box.innerHTML = '<span class="ddgSourceHistoryNone"><b>Istoric link:</b> nu a mai fost verificat de DDG pe acest PC.</span>';
+    if (!state?.available) {
+      box.innerHTML = '<span class="ddgSourceHistoryNone"><b>Istoric link:</b> stocarea persistentă nu răspunde momentan. Scanarea rămâne disponibilă.</span>';
       return;
     }
-    const last = entry.snapshots?.[entry.snapshots.length - 1] || {};
-    const prev = entry.snapshots?.[entry.snapshots.length - 2] || null;
-    const allLocal = Number(last.total || 0) > 0 && Number(last.local || 0) >= Number(last.total || 0);
+    const entry = state.entry;
+    if (!state.known || !entry?.checks) {
+      box.innerHTML = '<span class="ddgSourceHistoryNone"><b>Istoric link:</b> linkul nu a mai fost verificat de DDG în această instalare.</span>';
+      return;
+    }
+    const snaps = Array.isArray(entry.snapshots) ? entry.snapshots : [];
+    const last = snaps[snaps.length - 1] || {};
+    const prev = snaps[snaps.length - 2] || null;
+    const total = Number(last.total || 0), local = Number(last.local || 0);
+    const allLocal = total > 0 && local >= total;
     if (allLocal) box.classList.add('good');
     let deltaHTML = '';
-    if (prev && Number(prev.total || 0) !== Number(last.total || 0)) {
-      const delta = Number(last.total || 0) - Number(prev.total || 0);
+    if (prev && Number(prev.total || 0) !== total) {
+      const old = Number(prev.total || 0), delta = total - old;
       box.classList.add('changed');
-      deltaHTML = `<div class="ddgSourceHistoryDelta">Față de verificarea anterioară: ${delta > 0 ? '+' : ''}${delta.toLocaleString('ro-RO')} fișiere (${Number(prev.total || 0).toLocaleString('ro-RO')} → ${Number(last.total || 0).toLocaleString('ro-RO')}).</div>`;
+      deltaHTML = `<div class="ddgSourceHistoryDelta">Față de verificarea anterioară: ${delta > 0 ? '+' : ''}${delta.toLocaleString('ro-RO')} fișiere (${old.toLocaleString('ro-RO')} → ${total.toLocaleString('ro-RO')}).</div>`;
     }
-    const completedText = internalCompleted === null ? '' : ` • descărcări interne DDG finalizate: <b>${Number(internalCompleted).toLocaleString('ro-RO')}</b>`;
-    const badge = allLocal ? '<span class="badge VERIFIED">TOATE PE PC</span>' : '<span class="badge HAVE">CUNOSCUT</span>';
+    const downloaded = internalCompleted === null ? Number(last.internalCompleted || 0) : Number(internalCompleted || 0);
+    const badge = allLocal ? '<span class="badge VERIFIED">TOT CONȚINUTUL VECHI ESTE PE PC</span>' : '<span class="badge HAVE">LINK CUNOSCUT</span>';
     box.innerHTML = `
       <div class="ddgSourceHistoryTop"><b>Istoric link</b>${badge}<span class="sourcePill">verificat ${Number(entry.checks).toLocaleString('ro-RO')}×</span></div>
-      <div class="ddgSourceHistoryStats">Ultima verificare: <b>${esc(formatDate(last.at || entry.lastAt))}</b> • atunci avea <b>${Number(last.total || 0).toLocaleString('ro-RO')}</b> fișiere • găsite/confirmate local: <b>${Number(last.local || 0).toLocaleString('ro-RO')}</b> • lipsă: <b>${Number(last.missing || 0).toLocaleString('ro-RO')}</b> • de verificat: <b>${Number(last.review || 0).toLocaleString('ro-RO')}</b>${completedText}</div>
+      <div class="ddgSourceHistoryStats">Ultima verificare: <b>${esc(formatDate(last.at || entry.lastAt))}</b> • atunci avea <b>${total.toLocaleString('ro-RO')}</b> fișiere • pe PC/confirmate local: <b>${local.toLocaleString('ro-RO')}</b> • lipsă: <b>${Number(last.missing || 0).toLocaleString('ro-RO')}</b> • de verificat: <b>${Number(last.review || 0).toLocaleString('ro-RO')}</b> • descărcări interne DDG finalizate: <b>${downloaded.toLocaleString('ro-RO')}</b></div>
       ${deltaHTML}
-      <div class="ddgSourceHistoryNote">„Pe PC” înseamnă găsit/confirmat local de comparația DDG. O trimitere externă în JDownloader nu este considerată finalizată până când fișierul apare local la o verificare ulterioară.</div>`;
+      <div class="ddgSourceHistoryNote">Fișierul trimis în JDownloader nu este numărat ca descărcat doar pentru că a fost trimis. Devine „pe PC” după ce DDG îl găsește efectiv într-o locație indexată.</div>`;
   }
 
   async function renderForInput(input) {
     if (!input) return;
-    const box = ensureBox(input, `${NS}-${input.id}`);
-    renderEntry(input.value, box, null);
+    const seq = ++requestSeq;
+    const box = ensureBox(input);
     const raw = String(input.value || '').trim();
-    if (!canonicalURL(raw)) return;
-    const completed = await completedInternalDownloads(raw);
-    if (String(input.value || '').trim() === raw) renderEntry(raw, box, completed);
+    if (!canonicalURL(raw)) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
+    box.innerHTML = '<span class="ddgSourceHistoryNone">Citesc istoricul linkului…</span>';
+    const [state, completed] = await Promise.all([historyGet(raw), completedInternalDownloads(raw)]);
+    if (seq !== requestSeq || String(input.value || '').trim() !== raw) return;
+    renderHistory(box, state, completed);
   }
 
   function scheduleRender() {
     clearTimeout(inputTimer);
     inputTimer = setTimeout(() => {
-      renderForInput(document.getElementById('directUrl'));
-      renderForInput(document.getElementById('megaUrl'));
+      renderForInput($('directUrl'));
+      renderForInput($('megaUrl'));
     }, 180);
-  }
-
-  function saveSnapshot(raw, revision, summary, internalCompleted) {
-    const key = canonicalURL(raw);
-    if (!key) return null;
-    const counts = statusCounts(summary);
-    if (counts.total <= 0) return null;
-    if (recordedRevisions.get(key) === revision) return getEntry(raw).entry;
-    recordedRevisions.set(key, revision);
-
-    const store = loadStore();
-    const now = Date.now();
-    const old = store.links[key] || {url:raw, firstAt:now, lastAt:0, checks:0, snapshots:[]};
-    const snapshots = Array.isArray(old.snapshots) ? old.snapshots.slice(-MAX_SNAPSHOTS + 1) : [];
-    snapshots.push({
-      at: now,
-      revision,
-      total: counts.total,
-      local: counts.local,
-      missing: counts.missing,
-      review: counts.review,
-      manual: counts.manual,
-      internalCompleted: Number(internalCompleted || 0)
-    });
-    store.links[key] = {
-      url: raw,
-      firstAt: Number(old.firstAt || now),
-      lastAt: now,
-      checks: Number(old.checks || 0) + 1,
-      snapshots
-    };
-    saveStore(store);
-    return store.links[key];
   }
 
   async function tryRecordPending() {
@@ -263,26 +288,19 @@
       if (revision <= Number(p.baseline || 0)) return false;
       if (!(await currentResultsBelongTo(p.raw))) return false;
       const completed = await completedInternalDownloads(p.raw);
-      const entry = saveSnapshot(p.raw, revision, data.summary || {}, completed);
-      if (!entry) return false;
+      const saved = await historySave(p.raw, revision, data.summary || {}, completed);
+      if (!saved?.entry) return false;
       p.done = true;
-      const input = document.getElementById(p.inputId);
-      if (input && canonicalURL(input.value) === canonicalURL(p.raw)) renderEntry(p.raw, ensureBox(input, `${NS}-${input.id}`), completed);
+      const input = $(p.inputId);
+      if (input && canonicalURL(input.value) === p.key) renderHistory(ensureBox(input), {available:true, known:true, entry:saved.entry}, completed);
       return true;
-    } finally {
-      p.recording = false;
-    }
+    } finally { p.recording = false; }
   }
 
   function arm(raw, inputId, kind) {
     const key = canonicalURL(raw);
     if (!key) return;
-    pending = {
-      raw:String(raw || '').trim(), key, inputId, kind,
-      baseline: revisionReady ? knownRevision : 0,
-      armedAt:Date.now(), recording:false, done:false
-    };
-    // A short fallback poll catches very fast HTTP scans whose core path does not emit a toast.
+    pending = {raw:String(raw || '').trim(), key, inputId, kind, baseline:revisionReady ? knownRevision : 0, armedAt:Date.now(), recording:false, done:false};
     const loop = async () => {
       const p = pending;
       if (!p || p.done || p.key !== key) return;
@@ -300,30 +318,29 @@
       const button = event.target?.closest?.('button');
       if (!button) return;
       if (button.id === 'universalScanButton' || button.getAttribute('onclick') === 'scanUniversal()' || button.getAttribute('onclick') === 'scanURL()') {
-        const input = document.getElementById('directUrl');
-        arm(input?.value, 'directUrl', 'source');
-        return;
-      }
-      if (button.getAttribute('onclick') === 'scanMega()') {
-        const input = document.getElementById('megaUrl');
-        arm(input?.value, 'megaUrl', 'mega');
+        arm($('directUrl')?.value, 'directUrl', 'source');
+      } else if (button.getAttribute('onclick') === 'scanMega()') {
+        arm($('megaUrl')?.value, 'megaUrl', 'mega');
       }
     }, true);
   }
 
   function bindInputs() {
     for (const id of ['directUrl','megaUrl']) {
-      const input = document.getElementById(id);
+      const input = $(id);
       if (!input || input.dataset.ddgSourceHistoryV85117 === '1') continue;
       input.dataset.ddgSourceHistoryV85117 = '1';
       input.addEventListener('input', scheduleRender);
       input.addEventListener('paste', () => setTimeout(scheduleRender, 0));
       input.addEventListener('change', scheduleRender);
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') arm(input.value, id, id === 'megaUrl' ? 'mega' : 'source');
+      }, true);
     }
   }
 
   function bindStatusObserver() {
-    const top = document.getElementById('topStatus');
+    const top = $('topStatus');
     if (!top || top.dataset.ddgSourceHistoryObserverV85117 === '1') return;
     top.dataset.ddgSourceHistoryObserverV85117 = '1';
     const observer = new MutationObserver(() => {
@@ -334,7 +351,7 @@
         setTimeout(() => tryRecordPending().catch(() => {}), 80);
       }
     });
-    observer.observe(top, {childList:true, characterData:true, subtree:true});
+    observer.observe(top, {childList:true, characterData:true,subtree:true});
   }
 
   function bind() {
@@ -342,6 +359,7 @@
     bindInputs();
     bindScanCapture();
     bindStatusObserver();
+    discoverService().then(scheduleRender);
     readRevision();
     scheduleRender();
     setInterval(readRevision, 2500);
@@ -351,5 +369,5 @@
   else bind();
   setTimeout(bind, 600);
 
-  window.ddgSourceHistoryV85117 = {canonicalURL, render: scheduleRender};
+  window.ddgSourceHistoryV85117 = {canonicalURL, render:scheduleRender, service:discoverService};
 })();
