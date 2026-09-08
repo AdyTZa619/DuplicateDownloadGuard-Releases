@@ -5,6 +5,7 @@
 
   let pendingURL = '';
   let openSeq = 0;
+  let layoutAttempts = 0;
 
   function parseURL(raw) {
     try {
@@ -38,6 +39,26 @@
 
   function mediaInfoBox() {
     return document.getElementById('ddgSourceMediaInfoV85124');
+  }
+
+  function settleLayout() {
+    const actions = document.getElementById('ddgSourceMediaActionsV85124');
+    const pickerButton = document.getElementById('ddgMediaPickerLaunchV8566');
+    if (actions && pickerButton && pickerButton.parentElement !== actions) {
+      actions.appendChild(pickerButton);
+      pickerButton.style.marginTop = '0';
+    }
+
+    const folderSlot = document.getElementById('ddgSourceFolderSlotV85124');
+    const folderPanel = document.getElementById('ddgSourceFolderHintV85114');
+    if (folderSlot && folderPanel && folderPanel.parentElement !== folderSlot) {
+      folderSlot.replaceChildren(folderPanel);
+    }
+
+    if ((!pickerButton || !folderPanel) && layoutAttempts < 32) {
+      layoutAttempts++;
+      setTimeout(settleLayout, 250);
+    }
   }
 
   function renderInfo() {
@@ -95,6 +116,8 @@
       window.addEventListener('ddg:source-scan-start', event => arm(event.detail?.url || currentURL()));
       window.addEventListener('ddg:source-scan-complete', event => {
         const raw = String(event.detail?.url || '').trim();
+        settleLayout();
+        window.ddgSourceFolderHintV85114?.refresh?.();
         if (!pendingURL || pendingURL !== raw || !isGenericHTTP(raw)) return;
         setTimeout(() => openPickerWhenReady(raw), 80);
       });
@@ -102,10 +125,11 @@
     }
 
     renderInfo();
+    settleLayout();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
   else bind();
   setTimeout(bind, 500);
-  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, arm, renderBadge:renderInfo};
+  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, arm, renderBadge:renderInfo, settleLayout};
 })();
