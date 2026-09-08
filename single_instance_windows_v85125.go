@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,10 +12,7 @@ import (
 	"unsafe"
 )
 
-const (
-	ddgSingleInstanceMutexNameV85125 = `Local\DuplicateDownloadGuard_PRO_Main_v85125`
-	processQueryLimitedInformation   = 0x1000
-)
+const processQueryLimitedInformation = 0x1000
 
 var (
 	ddgSingleInstanceMutexV85125 syscall.Handle
@@ -24,11 +23,28 @@ var (
 	ddgSetForegroundV85125       = uiUser32.NewProc("SetForegroundWindow")
 )
 
+// ddgSingleInstanceMutexNameV85126 is scoped to the exact installation path.
+// A portable copy in another folder is an independent installation and must not
+// block this one. It also prevents the old TEST125 global mutex from trapping a
+// newly installed build during update handoff.
+func ddgSingleInstanceMutexNameV85126() string {
+	current, err := os.Executable()
+	if err != nil || strings.TrimSpace(current) == "" {
+		return `Local\DuplicateDownloadGuard_PRO_Main_v85126_fallback`
+	}
+	if abs, absErr := filepath.Abs(current); absErr == nil {
+		current = abs
+	}
+	current = strings.ToLower(filepath.Clean(current))
+	sum := sha256.Sum256([]byte(current))
+	return `Local\DuplicateDownloadGuard_PRO_Main_` + hex.EncodeToString(sum[:12])
+}
+
 // claimDDGSingleInstanceNative prevents a second normal DDG launch from
-// creating another backend/UI pair. Updater/recovery helper modes never call
-// this function (see ui_window_cleanup.go).
+// creating another backend/UI pair for the same portable installation.
+// Updater/recovery helper modes never call this function (see ui_window_cleanup.go).
 func claimDDGSingleInstanceNative() bool {
-	name, err := syscall.UTF16PtrFromString(ddgSingleInstanceMutexNameV85125)
+	name, err := syscall.UTF16PtrFromString(ddgSingleInstanceMutexNameV85126())
 	if err != nil {
 		return true // fail open: never brick startup because mutex creation failed
 	}
@@ -76,10 +92,10 @@ func processImagePathV85125(pid uint32) string {
 }
 
 // terminateOtherDDGProcessesSameImageNative is the migration cleanup for
-// versions before TEST125, which did not own the single-instance mutex. The old
-// startup code closed their Edge window but could leave the localhost backend
-// alive. Only processes running the exact same executable path are terminated;
-// unrelated copies with the same filename elsewhere are left alone.
+// versions before TEST125, which did not own a reliable per-install mutex. The
+// old startup/update path could leave the localhost backend alive. Only
+// processes running the exact same executable path are terminated; unrelated
+// portable copies elsewhere are left alone.
 func terminateOtherDDGProcessesSameImageNative() int {
 	current, err := os.Executable()
 	if err != nil {
@@ -116,7 +132,6 @@ func terminateOtherDDGProcessesSameImageNative() int {
 						killed++
 					}
 				}
-			}
 		}
 		if err := syscall.Process32Next(snapshot, &entry); err != nil {
 			break
