@@ -45,18 +45,28 @@ func postUpdateHandoffPending() bool {
 	return updateHandoffPendingAtRoot(executableDir())
 }
 
-// Each normal DDG process opens its Edge --app window only later, from main().
-// Therefore every exact-title DDG app window that exists during init belongs
-// to an older process/UI instance. Close it on every normal startup, not only
-// when apply_update.json is still present. This also recovers from a failed or
-// partially completed updater handoff where the old Edge window survived but
-// its localhost backend is already gone (the UI would otherwise display
-// "Monitor local indisponibil").
+// Normal DDG launches are single-instance. TEST125 also performs one migration
+// cleanup for older builds: those builds could have their Edge window closed
+// while their localhost backend stayed alive, so repeated launches accumulated
+// several DuplicateDownloadGuard_PRO processes. Updater/recovery helper modes
+// remain independent and are never treated as application instances.
 func init() {
-	// Updater helper modes run from the same executable and must never touch UI
-	// windows. Only a real application launch performs stale-window cleanup.
 	if runningNativeUpdaterMode(os.Args) {
 		return
 	}
+
+	// Once a TEST125+ instance owns the mutex, a second launch simply restores
+	// the existing DDG window and exits. It must not close or restart the healthy
+	// instance.
+	if !claimDDGSingleInstanceNative() {
+		activateExistingDDGWindowNative()
+		os.Exit(0)
+	}
+
+	// Migration path for pre-TEST125 instances, which do not own the mutex.
+	// Close any stale Edge --app window and then terminate only backend processes
+	// running the exact same executable path. This removes the orphan processes
+	// visible in Task Manager without touching DDG copies in other folders.
 	closeDDGAppWindowsNative()
+	terminateOtherDDGProcessesSameImageNative()
 }

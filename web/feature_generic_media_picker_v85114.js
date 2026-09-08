@@ -1,5 +1,6 @@
-// TEST124 — generic HTTP Media Picker bridge integrated into Source Intelligence.
-// Uses explicit source-scan events instead of watching status text mutations.
+// TEST125 — generic HTTP Media Picker bridge integrated into Source Intelligence.
+// Media Picker is intentionally a generic-site tool only. Dedicated hosts such
+// as MEGA/GoFile/Bunkr/Cyberdrop/Erome keep their provider-specific flow.
 (() => {
   'use strict';
 
@@ -41,6 +42,19 @@
     return document.getElementById('ddgSourceMediaInfoV85124');
   }
 
+  function syncPickerVisibility() {
+    const generic = isGenericHTTP(currentURL());
+    const actions = document.getElementById('ddgSourceMediaActionsV85124');
+    const pickerButton = document.getElementById('ddgMediaPickerLaunchV8566');
+    if (pickerButton) {
+      pickerButton.hidden = !generic;
+      pickerButton.style.display = generic ? '' : 'none';
+      pickerButton.setAttribute('aria-hidden', generic ? 'false' : 'true');
+    }
+    if (actions) actions.dataset.genericMedia = generic ? '1' : '0';
+    return generic;
+  }
+
   function settleLayout() {
     const actions = document.getElementById('ddgSourceMediaActionsV85124');
     const pickerButton = document.getElementById('ddgMediaPickerLaunchV8566');
@@ -55,6 +69,8 @@
       folderSlot.replaceChildren(folderPanel);
     }
 
+    syncPickerVisibility();
+
     if ((!pickerButton || !folderPanel) && layoutAttempts < 32) {
       layoutAttempts++;
       setTimeout(settleLayout, 250);
@@ -67,20 +83,22 @@
     const raw = currentURL();
     const kind = providerKind(raw);
     const u = parseURL(raw);
+    syncPickerVisibility();
+
     if (kind === 'none') {
-      box.innerHTML = 'Media Picker folosește rezultatele scanării curente, fără rescanare HDD.';
+      box.innerHTML = 'Media Picker apare numai pentru site-uri web generice, după ce DDG extrage media din pagină.';
       return;
     }
     if (kind === 'web') {
-      box.innerHTML = `<b>${String(u?.hostname || 'WEB')}</b> • extracție generică HTTP → yt-dlp → gallery-dl. După analiză deschid automat Media Picker.`;
+      box.innerHTML = `<b>${String(u?.hostname || 'WEB')}</b> • site generic: HTTP → yt-dlp → gallery-dl. După analiză deschid automat Media Picker.`;
       return;
     }
     if (kind === 'mega') {
-      box.innerHTML = '<b>MEGA</b> folosește preview-ul dedicat. Media Picker rămâne disponibil pentru rezultatele curente.';
+      box.innerHTML = '<b>MEGA</b> este host dedicat și folosește fluxul/preview-ul MEGA. Media Picker generic este dezactivat aici.';
       return;
     }
     const names = {gofile:'GoFile', bunkr:'Bunkr', cyberdrop:'Cyberdrop', erome:'Erome'};
-    box.innerHTML = `<b>${names[kind] || 'Provider'}</b> • Media Picker folosește rezultatele extrase de provider. Îl poți deschide după scanare.`;
+    box.innerHTML = `<b>${names[kind] || 'Provider'}</b> este host dedicat. DDG folosește extractorul providerului; Media Picker generic nu se afișează pentru această sursă.`;
   }
 
   function arm(raw) {
@@ -91,7 +109,7 @@
   async function openPickerWhenReady(raw) {
     const seq = ++openSeq;
     for (let i = 0; i < 30; i++) {
-      if (seq !== openSeq || pendingURL !== raw) return;
+      if (seq !== openSeq || pendingURL !== raw || !isGenericHTTP(raw)) return;
       const picker = window.ddgMediaPickerV8566;
       if (picker?.open) {
         const modal = document.getElementById('ddgMediaPickerV8566');
@@ -131,5 +149,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
   else bind();
   setTimeout(bind, 500);
-  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, arm, renderBadge:renderInfo, settleLayout};
+  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, providerKind, arm, renderBadge:renderInfo, settleLayout, syncPickerVisibility};
 })();
