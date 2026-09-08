@@ -17,16 +17,16 @@ const (
 )
 
 type processEntry32V85122 struct {
-	Size              uint32
-	CntUsage          uint32
-	ProcessID         uint32
-	DefaultHeapID     uintptr
-	ModuleID          uint32
-	CntThreads        uint32
-	ParentProcessID   uint32
-	PriClassBase      int32
-	Flags             uint32
-	ExeFile           [260]uint16
+	Size            uint32
+	CntUsage        uint32
+	ProcessID       uint32
+	DefaultHeapID   uintptr
+	ModuleID        uint32
+	CntThreads      uint32
+	ParentProcessID uint32
+	PriClassBase    int32
+	Flags           uint32
+	ExeFile         [260]uint16
 }
 
 var kernel32LifecycleV85122 = syscall.NewLazyDLL("kernel32.dll")
