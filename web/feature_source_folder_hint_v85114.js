@@ -1,5 +1,8 @@
-// TEST v8.5.114 — source-to-local-folder advisor.
-// Uses CURRENT DDG results/candidates only. No HDD rescan and no JDownloader monkey-patching.
+// TEST v8.5.122 — source-to-local-folder advisor, non-reentrant edition.
+// Uses CURRENT DDG results/candidates only. No HDD rescan and no monkey-patching
+// of Media Picker, preview or JDownloader. The old global MutationObserver could
+// observe its own panel.innerHTML updates and recursively launch more API work
+// while Media Picker was open; this version reacts only to real state changes.
 (() => {
   'use strict';
 
@@ -11,6 +14,10 @@
   let sourceStamp = '';
   let computeSeq = 0;
   const candidateCache = new Map();
+  let pickerWasOpen = false;
+  let jdWasOpen = false;
+  let sourceRefreshTimer = 0;
+  let pickerRefreshTimer = 0;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
@@ -165,23 +172,7 @@
     }
 
     const items = [...scores.values()].sort((a,b) => b.score - a.score || b.strong - a.strong || a.folder.localeCompare(b.folder));
-    return {
-      source: currentSource(),
-      rows: rows.length,
-      deep,
-      confidence: reportConfidence(items),
-      items: items.slice(0, 3)
-    };
-  }
-
-  function copyText(text) {
-    const value = String(text || '');
-    if (!value) return;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(value).then(() => window.toast?.('Calea folderului a fost copiată')).catch(() => fallbackCopy(value));
-      return;
-    }
-    fallbackCopy(value);
+    return {source: currentSource(), rows: rows.length, deep, confidence: reportConfidence(items), items: items.slice(0, 3)};
   }
 
   function fallbackCopy(value) {
@@ -193,6 +184,14 @@
     ta.select();
     try { document.execCommand('copy'); window.toast?.('Calea folderului a fost copiată'); } catch (_) {}
     ta.remove();
+  }
+
+  function copyText(text) {
+    const value = String(text || '');
+    if (!value) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).then(() => window.toast?.('Calea folderului a fost copiată')).catch(() => fallbackCopy(value));
+    } else fallbackCopy(value);
   }
 
   function resultHTML(report, compact = false) {
@@ -207,13 +206,11 @@
   }
 
   function wirePanel(panel) {
-    panel.querySelectorAll('.folderHintCopyV85114').forEach(button => {
-      button.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        copyText(button.dataset.folder || '');
-      });
-    });
+    panel.querySelectorAll('.folderHintCopyV85114').forEach(button => button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      copyText(button.dataset.folder || '');
+    }));
   }
 
   function setPanel(panel, report, compact = false) {
@@ -264,8 +261,7 @@
   }
 
   function pickerIDs() {
-    return [...document.querySelectorAll('#ddgMediaPickerV8566 .mediaCard.on[data-picker-id]')]
-      .map(card => Number(card.dataset.pickerId)).filter(Number.isFinite);
+    return [...document.querySelectorAll('#ddgMediaPickerV8566 .mediaCard.on[data-picker-id]')].map(card => Number(card.dataset.pickerId)).filter(Number.isFinite);
   }
 
   function ensurePickerPanel() {
@@ -284,9 +280,8 @@
   }
 
   function mainIDs() {
-    try {
-      return typeof window.idsForAction === 'function' ? window.idsForAction().map(Number).filter(Number.isFinite) : [];
-    } catch (_) { return []; }
+    try { return typeof window.idsForAction === 'function' ? window.idsForAction().map(Number).filter(Number.isFinite) : []; }
+    catch (_) { return []; }
   }
 
   function ensureJDPanel() {
@@ -302,39 +297,56 @@
     return panel;
   }
 
+  function scheduleSourceRefresh() {
+    clearTimeout(sourceRefreshTimer);
+    sourceRefreshTimer = setTimeout(() => {
+      rowsCache = [];
+      rowsAt = 0;
+      candidateCache.clear();
+      refreshPanel(ensureSourcePanel(), [], false);
+    }, 180);
+  }
+
+  function schedulePickerRefresh() {
+    clearTimeout(pickerRefreshTimer);
+    pickerRefreshTimer = setTimeout(() => {
+      const picker = document.getElementById('ddgMediaPickerV8566');
+      if (picker && !picker.classList.contains('hidden')) refreshPanel(ensurePickerPanel(), pickerIDs(), false, true);
+    }, 120);
+  }
+
   function installObservers() {
     const top = document.getElementById('topStatus');
-    if (top && top.dataset.ddgFolderHintWatchV85114 !== '1') {
-      top.dataset.ddgFolderHintWatchV85114 = '1';
+    if (top && top.dataset.ddgFolderHintWatchV85122 !== '1') {
+      top.dataset.ddgFolderHintWatchV85122 = '1';
+      let lastDone = false;
       new MutationObserver(() => {
         const text = String(top.textContent || '').toLowerCase();
-        if (!text.includes('analiză terminată') && !text.includes('gata')) return;
-        rowsCache = [];
-        rowsAt = 0;
-        candidateCache.clear();
-        setTimeout(() => refreshPanel(ensureSourcePanel(), [], false), 120);
-      }).observe(top, {childList:true, characterData:true,subtree:true});
+        const done = text.includes('analiză terminată') || text.includes('gata');
+        if (done && !lastDone) scheduleSourceRefresh();
+        lastDone = done;
+      }).observe(top, {childList:true, characterData:true, subtree:true});
     }
 
-    const bodyObserver = new MutationObserver(() => {
+    // Deliberately no document.body MutationObserver. The previous implementation
+    // observed childList changes and then changed panel.innerHTML inside its own
+    // callback, causing a self-triggering loop of API calls while the picker was
+    // visible. A cheap state-transition poll cannot observe its own rendering.
+    setInterval(() => {
       const picker = document.getElementById('ddgMediaPickerV8566');
-      if (picker && !picker.classList.contains('hidden')) {
-        const ids = pickerIDs();
-        refreshPanel(ensurePickerPanel(), ids, false, true);
-      }
+      const pickerOpen = Boolean(picker && !picker.classList.contains('hidden'));
+      if (pickerOpen && !pickerWasOpen) schedulePickerRefresh();
+      pickerWasOpen = pickerOpen;
+
       const jd = document.getElementById('ddgJDFastDecisionV8567');
-      if (jd && !jd.classList.contains('hidden')) refreshPanel(ensureJDPanel(), mainIDs(), false, true);
-    });
-    bodyObserver.observe(document.body, {childList:true, subtree:true, attributes:true, attributeFilter:['class']});
+      const jdOpen = Boolean(jd && !jd.classList.contains('hidden'));
+      if (jdOpen && !jdWasOpen) refreshPanel(ensureJDPanel(), mainIDs(), false, true);
+      jdWasOpen = jdOpen;
+    }, 500);
 
     document.addEventListener('click', event => {
-      if (event.target?.closest?.('#ddgMediaPickerV8566 .mediaCard')) {
-        setTimeout(() => refreshPanel(ensurePickerPanel(), pickerIDs(), false, true), 40);
-      }
-      if (event.target?.closest?.('#ddgMediaPickerSendSelectedV8566,#ddgMediaPickerSendAllV8566')) {
-        const ids = event.target.closest('#ddgMediaPickerSendAllV8566') ? [] : pickerIDs();
-        refreshPanel(ensurePickerPanel(), ids, false, true);
-      }
+      if (event.target?.closest?.('#ddgMediaPickerV8566 .mediaCard')) schedulePickerRefresh();
+      if (event.target?.closest?.('#ddgMediaPickerSendSelectedV8566,#ddgMediaPickerSendAllV8566')) schedulePickerRefresh();
     }, true);
   }
 
