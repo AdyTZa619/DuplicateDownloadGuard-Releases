@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.118",
+  "version": "8.5.49-test.121",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "88b76c8573948ed7078d92a94c7eb5dedc43ad2212f2b2ee1c092d27e9b52c0c",
-  "notes": "TEST: TEST118: stop aggressive Edge buffering for Bunkr preview",
-  "publishedAt": "2026-09-08T14:08:48.7251509Z",
+  "sha256": "11606dc2f3dcd6a4bd0c09d06db92d4c2ae4b7ac99f7e5d16af1f350bbc7fb3a",
+  "notes": "TEST: Merge pull request #78 from AdyTZa619/fix/test120-recovery-helper-test-guard",
+  "publishedAt": "2026-09-08T15:06:04.6440067Z",
   "channel": "test"
 }
