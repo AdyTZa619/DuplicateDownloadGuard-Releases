@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.113",
+  "version": "8.5.49-test.114",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "30a76993d681c6fd60a82b390d3986c89bfa85f82304fe4ffb13edb51f20c74d",
-  "notes": "TEST: TEST113: stop Bunkr Range probe from hanging indefinitely",
-  "publishedAt": "2026-09-08T09:51:56.0001481Z",
+  "sha256": "bde3065272b3187f81e44dc1b0367e505320e9c52e4347df0865409f304fe5fd",
+  "notes": "TEST: TEST114: generic Media Picker + source folder advisor",
+  "publishedAt": "2026-09-08T10:31:36.3531563Z",
   "channel": "test"
 }
