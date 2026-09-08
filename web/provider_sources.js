@@ -15,6 +15,7 @@
   let galleryReady = null;
   let galleryCheckAt = 0;
   let scanInFlight = false;
+  let organizeAttempts = 0;
 
   function rememberLastSource(value) {
     const raw = String(value || '').trim();
@@ -91,42 +92,110 @@
       : 'Analizează fără download';
   }
 
+  function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+
+  function ensureSourceIntelligence(body, input) {
+    let card = document.getElementById('ddgSourceIntelligenceV85124');
+    if (card) return card;
+    if (!body || !input) return null;
+
+    card = document.createElement('div');
+    card.id = 'ddgSourceIntelligenceV85124';
+    card.className = 'ddgSourceIntelligenceV85124';
+    card.innerHTML = `
+      <div class="sourceIntelHeadV85124">
+        <div><b>Asistent sursă</b><span>provider • istoric • folder • media</span></div>
+        <span class="sourcePill">fără rescanare HDD</span>
+      </div>
+      <div id="universalProviderState" class="sourceIntelProviderV85124"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div>
+      <div class="sourceIntelGridV85124">
+        <section class="sourceIntelBlockV85124">
+          <div class="sourceIntelLabelV85124">ISTORIC LINK</div>
+          <div id="ddgSourceHistorySlotV85124" class="sourceIntelSlotV85124"><span class="muted small">Apare imediat dacă sursa a mai fost verificată.</span></div>
+        </section>
+        <section class="sourceIntelBlockV85124">
+          <div class="sourceIntelLabelV85124">FOLDER RECOMANDAT</div>
+          <div id="ddgSourceFolderSlotV85124" class="sourceIntelSlotV85124"><span class="muted small">După scanare, DDG indică folderul local cel mai legat de sursă.</span></div>
+        </section>
+        <section class="sourceIntelBlockV85124">
+          <div class="sourceIntelLabelV85124">MEDIA</div>
+          <div id="ddgSourceMediaSlotV85124" class="sourceIntelSlotV85124">
+            <div id="ddgSourceMediaInfoV85124" class="muted small">Media Picker folosește rezultatele scanării curente.</div>
+            <div id="ddgSourceMediaActionsV85124" class="sourceIntelActionsV85124"></div>
+          </div>
+        </section>
+      </div>
+      <div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>Erome</span><span>MEGA</span><span>HTTP</span></div>`;
+
+    const firstRow = input.nextElementSibling;
+    if (firstRow) firstRow.insertAdjacentElement('afterend', card);
+    else body.appendChild(card);
+    return card;
+  }
+
+  function organizeSourceTools() {
+    const actions = document.getElementById('ddgSourceMediaActionsV85124');
+    const pickerButton = document.getElementById('ddgMediaPickerLaunchV8566');
+    if (actions && pickerButton && pickerButton.parentElement !== actions) {
+      actions.appendChild(pickerButton);
+      pickerButton.style.marginTop = '0';
+    }
+    if ((!actions || !pickerButton) && organizeAttempts < 24) {
+      organizeAttempts++;
+      setTimeout(organizeSourceTools, 250);
+    }
+  }
+
   function renderProviderState() {
     const input = document.getElementById('directUrl');
     const box = stateBox();
     if (!input || !box) return;
     const p = detectProvider(input.value);
+    const card = document.getElementById('ddgSourceIntelligenceV85124');
+    if (card) card.dataset.provider = p?.id || '';
     if (!p) {
       box.innerHTML = '<span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span>';
       return;
     }
     const needsGallery = p.adapter === 'gallery-dl';
-    const ready = !needsGallery ? '' : galleryReady === true ? '<span class="badge VERIFIED">MOTOR GATA</span>' : galleryReady === false ? '<span class="badge DIFFERENT">GALLERY-DL LIPSEȘTE</span>' : '<span class="badge POSSIBLE">VERIFIC MOTORUL</span>';
-    const action = needsGallery && galleryReady === false ? '<button class="btn" id="prepareGalleryDL" type="button">Instalează / actualizează gallery-dl</button>' : '';
-    box.innerHTML = `<div class="providerStateLine"><b>${escapeHTML(p.name)}</b><span class="sourcePill">${escapeHTML(p.note)}</span>${ready}</div><div class="muted small providerStateHint">Listarea și comparația folosesc metadata/URL-urile extrase fără a descărca în prealabil tot conținutul.</div>${action}`;
+    const ready = !needsGallery
+      ? ''
+      : galleryReady === true
+        ? '<span class="badge VERIFIED">MOTOR GATA</span>'
+        : galleryReady === false
+          ? '<span class="badge DIFFERENT">GALLERY-DL LIPSEȘTE</span>'
+          : '<span class="badge POSSIBLE">VERIFIC MOTORUL</span>';
+    const action = needsGallery && galleryReady === false
+      ? '<button class="btn" id="prepareGalleryDL" type="button">Instalează / actualizează gallery-dl</button>'
+      : '';
+    box.innerHTML = `<div class="providerStateLine"><b>${escapeHTML(p.name)}</b><span class="sourcePill">${escapeHTML(p.note)}</span>${ready}</div><div class="muted small providerStateHint">DDG listează și compară metadata/URL-urile extrase; nu descarcă întâi tot conținutul.</div>${action}`;
     document.getElementById('prepareGalleryDL')?.addEventListener('click', installGalleryDL);
-  }
-
-  function escapeHTML(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   }
 
   async function installGalleryDL() {
     const button = document.getElementById('prepareGalleryDL');
-    if (button) { button.disabled = true; button.textContent = 'Pregătesc gallery-dl…'; }
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Pregătesc gallery-dl…';
+    }
     try {
       await jsonFetch('/api/tools/manage', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({tool:'gallery-dl', action:'install'})
       });
-      if (typeof window.toast === 'function') window.toast('Instalarea/actualizarea gallery-dl a pornit');
+      window.toast?.('Instalarea/actualizarea gallery-dl a pornit');
       galleryReady = null;
       galleryCheckAt = 0;
       setTimeout(() => checkGalleryDL(true), 2500);
     } catch (err) {
-      if (typeof window.toast === 'function') window.toast(err.message);
-      if (button) { button.disabled = false; button.textContent = 'Reîncearcă gallery-dl'; }
+      window.toast?.(err.message);
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Reîncearcă gallery-dl';
+      }
     }
   }
 
@@ -137,7 +206,7 @@
     const select = document.getElementById('sourceAdapter');
     const raw = String(input?.value || '').trim();
     if (!raw) {
-      if (typeof window.toast === 'function') window.toast('Lipește un link');
+      window.toast?.('Lipește un link');
       return;
     }
 
@@ -153,6 +222,7 @@
     setScanBusy(true, provider);
     const top = document.getElementById('topStatus');
     if (top) top.textContent = provider ? `Analizez ${provider.name}…` : 'Analizez sursa…';
+    window.dispatchEvent(new CustomEvent('ddg:source-scan-start', {detail:{url:raw, provider:provider?.id || 'web'}}));
 
     try {
       let adapter = String(select?.value || 'auto').toLowerCase();
@@ -161,7 +231,7 @@
         const ready = await checkGalleryDL();
         if (ready === false) {
           renderProviderState();
-          if (typeof window.toast === 'function') window.toast('gallery-dl lipsește. Folosește butonul de instalare/actualizare de sub link.');
+          window.toast?.('gallery-dl lipsește. Folosește butonul de instalare/actualizare din Asistent sursă.');
           return;
         }
       }
@@ -176,13 +246,16 @@
         body:JSON.stringify(payload)
       });
       const used = provider?.name || data.adapter || adapter;
-      if (typeof window.toast === 'function') window.toast(`${used}: ${Number(data.items || 0).toLocaleString('ro-RO')} fișier(e) comparate`);
+      const items = Number(data.items || 0);
+      window.toast?.(`${used}: ${items.toLocaleString('ro-RO')} fișier(e) comparate`);
       if (top) top.textContent = `${used}: analiză terminată`;
+      window.dispatchEvent(new CustomEvent('ddg:source-scan-complete', {detail:{url:raw, provider:provider?.id || 'web', adapter, items}}));
       if (typeof window.goTab === 'function') window.goTab('results');
     } catch (err) {
       const message = String(err?.message || err || 'Eroare necunoscută');
-      if (typeof window.toast === 'function') window.toast(message);
+      window.toast?.(message);
       if (top) top.textContent = `Eroare sursă: ${message}`;
+      window.dispatchEvent(new CustomEvent('ddg:source-scan-error', {detail:{url:raw, provider:provider?.id || 'web', message}}));
     } finally {
       scanInFlight = false;
       setScanBusy(false, provider);
@@ -213,6 +286,28 @@
   function loadFeatureModules() {
     loadFeatureModule('ddgGenericMediaPickerScriptV85114', '/feature_generic_media_picker_v85114.js');
     loadFeatureModule('ddgSourceFolderHintScriptV85114', '/feature_source_folder_hint_v85114.js');
+    loadFeatureModule('ddgSourceHistoryScriptV85124', '/features/source_history_v85124.js');
+  }
+
+  function ensureStyles() {
+    if (document.getElementById('providerSourceStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'providerSourceStyles';
+    style.textContent = `
+      .ddgSourceIntelligenceV85124{margin-top:10px;border:1px solid #2c3c4e;background:#0b121a;border-radius:11px;overflow:hidden}
+      .sourceIntelHeadV85124{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #223141;background:#0d151e}
+      .sourceIntelHeadV85124>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sourceIntelHeadV85124>div>span{font-size:10px;color:#8298ae}
+      .sourceIntelProviderV85124{padding:10px 12px;border-bottom:1px solid #1d2a37}.providerStateLine{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.providerStateHint{margin-top:5px}.sourceIntelProviderV85124 .btn{margin-top:8px}
+      .sourceIntelGridV85124{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:1px;background:#223141}
+      .sourceIntelBlockV85124{background:#0b131c;padding:10px 11px;min-width:0}.sourceIntelLabelV85124{font-size:9px;font-weight:850;letter-spacing:.08em;color:#6f8ba6;margin-bottom:7px}
+      .sourceIntelSlotV85124{min-height:48px;min-width:0}.sourceIntelActionsV85124{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px}
+      .providerHostList{display:flex;gap:6px;flex-wrap:wrap;padding:8px 11px;border-top:1px solid #1d2a37;background:#0a1118}
+      .providerHostList span{font-size:9px;font-weight:750;color:#8fa6bc;border:1px solid #293b4d;border-radius:999px;padding:2px 6px;background:#0e1720}
+      .ddgSourceIntelligenceV85124 .ddgFolderHintV85114{margin:0;padding:0;border:0;background:transparent;border-radius:0}
+      .ddgSourceIntelligenceV85124 #ddgMediaPickerLaunchV8566{margin-top:0}
+      @media(max-width:980px){.sourceIntelGridV85124{grid-template-columns:1fr}.sourceIntelBlockV85124{border-bottom:1px solid #223141}.sourceIntelBlockV85124:last-child{border-bottom:0}}
+    `;
+    document.head.appendChild(style);
   }
 
   function installUI() {
@@ -224,39 +319,28 @@
     const head = section?.querySelector('.sectionHead h3');
     if (head) head.textContent = 'Sursă online — universal';
     const body = input.closest('.sectionBody');
-    if (body && !stateBox()) {
-      const firstRow = input.nextElementSibling;
-      const html = `<div id="universalProviderState" class="providerStateBox"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div><div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>Erome</span><span>MEGA</span><span>HTTP</span></div>`;
-      if (firstRow) firstRow.insertAdjacentHTML('afterend', html);
-      else body.insertAdjacentHTML('beforeend', html);
-    }
-    if (!document.getElementById('providerSourceStyles')) {
-      const style = document.createElement('style');
-      style.id = 'providerSourceStyles';
-      style.textContent = `
-        .providerStateBox{margin-top:10px;padding:10px 12px;border:1px solid #2c3c4e;background:#0d151e;border-radius:9px}
-        .providerStateLine{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.providerStateHint{margin-top:6px}
-        .providerStateBox .btn{margin-top:9px}.providerHostList{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-        .providerHostList span{font-size:10px;font-weight:750;color:#a9bed4;border:1px solid #304256;border-radius:999px;padding:3px 7px;background:#101923}
-      `;
-      document.head.appendChild(style);
-    }
 
+    ensureStyles();
+    ensureSourceIntelligence(body, input);
     bindUniversalScanButton(body);
-    input.addEventListener('input', renderProviderState);
-    input.addEventListener('paste', () => setTimeout(renderProviderState, 0));
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        universalScanV2();
-      }
-    });
 
-    // Compatibility for older UI code that still calls scanUniversal().
+    if (input.dataset.ddgProviderInputBound !== '1') {
+      input.dataset.ddgProviderInputBound = '1';
+      input.addEventListener('input', renderProviderState);
+      input.addEventListener('paste', () => setTimeout(renderProviderState, 0));
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          universalScanV2();
+        }
+      });
+    }
+
     window.scanUniversal = universalScanV2;
     renderProviderState();
     checkGalleryDL();
     loadFeatureModules();
+    organizeSourceTools();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installUI, {once:true});
