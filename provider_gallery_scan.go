@@ -26,6 +26,8 @@ func providerSourceLabelV86(raw string) string {
 	switch {
 	case h == "gofile.io" || strings.HasSuffix(h, ".gofile.io"):
 		return "GOFILE"
+	case h == "erome.com" || strings.HasSuffix(h, ".erome.com"):
+		return "EROME"
 	case hostHasPrefixLabelV86(h, "bunkr"):
 		return "BUNKR"
 	case hostHasPrefixLabelV86(h, "cyberdrop"):
@@ -305,9 +307,12 @@ func mergeGalleryProbeV86(item RemoteItem, probe RemoteItem) RemoteItem {
 
 func shouldEnrichGalleryHTTPV86(source string) bool {
 	switch strings.ToUpper(strings.TrimSpace(source)) {
-	case "GOFILE", "CYBERDROP":
-		// These providers already expose enough metadata for the initial compare;
-		// their transport details can stay lazy.
+	case "GOFILE", "CYBERDROP", "EROME":
+		// These providers already expose enough metadata for the initial compare.
+		// In particular, Erome must stay metadata-only here: probing every direct
+		// media URL after gallery-dl can add 25 seconds per slow CDN batch and make
+		// a completed album scan look frozen. Preview/download resolve transport
+		// lazily only for the item the user actually opens.
 		return false
 	case "BUNKR":
 		// Bunkr's album HTML changes frequently and gallery-dl can legitimately
