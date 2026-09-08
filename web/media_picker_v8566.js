@@ -10,6 +10,13 @@
   let query = '';
   let loading = false;
   let autoOpenAfterScan = false;
+  let pageIndex = 0;
+
+  // TEST118 memory guard: never create hundreds/thousands of live image/video
+  // elements at once. Chromium keeps decoder/network/buffer state for media
+  // elements even when the grid is replaced, which can exhaust RAM on large
+  // albums or repeated failed previews.
+  const CARD_PAGE_SIZE = 72;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[ch]));
 
@@ -48,6 +55,18 @@
     return ['MISSING','DIFFERENT','DIFF'].includes(status);
   }
 
+  function releaseGridMedia() {
+    const grid = document.getElementById('ddgMediaPickerGridV8566');
+    if (!grid) return;
+    grid.querySelectorAll('video,audio').forEach(media => {
+      try { media.pause(); } catch (_) {}
+      try { media.removeAttribute('src'); media.load(); } catch (_) {}
+    });
+    grid.querySelectorAll('img').forEach(img => {
+      try { img.removeAttribute('src'); } catch (_) {}
+    });
+  }
+
   function installUI() {
     if (!document.getElementById('ddgMediaPickerV8566Style')) {
       const style = document.createElement('style');
@@ -81,7 +100,7 @@
       document.body.insertAdjacentHTML('beforeend', `
         <div id="ddgMediaPickerV8566" class="hidden" role="dialog" aria-modal="true"><div class="shell">
           <div class="head"><div class="title" id="ddgMediaPickerTitleV8566">Media Picker</div><button class="btn" id="ddgMediaPickerRefreshV8566">↻ Reîncarcă</button><button class="btn" id="ddgMediaPickerCloseV8566">Închide</button></div>
-          <div class="tools"><input class="field search" id="ddgMediaPickerSearchV8566" placeholder="Caută nume / cale…"><button class="chip on" data-picker-filter="all">Toate</button><button class="chip" data-picker-filter="image">Imagini</button><button class="chip" data-picker-filter="video">Video</button><button class="chip" data-picker-filter="audio">Audio</button><span class="summary" id="ddgMediaPickerSummaryV8566">—</span></div>
+          <div class="tools"><input class="field search" id="ddgMediaPickerSearchV8566" placeholder="Caută nume / cale…"><button class="chip on" data-picker-filter="all">Toate</button><button class="chip" data-picker-filter="image">Imagini</button><button class="chip" data-picker-filter="video">Video</button><button class="chip" data-picker-filter="audio">Audio</button><button class="btn" id="ddgMediaPickerPrevV8566">‹</button><span id="ddgMediaPickerPageV8566" class="small muted">1/1</span><button class="btn" id="ddgMediaPickerNextV8566">›</button><span class="summary" id="ddgMediaPickerSummaryV8566">—</span></div>
           <div class="grid" id="ddgMediaPickerGridV8566"></div>
           <div class="foot"><span class="count" id="ddgMediaPickerCountV8566">0 selectate</span><button class="btn" id="ddgMediaPickerClearV8566">Nimic</button><button class="btn" id="ddgMediaPickerRecommendedV8566">Selectează recomandate DDG</button><button class="btn" id="ddgMediaPickerAllVisibleV8566">Selectează toate afișate</button><button class="btn" id="ddgMediaPickerSendSelectedV8566">Trimite selectate în JD</button><button class="btn primary" id="ddgMediaPickerSendAllV8566">Trimite TOATE în JD</button></div>
         </div></div>`);
@@ -89,11 +108,13 @@
       document.getElementById('ddgMediaPickerRefreshV8566')?.addEventListener('click', () => loadRows(true));
       document.getElementById('ddgMediaPickerClearV8566')?.addEventListener('click', () => { selected.clear(); render(); });
       document.getElementById('ddgMediaPickerRecommendedV8566')?.addEventListener('click', () => { for (const row of rows) if (isRecommended(row)) selected.add(Number(row.id)); render(); });
-      document.getElementById('ddgMediaPickerAllVisibleV8566')?.addEventListener('click', () => { for (const row of filteredRows()) selected.add(Number(row.id)); render(); });
+      document.getElementById('ddgMediaPickerAllVisibleV8566')?.addEventListener('click', () => { for (const row of visibleRows()) selected.add(Number(row.id)); render(); });
       document.getElementById('ddgMediaPickerSendSelectedV8566')?.addEventListener('click', () => sendIDs([...selected]));
       document.getElementById('ddgMediaPickerSendAllV8566')?.addEventListener('click', () => sendIDs(rows.map(r => Number(r.id))));
-      document.getElementById('ddgMediaPickerSearchV8566')?.addEventListener('input', event => { query = String(event.target.value || '').trim().toLowerCase(); render(); });
-      document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(button => button.addEventListener('click', () => { activeFilter = button.dataset.pickerFilter || 'all'; document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(x => x.classList.toggle('on', x === button)); render(); }));
+      document.getElementById('ddgMediaPickerPrevV8566')?.addEventListener('click', () => { if (pageIndex > 0) { pageIndex--; render(); } });
+      document.getElementById('ddgMediaPickerNextV8566')?.addEventListener('click', () => { const pages = Math.max(1, Math.ceil(filteredRows().length / CARD_PAGE_SIZE)); if (pageIndex + 1 < pages) { pageIndex++; render(); } });
+      document.getElementById('ddgMediaPickerSearchV8566')?.addEventListener('input', event => { query = String(event.target.value || '').trim().toLowerCase(); pageIndex = 0; render(); });
+      document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(button => button.addEventListener('click', () => { activeFilter = button.dataset.pickerFilter || 'all'; pageIndex = 0; document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(x => x.classList.toggle('on', x === button)); render(); }));
       document.getElementById('ddgMediaPickerV8566')?.addEventListener('click', event => { if (event.target?.id === 'ddgMediaPickerV8566') close(); });
     }
     installLaunchButton();
@@ -128,12 +149,14 @@
     if (loading) return;
     if (!force && rows.length) return render();
     loading = true;
+    releaseGridMedia();
     const grid = document.getElementById('ddgMediaPickerGridV8566');
     if (grid) grid.innerHTML = '<div class="previewLoading"><div class="spin"></div><b>Citesc rezultatele DDG curente…</b><span class="small">Fără rescanare HDD.</span></div>';
     try {
       rows = await fetchAllRows();
       const valid = new Set(rows.map(r => Number(r.id)));
       selected = new Set([...selected].filter(id => valid.has(id)));
+      pageIndex = 0;
       render();
     } catch (error) { if (grid) grid.innerHTML = `<div class="previewEmpty">${esc(error?.message || String(error))}</div>`; }
     finally { loading = false; }
@@ -147,11 +170,21 @@
     });
   }
 
+  function visibleRows() {
+    const shown = filteredRows();
+    const pages = Math.max(1, Math.ceil(shown.length / CARD_PAGE_SIZE));
+    if (pageIndex >= pages) pageIndex = pages - 1;
+    const start = pageIndex * CARD_PAGE_SIZE;
+    return shown.slice(start, start + CARD_PAGE_SIZE);
+  }
+
   function previewHTML(row) {
     const kind = mediaKind(row);
     const url = `/api/provider-preview/media?id=${encodeURIComponent(String(row.id))}`;
     if (kind === 'image') return `<img loading="lazy" decoding="async" src="${url}" alt="${esc(row?.remote?.name || '')}">`;
-    if (kind === 'video') return `<video muted controls preload="metadata" src="${url}"></video>`;
+    // preload=none is deliberate: creating a card must not open a network/media
+    // decoder for every video. Chromium starts it only when the user interacts.
+    if (kind === 'video') return `<video muted controls preload="none" src="${url}"></video>`;
     if (kind === 'audio') return '<div class="fallback">AUDIO<br><small>selectează pentru JD</small></div>';
     return '<div class="fallback">FIȘIER<br><small>fără preview</small></div>';
   }
@@ -160,18 +193,28 @@
     const grid = document.getElementById('ddgMediaPickerGridV8566');
     if (!grid || loading) return;
     const shown = filteredRows();
-    document.getElementById('ddgMediaPickerSummaryV8566').textContent = `${shown.length.toLocaleString('ro-RO')} afișate • ${rows.length.toLocaleString('ro-RO')} total`;
+    const pages = Math.max(1, Math.ceil(shown.length / CARD_PAGE_SIZE));
+    if (pageIndex >= pages) pageIndex = pages - 1;
+    const pageRows = visibleRows();
+    const start = shown.length ? pageIndex * CARD_PAGE_SIZE + 1 : 0;
+    const end = shown.length ? Math.min(shown.length, (pageIndex + 1) * CARD_PAGE_SIZE) : 0;
+    document.getElementById('ddgMediaPickerSummaryV8566').textContent = `${shown.length.toLocaleString('ro-RO')} rezultate • ${start}-${end} în memorie vizuală • ${rows.length.toLocaleString('ro-RO')} total`;
+    document.getElementById('ddgMediaPickerPageV8566').textContent = `${pageIndex + 1}/${pages}`;
+    document.getElementById('ddgMediaPickerPrevV8566').disabled = pageIndex <= 0;
+    document.getElementById('ddgMediaPickerNextV8566').disabled = pageIndex + 1 >= pages;
     document.getElementById('ddgMediaPickerCountV8566').textContent = `${selected.size.toLocaleString('ro-RO')} selectate`;
     document.getElementById('ddgMediaPickerSendSelectedV8566').disabled = selected.size === 0;
     document.getElementById('ddgMediaPickerSendAllV8566').disabled = rows.length === 0;
-    document.getElementById('ddgMediaPickerAllVisibleV8566').disabled = shown.length === 0;
+    document.getElementById('ddgMediaPickerAllVisibleV8566').disabled = pageRows.length === 0;
+    releaseGridMedia();
     if (!shown.length) { grid.innerHTML = '<div class="previewEmpty">Nu există rezultate pentru filtrul curent.</div>'; return; }
-    grid.innerHTML = shown.map(row => {
+    grid.innerHTML = pageRows.map(row => {
       const id = Number(row.id), kind = mediaKind(row), on = selected.has(id);
       const name = row?.remote?.name || row?.remote?.path || `#${id}`;
       const status = String(row?.status || '').toUpperCase();
       return `<div class="mediaCard ${on?'on':''}" data-picker-id="${id}" title="${esc(row?.remote?.path || '')}"><div class="thumb">${previewHTML(row)}<span class="type">${esc(kind.toUpperCase())}</span><span class="pick">${on?'✓':''}</span></div><div class="meta"><div class="name">${esc(name)}</div><div class="sub">${esc(status)}${row?.remote?.size > 0 ? ` • ${window.fmt ? window.fmt(row.remote.size) : row.remote.size}` : ''}</div></div></div>`;
     }).join('');
+    grid.scrollTop = 0;
     grid.querySelectorAll('.mediaCard').forEach(card => card.addEventListener('click', event => {
       if (event.target?.closest?.('video,audio,button,input')) return;
       const id = Number(card.dataset.pickerId); if (!Number.isFinite(id)) return;
@@ -190,7 +233,8 @@
   async function open(raw = '') {
     installUI();
     sourceURL = String(raw || document.getElementById('directUrl')?.value || '').trim();
-    rows = []; selected.clear(); activeFilter = 'all'; query = '';
+    releaseGridMedia();
+    rows = []; selected.clear(); activeFilter = 'all'; query = ''; pageIndex = 0;
     const search = document.getElementById('ddgMediaPickerSearchV8566'); if (search) search.value = '';
     document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(x => x.classList.toggle('on', x.dataset.pickerFilter === 'all'));
     document.getElementById('ddgMediaPickerTitleV8566').textContent = `Media Picker — ${providerName(sourceURL)}`;
@@ -198,7 +242,12 @@
     await loadRows(true);
   }
 
-  function close() { document.getElementById('ddgMediaPickerV8566')?.classList.add('hidden'); }
+  function close() {
+    releaseGridMedia();
+    const grid = document.getElementById('ddgMediaPickerGridV8566');
+    if (grid) grid.innerHTML = '';
+    document.getElementById('ddgMediaPickerV8566')?.classList.add('hidden');
+  }
 
   function currentOnlineHost() {
     const raw = String(document.getElementById('directUrl')?.value || '').trim();
@@ -231,7 +280,7 @@
       const raw = String(document.getElementById('directUrl')?.value || '').trim();
       setTimeout(() => open(raw), 60);
     });
-    observer.observe(top, {childList:true, characterData:true, subtree:true});
+    observer.observe(top, {childList:true, characterData:true,subtree:true});
   }
 
   function boot() {

@@ -72,17 +72,17 @@ func TestSettleMegaOnShutdownClearsWarmPreview(t *testing.T) {
 
 func TestUIWatchdogDoesNotStopOnPagehideWhileWindowExistsV85112(t *testing.T) {
 	now := time.Now()
-	last := now.Add(-20 * time.Second).UnixNano()
-	hint := now.Add(-15 * time.Second).UnixNano()
-	if shouldStopUIWatchdogV85112(now, last, hint, true, 100) {
+	last := now.Add(-50 * time.Second).UnixNano()
+	hint := now.Add(-45 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, true, 1000) {
 		t.Fatal("pagehide must never stop DDG while the native app window still exists")
 	}
 }
 
 func TestUIWatchdogRequiresSustainedWindowAbsenceV85112(t *testing.T) {
 	now := time.Now()
-	last := now.Add(-20 * time.Second).UnixNano()
-	hint := now.Add(-15 * time.Second).UnixNano()
+	last := now.Add(-50 * time.Second).UnixNano()
+	hint := now.Add(-45 * time.Second).UnixNano()
 	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112-1) {
 		t.Fatal("a transient missing-window observation must not stop DDG")
 	}
@@ -91,9 +91,18 @@ func TestUIWatchdogRequiresSustainedWindowAbsenceV85112(t *testing.T) {
 	}
 }
 
+func TestUIWatchdogFreshExitHintNeedsAgeGuardV85119(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-25 * time.Second).UnixNano()
+	hint := now.Add(-20 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a recent Edge pagehide must not kill the backend even if native-window enumeration is temporarily empty")
+	}
+}
+
 func TestUIWatchdogFreshHeartbeatCancelsPagehideV85112(t *testing.T) {
 	now := time.Now()
-	hint := now.Add(-20 * time.Second).UnixNano()
+	hint := now.Add(-50 * time.Second).UnixNano()
 	last := now.Add(-2 * time.Second).UnixNano()
 	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
 		t.Fatal("a heartbeat newer than pagehide proves the UI recovered/reloaded")
@@ -116,11 +125,11 @@ func TestUIWatchdogDoesNotKillIdleBackendWhenWindowEnumerationTemporarilyFailsV8
 	}
 }
 
-func TestUIWatchdogStillStopsAfterExplicitExitHintV85115(t *testing.T) {
+func TestUIWatchdogStillStopsAfterExplicitExitHintV85119(t *testing.T) {
 	now := time.Now()
-	hint := now.Add(-30 * time.Second).UnixNano()
-	last := now.Add(-31 * time.Second).UnixNano()
+	hint := now.Add(-45 * time.Second).UnixNano()
+	last := now.Add(-46 * time.Second).UnixNano()
 	if !shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
-		t.Fatal("explicit exit hint plus sustained native-window absence should stop DDG")
+		t.Fatal("explicit old exit hint plus sustained native-window absence should stop DDG")
 	}
 }
