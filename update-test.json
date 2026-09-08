@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.116",
+  "version": "8.5.49-test.117",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "9ba9bc85188f8936c3546c303ddbee477199c6820eba72337b2b7937a2ef5387",
-  "notes": "TEST: TEST115: keep backend alive during long idle/minimized sessions",
-  "publishedAt": "2026-09-08T10:48:07.2416005Z",
+  "sha256": "0eed1c019d4df18feec3d84283d519968346d749aa2b7b85e120022f1ba41062",
+  "notes": "TEST: TEST117: harden backend lifetime after idle/minimize",
+  "publishedAt": "2026-09-08T13:50:35.2079804Z",
   "channel": "test"
 }
