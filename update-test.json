@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.127",
+  "version": "8.5.49-test.128",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "41f7c69bb4118bd1f3007b3fc95ff6bf4f5a3157beb6a2116b2e21226f0cd6e1",
-  "notes": "TEST: TEST127: advanced generic Media Picker discovery",
-  "publishedAt": "2026-09-08T19:54:29.4895809Z",
+  "sha256": "47a86667d2b96dbec117817e734d62561b46cb29550f937aa78a7a635c969e7d",
+  "notes": "TEST: Merge pull request #85 from AdyTZa619/feature/test128-source-workflow-v2",
+  "publishedAt": "2026-09-08T21:53:25.7788690Z",
   "channel": "test"
 }
