@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.121",
+  "version": "8.5.49-test.123",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "11606dc2f3dcd6a4bd0c09d06db92d4c2ae4b7ac99f7e5d16af1f350bbc7fb3a",
-  "notes": "TEST: Merge pull request #78 from AdyTZa619/fix/test120-recovery-helper-test-guard",
-  "publishedAt": "2026-09-08T15:06:04.6440067Z",
+  "sha256": "ef154d0b5dc860be9fb87f39595060645704ff1435101d2b8a1e6da16731d5cf",
+  "notes": "TEST: Finish TEST122 formatting fix",
+  "publishedAt": "2026-09-08T16:27:30.9036823Z",
   "channel": "test"
 }
