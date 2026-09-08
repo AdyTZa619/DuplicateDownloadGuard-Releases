@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// This guard is intentionally file-level as well as runtime-level: dedicated
+// providers must never be routed through the generic Media Picker discovery.
 func TestGenericMediaAdvancedUIIsGenericOnlyV85127(t *testing.T) {
 	bridge, err := os.ReadFile("web/feature_generic_media_picker_v85114.js")
 	if err != nil {
