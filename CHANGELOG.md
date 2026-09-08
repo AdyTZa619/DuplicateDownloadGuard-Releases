@@ -2,6 +2,10 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.48] — validare CI internă
+
+- Secțiune tehnică folosită numai pe ramura de validare TEST127 pentru a permite workflow-ului legacy `DDG validation` să ajungă la gofmt, verificarea JavaScript, testele Go, vet și build-ul Windows x64. Nu face parte din PR-ul funcțional TEST127.
+
 ## [8.5.46] — 2026-09-06
 
 ### Updater — Stable + TEST separat
