@@ -17,6 +17,7 @@ var uiGetWindowTextLengthW = uiUser32.NewProc("GetWindowTextLengthW")
 var uiGetWindowTextW = uiUser32.NewProc("GetWindowTextW")
 var uiPostMessageW = uiUser32.NewProc("PostMessageW")
 var uiIsWindow = uiUser32.NewProc("IsWindow")
+var uiShowWindow = uiUser32.NewProc("ShowWindow")
 
 var ddgPresenceWindowV85117 struct {
 	mu   sync.Mutex
@@ -101,6 +102,39 @@ func closeDDGAppWindowsNative() int {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+	return len(windows)
+}
+
+// closeDDGPresenceWindowsForHandoffNative is deliberately used only when
+// apply_update.json proves that an updater handoff is in progress. The old Edge
+// --app window may have a decorated title and its localhost backend may already
+// be gone, so the strict normal-start matcher is not sufficient here. Close all
+// tolerant DDG matches before the new build creates its own window. If Edge
+// ignores WM_CLOSE, hide the stale shell so users never land on an OFFLINE old
+// UI while the healthy updated instance starts.
+func closeDDGPresenceWindowsForHandoffNative() int {
+	windows := matchingDDGPresenceWindowsV85117()
+	if len(windows) == 0 {
+		return 0
+	}
+	for _, hwnd := range windows {
+		_, _, _ = uiPostMessageW.Call(hwnd, wmClose, 0, 0)
+	}
+
+	deadline := time.Now().Add(2500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(matchingDDGPresenceWindowsV85117()) == 0 {
+			return len(windows)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// SW_HIDE is a bounded last resort for the browser shell only; do not kill
+	// Edge because it can host unrelated normal browser windows/processes.
+	const swHide = 0
+	for _, hwnd := range matchingDDGPresenceWindowsV85117() {
+		_, _, _ = uiShowWindow.Call(hwnd, swHide)
 	}
 	return len(windows)
 }

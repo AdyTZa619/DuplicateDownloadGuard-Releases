@@ -4,6 +4,8 @@ package main
 
 func closeDDGAppWindowsNative() int { return 0 }
 
+func closeDDGPresenceWindowsForHandoffNative() int { return 0 }
+
 func claimDDGSingleInstanceNative() bool { return true }
 
 func activateExistingDDGWindowNative() {}

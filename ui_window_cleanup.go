@@ -11,9 +11,9 @@ const (
 	updateHandoffRequestName = "apply_update.json"
 )
 
-// isDDGAppWindowTitle is intentionally strict and is used only when DDG wants
-// to close an old dedicated app window during startup/update handoff. We must
-// never close a normal browser window just because one tab contains DDG.
+// isDDGAppWindowTitle is intentionally strict and is used only during ordinary
+// startup cleanup. We must never close a normal browser window just because one
+// tab happens to contain DDG text.
 func isDDGAppWindowTitle(title string) bool {
 	return strings.EqualFold(strings.TrimSpace(title), ddgAppWindowTitle)
 }
@@ -45,28 +45,35 @@ func postUpdateHandoffPending() bool {
 	return updateHandoffPendingAtRoot(executableDir())
 }
 
-// Normal DDG launches are single-instance. TEST125 also performs one migration
-// cleanup for older builds: those builds could have their Edge window closed
-// while their localhost backend stayed alive, so repeated launches accumulated
-// several DuplicateDownloadGuard_PRO processes. Updater/recovery helper modes
-// remain independent and are never treated as application instances.
+// Normal DDG launches are single-instance per portable installation. During an
+// updater handoff, the previous backend has intentionally exited but its Edge
+// --app shell can survive and display a stale OFFLINE UI. TEST126 detects the
+// handoff marker and closes that tolerant DDG window before the new UI is
+// created. Updater/recovery helper modes remain independent application modes.
 func init() {
 	if runningNativeUpdaterMode(os.Args) {
 		return
 	}
 
-	// Once a TEST125+ instance owns the mutex, a second launch simply restores
-	// the existing DDG window and exits. It must not close or restart the healthy
-	// instance.
+	// Claim the per-install mutex first. A second launch must only restore the
+	// already-running healthy DDG instance and must never perform cleanup around
+	// it. TEST126's mutex is path-scoped, so an old TEST125 global mutex cannot
+	// block a successful update handoff.
 	if !claimDDGSingleInstanceNative() {
 		activateExistingDDGWindowNative()
 		os.Exit(0)
 	}
 
-	// Migration path for pre-TEST125 instances, which do not own the mutex.
-	// Close any stale Edge --app window and then terminate only backend processes
-	// running the exact same executable path. This removes the orphan processes
-	// visible in Task Manager without touching DDG copies in other folders.
-	closeDDGAppWindowsNative()
+	if postUpdateHandoffPending() {
+		// apply_update.json proves this is the freshly replaced executable. The
+		// old Edge shell can carry a decorated title, so use the tolerant handoff
+		// matcher here. This is intentionally not used on ordinary launches.
+		closeDDGPresenceWindowsForHandoffNative()
+	} else {
+		closeDDGAppWindowsNative()
+	}
+
+	// Migration/recovery path for pre-single-instance backends. Kill only stale
+	// DDG processes whose full executable path is exactly this installation.
 	terminateOtherDDGProcessesSameImageNative()
 }
