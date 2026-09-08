@@ -9,9 +9,9 @@ import (
 
 func TestSourceFolderNormalizeV85128(t *testing.T) {
 	cases := map[string]string{
-		`H:/trans/Ana/`:          `H:\trans\Ana`,
+		`H:/trans/Ana/`:       `H:\trans\Ana`,
 		`C:\Downloads\Models`: `C:\Downloads\Models`,
-		`\\NAS\Media\Ana\`:  `\\NAS\Media\Ana`,
+		`\\NAS\Media\Ana\`:    `\\NAS\Media\Ana`,
 	}
 	for raw, want := range cases {
 		got, err := normalizeSourceFolderV85128(raw)

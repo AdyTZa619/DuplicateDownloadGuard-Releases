@@ -32,12 +32,12 @@ type sourceFolderObservationV85128 struct {
 }
 
 type sourceFolderProfileV85128 struct {
-	URL          string                            `json:"url"`
-	Key          string                            `json:"key"`
-	Host         string                            `json:"host"`
-	Family       string                            `json:"family"`
-	LastAt       int64                             `json:"lastAt"`
-	Observations []sourceFolderObservationV85128   `json:"observations"`
+	URL          string                          `json:"url"`
+	Key          string                          `json:"key"`
+	Host         string                          `json:"host"`
+	Family       string                          `json:"family"`
+	LastAt       int64                           `json:"lastAt"`
+	Observations []sourceFolderObservationV85128 `json:"observations"`
 }
 
 type sourceFolderLearningStoreV85128 struct {
