@@ -1,11 +1,11 @@
-// TEST v8.5.114 — generic HTTP Media Picker bridge.
-// Isolated feature: it does not override DDG preview, MEGA, JDownloader or selection functions.
+// TEST124 — generic HTTP Media Picker bridge integrated into Source Intelligence.
+// Uses explicit source-scan events instead of watching status text mutations.
 (() => {
   'use strict';
 
-  const ID = 'ddgGenericMediaPickerV85114';
   let pendingURL = '';
   let openSeq = 0;
+  let layoutAttempts = 0;
 
   function parseURL(raw) {
     try {
@@ -17,52 +17,75 @@
     }
   }
 
-  function isGenericHTTP(raw) {
+  function providerKind(raw) {
     const u = parseURL(raw);
-    if (!u || !/^https?:$/i.test(u.protocol)) return false;
+    if (!u || !/^https?:$/i.test(u.protocol)) return 'none';
     const h = u.hostname.toLowerCase();
-    if (/^(?:www\.)?mega\.(?:nz|co\.nz)$/i.test(h)) return false;
-    if (/(^|\.)gofile\.io$/i.test(h)) return false;
-    if (/(^|\.)bunkr[a-z0-9-]*\.[a-z]{2,}$/i.test(h) || /(^|\.)bunkrr\.[a-z]{2,}$/i.test(h)) return false;
-    if (/(^|\.)cyberdrop\.[a-z]{2,}$/i.test(h)) return false;
-    if (/(^|\.)erome\.com$/i.test(h)) return false;
-    return true;
+    if (/^(?:www\.)?mega\.(?:nz|co\.nz)$/i.test(h)) return 'mega';
+    if (/(^|\.)gofile\.io$/i.test(h)) return 'gofile';
+    if (/(^|\.)bunkr[a-z0-9-]*\.[a-z]{2,}$/i.test(h) || /(^|\.)bunkrr\.[a-z]{2,}$/i.test(h)) return 'bunkr';
+    if (/(^|\.)cyberdrop\.[a-z]{2,}$/i.test(h)) return 'cyberdrop';
+    if (/(^|\.)erome\.com$/i.test(h)) return 'erome';
+    return 'web';
+  }
+
+  function isGenericHTTP(raw) {
+    return providerKind(raw) === 'web';
   }
 
   function currentURL() {
     return String(document.getElementById('directUrl')?.value || '').trim();
   }
 
-  function ensureBadge() {
-    const state = document.getElementById('universalProviderState');
-    if (!state?.parentElement) return null;
-    let box = document.getElementById(ID);
-    if (!box) {
-      box = document.createElement('div');
-      box.id = ID;
-      box.className = 'muted small';
-      box.style.cssText = 'margin-top:7px;padding:7px 9px;border:1px dashed #304256;border-radius:8px;background:#0b121a;display:none';
-      state.insertAdjacentElement('afterend', box);
-    }
-    return box;
+  function mediaInfoBox() {
+    return document.getElementById('ddgSourceMediaInfoV85124');
   }
 
-  function renderBadge() {
-    const box = ensureBadge();
+  function settleLayout() {
+    const actions = document.getElementById('ddgSourceMediaActionsV85124');
+    const pickerButton = document.getElementById('ddgMediaPickerLaunchV8566');
+    if (actions && pickerButton && pickerButton.parentElement !== actions) {
+      actions.appendChild(pickerButton);
+      pickerButton.style.marginTop = '0';
+    }
+
+    const folderSlot = document.getElementById('ddgSourceFolderSlotV85124');
+    const folderPanel = document.getElementById('ddgSourceFolderHintV85114');
+    if (folderSlot && folderPanel && folderPanel.parentElement !== folderSlot) {
+      folderSlot.replaceChildren(folderPanel);
+    }
+
+    if ((!pickerButton || !folderPanel) && layoutAttempts < 32) {
+      layoutAttempts++;
+      setTimeout(settleLayout, 250);
+    }
+  }
+
+  function renderInfo() {
+    const box = mediaInfoBox();
     if (!box) return;
     const raw = currentURL();
-    if (!isGenericHTTP(raw)) {
-      box.style.display = 'none';
+    const kind = providerKind(raw);
+    const u = parseURL(raw);
+    if (kind === 'none') {
+      box.innerHTML = 'Media Picker folosește rezultatele scanării curente, fără rescanare HDD.';
       return;
     }
-    const u = parseURL(raw);
-    box.style.display = '';
-    box.innerHTML = `<b>Media Picker generic</b> • ${String(u?.hostname || 'WEB')} • după scanare deschid automat fișierele detectate de HTTP → yt-dlp → gallery-dl.`;
+    if (kind === 'web') {
+      box.innerHTML = `<b>${String(u?.hostname || 'WEB')}</b> • extracție generică HTTP → yt-dlp → gallery-dl. După analiză deschid automat Media Picker.`;
+      return;
+    }
+    if (kind === 'mega') {
+      box.innerHTML = '<b>MEGA</b> folosește preview-ul dedicat. Media Picker rămâne disponibil pentru rezultatele curente.';
+      return;
+    }
+    const names = {gofile:'GoFile', bunkr:'Bunkr', cyberdrop:'Cyberdrop', erome:'Erome'};
+    box.innerHTML = `<b>${names[kind] || 'Provider'}</b> • Media Picker folosește rezultatele extrase de provider. Îl poți deschide după scanare.`;
   }
 
   function arm(raw) {
     pendingURL = isGenericHTTP(raw) ? String(raw || '').trim() : '';
-    if (pendingURL) renderBadge();
+    renderInfo();
   }
 
   async function openPickerWhenReady(raw) {
@@ -80,46 +103,33 @@
     }
   }
 
-  function watchStatus() {
-    const top = document.getElementById('topStatus');
-    if (!top || top.dataset.ddgGenericMediaPickerWatchV85114 === '1') return;
-    top.dataset.ddgGenericMediaPickerWatchV85114 = '1';
-    const observer = new MutationObserver(() => {
-      const text = String(top.textContent || '').toLowerCase();
-      if (text.includes('eroare')) {
-        pendingURL = '';
-        return;
-      }
-      if (!pendingURL || !text.includes('analiză terminată')) return;
-      const raw = pendingURL;
-      setTimeout(() => openPickerWhenReady(raw), 80);
-    });
-    observer.observe(top, {childList:true, characterData:true, subtree:true});
-  }
-
   function bind() {
     const input = document.getElementById('directUrl');
-    if (input && input.dataset.ddgGenericMediaPickerV85114 !== '1') {
-      input.dataset.ddgGenericMediaPickerV85114 = '1';
-      input.addEventListener('input', renderBadge);
-      input.addEventListener('paste', () => setTimeout(renderBadge, 0));
-      input.addEventListener('keydown', event => {
-        if (event.key === 'Enter') arm(input.value);
-      }, true);
+    if (input && input.dataset.ddgGenericMediaPickerV85124 !== '1') {
+      input.dataset.ddgGenericMediaPickerV85124 = '1';
+      input.addEventListener('input', renderInfo);
+      input.addEventListener('paste', () => setTimeout(renderInfo, 0));
     }
 
-    document.addEventListener('click', event => {
-      const button = event.target?.closest?.('#universalScanButton, button[onclick="scanUniversal()"]');
-      if (!button) return;
-      arm(currentURL());
-    }, true);
+    if (document.documentElement.dataset.ddgGenericMediaEventsV85124 !== '1') {
+      document.documentElement.dataset.ddgGenericMediaEventsV85124 = '1';
+      window.addEventListener('ddg:source-scan-start', event => arm(event.detail?.url || currentURL()));
+      window.addEventListener('ddg:source-scan-complete', event => {
+        const raw = String(event.detail?.url || '').trim();
+        settleLayout();
+        window.ddgSourceFolderHintV85114?.refresh?.();
+        if (!pendingURL || pendingURL !== raw || !isGenericHTTP(raw)) return;
+        setTimeout(() => openPickerWhenReady(raw), 80);
+      });
+      window.addEventListener('ddg:source-scan-error', () => { pendingURL = ''; });
+    }
 
-    renderBadge();
-    watchStatus();
+    renderInfo();
+    settleLayout();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
   else bind();
   setTimeout(bind, 500);
-  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, arm, renderBadge};
+  window.ddgGenericMediaPickerV85114 = {isGenericHTTP, arm, renderBadge:renderInfo, settleLayout};
 })();
