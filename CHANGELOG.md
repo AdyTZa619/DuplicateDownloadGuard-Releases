@@ -2,6 +2,9 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [8.5.48] — validare temporară TEST125
+- Secțiune temporară pentru rularea completă a pipeline-ului de validare curent.
+
 ## [8.5.46] — 2026-09-06
 
 ### Updater — Stable + TEST separat
