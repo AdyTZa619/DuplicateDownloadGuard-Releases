@@ -1,0 +1,29 @@
+name: TEST128 gofmt once
+
+on:
+  push:
+    branches: ['feature/test128-source-workflow-v2']
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: gofmt TEST128
+        run: |
+          gofmt -w feature_source_folder_learning_v85128.go source_workflow_v85128_test.go
+          if git diff --quiet; then
+            echo "Already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feature_source_folder_learning_v85128.go source_workflow_v85128_test.go
+          git commit -m "TEST128: apply gofmt"
+          git push
