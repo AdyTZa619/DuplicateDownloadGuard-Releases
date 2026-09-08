@@ -7,6 +7,7 @@
     {id:'gofile', name:'GoFile', adapter:'gallery-dl', hosts:[/(^|\.)gofile\.io$/i], note:'gallery-dl • foldere recursive'},
     {id:'bunkr', name:'Bunkr', adapter:'gallery-dl', hosts:[/(^|\.)bunkr[a-z0-9-]*\.[a-z]{2,}$/i, /(^|\.)bunkrr\.[a-z]{2,}$/i], note:'gallery-dl • albume/media'},
     {id:'cyberdrop', name:'Cyberdrop', adapter:'gallery-dl', hosts:[/(^|\.)cyberdrop\.[a-z]{2,}$/i], note:'gallery-dl • albume/media'},
+    {id:'erome', name:'Erome', adapter:'gallery-dl', hosts:[/(^|\.)erome\.com$/i], note:'gallery-dl • albume/media'},
     {id:'pixeldrain', name:'Pixeldrain', adapter:'auto', hosts:[/(^|\.)pixeldrain\.com$/i], note:'detecție automată'},
     {id:'mediafire', name:'MediaFire', adapter:'auto', hosts:[/(^|\.)mediafire\.com$/i], note:'detecție automată'}
   ];
@@ -166,10 +167,13 @@
       }
 
       const mode = document.getElementById('mode')?.value || 'balanced';
-      const data = await jsonFetch('/api/source/scan', {
+      const genericWeb = provider?.id === 'web';
+      const endpoint = genericWeb ? '/api/source/batch' : '/api/source/scan';
+      const payload = genericWeb ? {urls:[raw], mode, adapter} : {url:raw, mode, adapter};
+      const data = await jsonFetch(endpoint, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({url:raw, mode, adapter})
+        body:JSON.stringify(payload)
       });
       const used = provider?.name || data.adapter || adapter;
       if (typeof window.toast === 'function') window.toast(`${used}: ${Number(data.items || 0).toLocaleString('ro-RO')} fișier(e) comparate`);
@@ -197,18 +201,32 @@
     button.addEventListener('click', universalScanV2);
   }
 
+  function loadFeatureModule(id, src) {
+    if (document.getElementById(id)) return;
+    const script = document.createElement('script');
+    script.id = id;
+    script.defer = true;
+    script.src = src;
+    document.head.appendChild(script);
+  }
+
+  function loadFeatureModules() {
+    loadFeatureModule('ddgGenericMediaPickerScriptV85114', '/feature_generic_media_picker_v85114.js');
+    loadFeatureModule('ddgSourceFolderHintScriptV85114', '/feature_source_folder_hint_v85114.js');
+  }
+
   function installUI() {
     const input = document.getElementById('directUrl');
     if (!input) return;
     restoreLastSource(input);
-    input.placeholder = 'GoFile, Bunkr, Cyberdrop, MEGA, link direct, galerie sau pagină video…';
+    input.placeholder = 'GoFile, Bunkr, Cyberdrop, Erome, MEGA, link direct, galerie sau pagină video…';
     const section = input.closest('.section');
     const head = section?.querySelector('.sectionHead h3');
     if (head) head.textContent = 'Sursă online — universal';
     const body = input.closest('.sectionBody');
     if (body && !stateBox()) {
       const firstRow = input.nextElementSibling;
-      const html = `<div id="universalProviderState" class="providerStateBox"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div><div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>MEGA</span><span>HTTP</span></div>`;
+      const html = `<div id="universalProviderState" class="providerStateBox"><span class="muted">Lipește un link. DDG va alege automat motorul potrivit.</span></div><div class="providerHostList"><span>GoFile</span><span>Bunkr</span><span>Cyberdrop</span><span>Erome</span><span>MEGA</span><span>HTTP</span></div>`;
       if (firstRow) firstRow.insertAdjacentHTML('afterend', html);
       else body.insertAdjacentHTML('beforeend', html);
     }
@@ -238,6 +256,7 @@
     window.scanUniversal = universalScanV2;
     renderProviderState();
     checkGalleryDL();
+    loadFeatureModules();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installUI, {once:true});
