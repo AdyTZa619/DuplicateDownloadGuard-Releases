@@ -6,6 +6,7 @@
   const WATCHDOG_MS = 1000;
   const PROBE_AFTER_MS = 8000;
   const RETRY_AFTER_MS = 12000;
+  const PROBE_TIMEOUT_MS = 12000;
 
   function currentSource() {
     try {
@@ -51,6 +52,7 @@
         rangeSupported: null,
         probeStatus: 0,
         probeLatencyMs: 0,
+        probeTimedOut: false,
         retryDone: false,
         probeMessage: ''
       };
@@ -136,6 +138,7 @@
     state.rangeSupported = null;
     state.probeStatus = 0;
     state.probeLatencyMs = 0;
+    state.probeTimedOut = false;
     state.probeMessage = '';
     state.retryDone = false;
   }
@@ -186,6 +189,11 @@
     setStatus(media, 'probing', 'BUNKR • verific dacă serverul suportă streaming Range…');
     const controller = new AbortController();
     const started = performance.now();
+    let timedOut = false;
+    const timeoutID = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, PROBE_TIMEOUT_MS);
     try {
       const response = await fetch(src, {
         method: 'GET',
@@ -210,10 +218,17 @@
         state.probeMessage = `BUNKR • Range OK • CDN răspunde în ${(state.probeLatencyMs / 1000).toFixed(1)}s; verific playerul/containerul.`;
       }
     } catch (error) {
-      if (error?.name !== 'AbortError') {
+      state.probeLatencyMs = Math.round(performance.now() - started);
+      if (timedOut) {
+        state.probeTimedOut = true;
+        state.rangeSupported = false;
+        state.probeMessage = `BUNKR • CDN-ul nu a răspuns la testul Range în ${Math.round(PROBE_TIMEOUT_MS / 1000)}s. Oprirea testului previne blocarea preview-ului.`;
+        setStatus(media, 'problem', state.probeMessage);
+      } else if (error?.name !== 'AbortError') {
         state.probeMessage = `BUNKR • testul de streaming a eșuat: ${error?.message || String(error)}`;
       }
     } finally {
+      clearTimeout(timeoutID);
       state.probeDone = true;
       state.probeStarted = false;
     }
@@ -266,7 +281,7 @@
     if (age >= RETRY_AFTER_MS && idle >= RETRY_AFTER_MS && state.probeDone && maybeRetry(media)) return;
 
     if (state.probeDone && idle >= RETRY_AFTER_MS && ahead < 0.1) {
-      if (state.probeStatus >= 400 || state.rangeSupported === false) {
+      if (state.probeTimedOut || state.probeStatus >= 400 || state.rangeSupported === false) {
         setStatus(media, 'problem', state.probeMessage);
       } else if (media.readyState === HTMLMediaElement.HAVE_NOTHING) {
         setStatus(media, 'slow', `${state.probeMessage} Metadata video încă nu a sosit după ${Math.round(age / 1000)}s.`);
