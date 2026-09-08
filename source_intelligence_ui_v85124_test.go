@@ -46,9 +46,16 @@ func TestGenericMediaBridgeUsesExplicitScanEventsV85124(t *testing.T) {
 
 func TestSourceHistoryTargetsUnifiedSlotV85124(t *testing.T) {
 	js := mustReadSourceIntelligenceFileV85124(t, "web/features/source_history_v85124.js")
-	for _, token := range []string{"ddgSourceHistorySlotV85124", "source_history.json", "JDownloader"} {
+	for _, token := range []string{"ddgSourceHistorySlotV85124", "ddg-source-history-v1", "JDownloader"} {
 		if !strings.Contains(js, token) {
 			t.Fatalf("source history UI missing %q", token)
+		}
+	}
+
+	backend := mustReadSourceIntelligenceFileV85124(t, "feature_source_history_store_v85124.go")
+	for _, token := range []string{"source_history.json", "canonicalSourceURLV85124"} {
+		if !strings.Contains(backend, token) {
+			t.Fatalf("source history backend missing %q", token)
 		}
 	}
 }
