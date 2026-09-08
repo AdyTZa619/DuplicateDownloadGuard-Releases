@@ -75,6 +75,7 @@ func shouldStopNativeCloseV85122(now time.Time, lastNS, hintNS int64, windowPres
 //  1. fast, high-confidence graceful close when the exact HWND that DDG had
 //     latched is destroyed and no replacement DDG window exists;
 //  2. the old conservative 90-second fallback for uncertain Edge states.
+//
 // This makes X close DDG promptly without reintroducing the OFFLINE regression
 // caused by renderer reloads/minimize/sleep.
 func startUIWatchdog(stop chan<- struct{}) {
