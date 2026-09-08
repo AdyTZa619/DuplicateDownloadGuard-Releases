@@ -17,7 +17,7 @@
   let knownRevision = 0;
   let revisionReady = false;
   let inputTimer = 0;
-  let requestSeq = 0;
+  const renderSeq = new Map();
 
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -258,14 +258,15 @@
 
   async function renderForInput(input) {
     if (!input) return;
-    const seq = ++requestSeq;
     const box = ensureBox(input);
     const raw = String(input.value || '').trim();
     if (!canonicalURL(raw)) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    const seq = (renderSeq.get(input.id) || 0) + 1;
+    renderSeq.set(input.id, seq);
     box.style.display = '';
     box.innerHTML = '<span class="ddgSourceHistoryNone">Citesc istoricul linkului…</span>';
     const [state, completed] = await Promise.all([historyGet(raw), completedInternalDownloads(raw)]);
-    if (seq !== requestSeq || String(input.value || '').trim() !== raw) return;
+    if (renderSeq.get(input.id) !== seq || String(input.value || '').trim() !== raw) return;
     renderHistory(box, state, completed);
   }
 
@@ -351,7 +352,7 @@
         setTimeout(() => tryRecordPending().catch(() => {}), 80);
       }
     });
-    observer.observe(top, {childList:true, characterData:true,subtree:true});
+    observer.observe(top, {childList:true, characterData:true, subtree:true});
   }
 
   function bind() {
