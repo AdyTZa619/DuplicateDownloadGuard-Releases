@@ -37,7 +37,7 @@ func runningNativeUpdaterMode(args []string) bool {
 	if len(args) < 2 {
 		return false
 	}
-	return args[1] == nativeUpdaterModeArg || args[1] == nativeUpdaterCleanupModeArg
+	return args[1] == nativeUpdaterModeArg || args[1] == nativeUpdaterCleanupModeArg || args[1] == recoveryHelperModeArgV85119
 }
 
 func currentHealthConfirmed(appDir string) bool {
