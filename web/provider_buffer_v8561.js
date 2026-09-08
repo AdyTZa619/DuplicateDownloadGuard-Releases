@@ -296,7 +296,7 @@
 
   function bunkrVideoHTML(url, name) {
     const ext = String(name || '').split('.').pop().toUpperCase();
-    return `<video id="remoteVideo" controls playsinline preload="auto" src="${url}" ` +
+    return `<video id="remoteVideo" controls playsinline preload="metadata" src="${url}" ` +
       `onloadstart="providerBufferEvent(this,'loadstart')" ` +
       `onloadedmetadata="providerBufferEvent(this,'loadedmetadata')" ` +
       `onprogress="providerBufferEvent(this,'progress')" ` +
@@ -312,7 +312,7 @@
       `onerror="remotePreviewError(this)"></video>` +
       `<div id="providerBufferStatus" class="providerBufferStatus" data-state="loadstart">BUNKR • pregătesc bufferul…</div>` +
       `<span class="miniInfo">${esc(ext)} • BUNKR stream</span>` +
-      `<span class="trafficNote">BUNKR • buffer automat în player</span>`;
+      `<span class="trafficNote">BUNKR • streaming la cerere</span>`;
   }
 
   function install() {
