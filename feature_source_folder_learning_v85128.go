@@ -61,7 +61,7 @@ type sourceFolderSuggestionV85128 struct {
 	Host         int     `json:"host"`
 }
 
-type sourceFolderLearningStateV85128 struct {
+type sourceFolderLearningRuntimeStateV85128 struct {
 	mu       sync.Mutex
 	path     string
 	store    sourceFolderLearningStoreV85128
@@ -70,7 +70,7 @@ type sourceFolderLearningStateV85128 struct {
 	port     int
 }
 
-var sourceFolderLearningStateV85128 sourceFolderLearningStateV85128
+var sourceFolderLearningStateV85128 sourceFolderLearningRuntimeStateV85128
 
 func init() {
 	base := strings.ToLower(filepath.Base(os.Args[0]))
