@@ -40,11 +40,11 @@ type genericMediaCandidateV85127 struct {
 }
 
 type genericMediaScanReplyV85127 struct {
-	OK         bool                           `json:"ok"`
-	URL        string                         `json:"url"`
+	OK         bool                          `json:"ok"`
+	URL        string                        `json:"url"`
 	Candidates []genericMediaCandidateV85127 `json:"candidates"`
-	Counts     map[string]int                 `json:"counts"`
-	Warnings   []string                       `json:"warnings,omitempty"`
+	Counts     map[string]int                `json:"counts"`
+	Warnings   []string                      `json:"warnings,omitempty"`
 }
 
 type genericMediaServiceStateV85127 struct {

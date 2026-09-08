@@ -122,10 +122,10 @@ func TestCrawlGenericMediaHTMLV85127RecursesIframeWithoutDownloadingMedia(t *tes
 func TestGenericMediaKindV85127(t *testing.T) {
 	cases := map[string]string{
 		"https://x.test/a.m3u8": "hls",
-		"https://x.test/a.mpd":   "dash",
-		"https://x.test/a.mp4":   "video",
-		"https://x.test/a.webp":  "image",
-		"https://x.test/a.m4a":   "audio",
+		"https://x.test/a.mpd":  "dash",
+		"https://x.test/a.mp4":  "video",
+		"https://x.test/a.webp": "image",
+		"https://x.test/a.m4a":  "audio",
 	}
 	for raw, want := range cases {
 		if got := genericMediaKindV85127(raw, ""); got != want {
