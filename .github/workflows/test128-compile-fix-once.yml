@@ -1,0 +1,38 @@
+name: TEST128 compile fix once
+
+on:
+  push:
+    branches: ['feature/test128-source-workflow-v2']
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Fix runtime state name and format
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('feature_source_folder_learning_v85128.go')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('type sourceFolderLearningStateV85128 struct {', 'type sourceFolderLearningRuntimeStateV85128 struct {')
+          s = s.replace('var sourceFolderLearningStateV85128 sourceFolderLearningStateV85128', 'var sourceFolderLearningStateV85128 sourceFolderLearningRuntimeStateV85128')
+          p.write_text(s, encoding='utf-8')
+      - name: gofmt and push
+        run: |
+          gofmt -w feature_source_folder_learning_v85128.go
+          if git diff --quiet; then
+            echo "No change"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feature_source_folder_learning_v85128.go
+          git commit -m "TEST128: fix source-folder runtime state name"
+          git push
