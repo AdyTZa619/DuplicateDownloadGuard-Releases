@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.126",
+  "version": "8.5.49-test.127",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "6aa31461d3bd2ddac2d025f7da848ab6fa59f7b5623ae2312c2e79c674a3ae39",
-  "notes": "TEST: Merge PR #83: TEST126 updater handoff recovery",
-  "publishedAt": "2026-09-08T17:52:55.1327072Z",
+  "sha256": "41f7c69bb4118bd1f3007b3fc95ff6bf4f5a3157beb6a2116b2e21226f0cd6e1",
+  "notes": "TEST: TEST127: advanced generic Media Picker discovery",
+  "publishedAt": "2026-09-08T19:54:29.4895809Z",
   "channel": "test"
 }
