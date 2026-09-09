@@ -43,19 +43,16 @@ func ddgNativeWindowDefinitelyClosedV85122() bool {
 	ddgPresenceWindowV85117.mu.Lock()
 	defer ddgPresenceWindowV85117.mu.Unlock()
 
-	old := ddgPresenceWindowV85117.hwnd
-	if old == 0 {
-		return false
+	currentValid := ddgNativeWindowHandleStillValidV85117(ddgPresenceWindowV85117.state.hwnd)
+	var replacement uintptr
+	if !currentValid {
+		windows := matchingDDGPresenceWindowsV85117()
+		if len(windows) > 0 {
+			replacement = windows[0]
+		}
 	}
-	if ddgNativeWindowHandleStillValidV85117(old) {
-		return false
-	}
-	windows := matchingDDGPresenceWindowsV85117()
-	if len(windows) > 0 {
-		ddgPresenceWindowV85117.hwnd = windows[0]
-		return false
-	}
-	return true
+	_ = ddgPresenceWindowV85117.state.observe(currentValid, replacement)
+	return ddgPresenceWindowV85117.state.definitelyClosed()
 }
 
 func fullProcessImageNameV85122(pid uint32) string {

@@ -11,6 +11,44 @@ const (
 	updateHandoffRequestName = "apply_update.json"
 )
 
+// ddgWindowLatchStateV85133 keeps the native-close decision stable across
+// watchdog ticks. The previous implementation retained only hwnd. Once
+// ddgAppWindowPresentNative cleared an invalid handle, the following tick could
+// no longer prove that a real, previously observed DDG window had been
+// destroyed. That made the three-tick close confirmation impossible.
+type ddgWindowLatchStateV85133 struct {
+	hwnd      uintptr
+	seen      bool
+	destroyed bool
+}
+
+func (s *ddgWindowLatchStateV85133) observe(handleValid bool, replacement uintptr) bool {
+	if s == nil {
+		return false
+	}
+	if s.hwnd != 0 && handleValid {
+		s.seen = true
+		s.destroyed = false
+		return true
+	}
+	if s.hwnd != 0 {
+		s.seen = true
+		s.destroyed = true
+		s.hwnd = 0
+	}
+	if replacement != 0 {
+		s.hwnd = replacement
+		s.seen = true
+		s.destroyed = false
+		return true
+	}
+	return false
+}
+
+func (s *ddgWindowLatchStateV85133) definitelyClosed() bool {
+	return s != nil && s.seen && s.hwnd == 0 && s.destroyed
+}
+
 // isDDGAppWindowTitle is intentionally strict and is used only during ordinary
 // startup cleanup. We must never close a normal browser window just because one
 // tab happens to contain DDG text.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +79,35 @@ func TestExtractGenericMediaHTMLV85127FindsTagsJSAndStreams(t *testing.T) {
 	}
 	if countMain != 1 {
 		t.Fatalf("duplicate media URL was not deduplicated: %d", countMain)
+	}
+}
+
+func TestHTMLHLSCandidateUsesPageTitleAndPosterV85133(t *testing.T) {
+	base := "https://filmepornonline.org/doua-romance-cu-silicoane-xxx-show.html"
+	page := `<html><head><title>Titlu vechi</title><meta property="og:title" content="Două romance cu silicoane"><meta property="og:image" content="/posters/show.jpg"></head><body><script>player={file:"https://cdn.test/119009.m3u8"}</script></body></html>`
+	items, _ := extractGenericMediaHTMLV85127(base, []byte(page))
+	if len(items) != 1 {
+		t.Fatalf("expected one HLS video, got %#v", items)
+	}
+	item := items[0]
+	if item.Kind != "hls" || item.Title != "Două romance cu silicoane" || item.Thumbnail != "https://filmepornonline.org/posters/show.jpg" {
+		t.Fatalf("page identity was not attached to raw HLS: %#v", item)
+	}
+}
+
+func TestVideoDiscoveryDropsDecorativeHTMLImagesV85133(t *testing.T) {
+	items := []genericMediaCandidateV85127{
+		{URL: "https://cdn.test/119009.m3u8", Kind: "hls", Via: "hls"},
+		{URL: "https://site.test/logo.png", Kind: "image", Via: "html"},
+		{URL: "https://site.test/recommendation.jpg", Kind: "image", Via: "js"},
+		{URL: "https://cdn.test/gallery.jpg", Kind: "image", Via: "gallery-dl"},
+	}
+	got := pruneDecorativePageImagesV85133(items)
+	if len(got) != 2 || got[0].Kind != "hls" || got[1].Via != "gallery-dl" {
+		t.Fatalf("decorative page images were not separated from real media: %#v", got)
+	}
+	if onlyImages := pruneDecorativePageImagesV85133(items[1:3]); len(onlyImages) != 2 {
+		t.Fatalf("image-only pages must retain their HTML images: %#v", onlyImages)
 	}
 }
 
@@ -230,5 +260,79 @@ func TestGenericMediaPreviewV85132ForwardsRangeAndReferer(t *testing.T) {
 	(&App{}).handleGenericMediaPreviewV85132(rec, req)
 	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" || rec.Header().Get("Content-Type") != "video/mp4" {
 		t.Fatalf("unexpected proxied preview: code=%d type=%q body=%q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestGenericMediaPreviewRewritesAndRelaysHLSChildrenV85133(t *testing.T) {
+	var upstream *httptest.Server
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Referer() != "https://example.test/watch" {
+			t.Errorf("referer not forwarded to %s: %q", r.URL.Path, r.Referer())
+		}
+		switch r.URL.Path {
+		case "/hls/master.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = fmt.Fprint(w, "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXTINF:4,\nsegments/0001.ts\n")
+		case "/hls/segments/0001.ts":
+			w.Header().Set("Content-Type", "video/mp2t")
+			_, _ = fmt.Fprint(w, "video-segment")
+		case "/hls/key.bin":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = fmt.Fprint(w, "secret-key")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	item := registerGenericMediaPreviewV85132(genericMediaCandidateV85127{
+		URL:        "https://example.test/watch",
+		PreviewURL: upstream.URL + "/hls/master.m3u8",
+		Page:       "https://example.test/watch",
+		Kind:       "hls",
+	}, 0)
+	t.Cleanup(func() {
+		genericMediaPreviewStoreV85132.Lock()
+		delete(genericMediaPreviewStoreV85132.Items, item.Token)
+		genericMediaPreviewStoreV85132.Unlock()
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/generic-media/preview?token="+item.Token+"&asset=media", nil)
+	rec := httptest.NewRecorder()
+	(&App{}).handleGenericMediaPreviewV85132(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/vnd.apple.mpegurl" {
+		t.Fatalf("unexpected HLS manifest response: code=%d type=%q body=%q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "\nsegments/0001.ts\n") || strings.Contains(rec.Body.String(), `URI="key.bin"`) {
+		t.Fatalf("relative HLS resources were not rewritten: %q", rec.Body.String())
+	}
+
+	var segmentProxy string
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if strings.HasPrefix(line, "/api/generic-media/preview?") && strings.Contains(line, "0001.ts") {
+			segmentProxy = line
+			break
+		}
+	}
+	if segmentProxy == "" {
+		t.Fatalf("rewritten segment URL missing: %q", rec.Body.String())
+	}
+	parsed, err := url.Parse(segmentProxy)
+	if err != nil || parsed.Query().Get("target") != upstream.URL+"/hls/segments/0001.ts" {
+		t.Fatalf("wrong proxied segment target: url=%q err=%v", segmentProxy, err)
+	}
+
+	segmentReq := httptest.NewRequest(http.MethodGet, segmentProxy, nil)
+	segmentRec := httptest.NewRecorder()
+	(&App{}).handleGenericMediaPreviewV85132(segmentRec, segmentReq)
+	if segmentRec.Code != http.StatusOK || segmentRec.Body.String() != "video-segment" {
+		t.Fatalf("HLS segment was not relayed: code=%d body=%q", segmentRec.Code, segmentRec.Body.String())
+	}
+
+	forged := httptest.NewRequest(http.MethodGet, "/api/generic-media/preview?token="+item.Token+"&target="+url.QueryEscape("https://forged.invalid/private"), nil)
+	forgedRec := httptest.NewRecorder()
+	(&App{}).handleGenericMediaPreviewV85132(forgedRec, forged)
+	if forgedRec.Code != http.StatusForbidden {
+		t.Fatalf("token must not authorize arbitrary proxy targets: code=%d", forgedRec.Code)
 	}
 }
