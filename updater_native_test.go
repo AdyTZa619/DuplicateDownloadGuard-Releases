@@ -52,6 +52,24 @@ func TestWaitForExpectedHealthRejectsStaleVersion(t *testing.T) {
 	}
 }
 
+func TestHealthMarkerRejectsVersionPrefixCollisionsV85130(t *testing.T) {
+	for _, tc := range []struct {
+		marker   string
+		expected string
+		want     bool
+	}{
+		{"8.5.49-test.130 Pro Smart Media Guard TEST\nnow", "8.5.49-test.130", true},
+		{"8.5.49-test.130\nnow", "8.5.49-test.130", true},
+		{"8.5.49-test.1300 Pro Smart Media Guard TEST\nnow", "8.5.49-test.130", false},
+		{"8.5.49-test.13 Pro Smart Media Guard TEST\nold", "8.5.49-test.130", false},
+		{"\nnow", "8.5.49-test.130", false},
+	} {
+		if got := healthMarkerMatchesVersionV85130([]byte(tc.marker), tc.expected); got != tc.want {
+			t.Fatalf("marker=%q expected=%q got=%v want=%v", tc.marker, tc.expected, got, tc.want)
+		}
+	}
+}
+
 func validUpdaterRequestForTest(t *testing.T) nativeUpdateRequest {
 	t.Helper()
 	dir := t.TempDir()

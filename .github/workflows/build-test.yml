@@ -203,11 +203,16 @@ jobs:
             $bad | ForEach-Object { Write-Host $_ }
             throw 'Go formatting check failed; TEST aborted'
           }
-          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File -Recurse)
           if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
           foreach ($script in $scripts) {
             node --check $script.FullName
             if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
+          $jsTests = @(Get-ChildItem -Path web/tests -Filter *.test.js -File -ErrorAction SilentlyContinue)
+          foreach ($test in $jsTests) {
+            node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript behavior test failed: $($test.Name)" }
           }
 
       - name: Tests

@@ -13,6 +13,8 @@ func TestSmartStateV8569RebindsBestCurrentCandidate(t *testing.T) {
 	}
 	s := string(b)
 	for _, marker := range []string{
+		"function localPresent(row)",
+		"row?.localPresent === true",
 		"/api/results/candidates?id=",
 		"/api/results/candidate",
 		"/api/results/smart-verify",

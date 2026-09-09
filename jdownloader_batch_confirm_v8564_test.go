@@ -15,10 +15,12 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	s := string(b)
 	for _, want := range []string{
 		"params.set('package', packageName)",
-		"Trimite TOATE",
-		"window.confirm(",
+		"Trimite numai lipsurile",
 		"ddgJDSendSafe",
 		"ddgJDFullRecheck",
+		"const missingRows = rows.filter",
+		"submitRows(missingRows)",
+		"row?.localPresent === true",
 		"Do not force dir or autostart",
 		"Deliberately do NOT call /api/download/preflight here",
 	} {
@@ -28,6 +30,9 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	}
 	if strings.Contains(s, "params.set('dir'") || strings.Contains(s, "params.set('autostart'") {
 		t.Fatal("JD batch must not force destination or autostart")
+	}
+	if strings.Contains(s, "Trimite TOATE") || strings.Contains(s, "ddgJDSendAll") || strings.Contains(s, "confirmAll") {
+		t.Fatal("legacy JD batch flow must not offer an all-files bypass")
 	}
 }
 

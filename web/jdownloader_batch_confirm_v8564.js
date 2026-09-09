@@ -212,15 +212,17 @@
     const manual = Boolean(row?.manual);
     const status = String(row?.status || row?.autoStatus || '').trim().toUpperCase();
     const guard = String(row?.guardVerdict || '').trim().toUpperCase();
+    const manualStatus = String(row?.manualStatus || '').trim().toUpperCase();
+    const localPresent = row?.localPresent === true && Boolean(row?.localPath);
 
     // Manual HAVE must never disappear from the confirmation just because an
     // older automatic verdict said DOWNLOAD.
-    if (manual && ['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
-    if (guard === 'DUPLICATE') return 'DUPLICATE';
+    if (manual && manualStatus === 'HAVE') return localPresent ? 'DUPLICATE' : 'REVIEW';
+    if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (guard === 'REVIEW') return 'REVIEW';
     if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';
 
-    if (['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
+    if (['HAVE','VERIFIED'].includes(status)) return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
     if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
     return manual ? 'REVIEW' : 'DOWNLOAD';
@@ -288,14 +290,12 @@
           <div class="foot">
             <button class="btn" type="button" id="ddgJDCancel">Anulează</button>
             <button class="btn" type="button" id="ddgJDFullRecheck">Reverifică HDD complet</button>
-            <button class="btn" type="button" id="ddgJDSendSafe">Trimite recomandate</button>
-            <button class="btn primary" type="button" id="ddgJDSendAll">Trimite TOATE</button>
+            <button class="btn primary" type="button" id="ddgJDSendSafe">Trimite numai lipsurile</button>
           </div>
         </div>
       </div>`);
     document.getElementById('ddgJDCancel')?.addEventListener('click', closeDecision);
     document.getElementById('ddgJDSendSafe')?.addEventListener('click', sendSafeOnly);
-    document.getElementById('ddgJDSendAll')?.addEventListener('click', confirmAll);
     document.getElementById('ddgJDFullRecheck')?.addEventListener('click', fullRecheck);
     document.getElementById('ddgJDBatchDecision')?.addEventListener('click', e => {
       if (e.target?.id === 'ddgJDBatchDecision') closeDecision();
@@ -327,14 +327,9 @@
       : 'Verificare rapidă: folosesc rezultatele deja obținute în scanarea curentă. NU rescanez cele sute de mii de fișiere de pe HDD.';
 
     const safeBtn = document.getElementById('ddgJDSendSafe');
-    const allBtn = document.getElementById('ddgJDSendAll');
     if (safeBtn) {
       safeBtn.disabled = safe.length === 0;
-      safeBtn.textContent = `Trimite recomandate (${safe.length})`;
-    }
-    if (allBtn) {
-      allBtn.disabled = ids.length === 0;
-      allBtn.textContent = `Trimite TOATE (${ids.length})`;
+      safeBtn.textContent = `Trimite numai lipsurile (${safe.length})`;
     }
     document.getElementById('ddgJDBatchDecision')?.classList.remove('hidden');
   }
@@ -346,7 +341,10 @@
       const rows = pending?.rows?.length
         ? pending.rows.filter(r => ids.includes(Number(r.id)))
         : await rowsForIDs(ids);
-      const result = await submitRows(rows);
+      const safeIDs = new Set((pending?.safe || []).map(Number));
+      const missingRows = rows.filter(row => safeIDs.size ? safeIDs.has(Number(row.id)) : classifyCurrentRow(row) === 'DOWNLOAD');
+      if (!missingRows.length) throw new Error('Selecția nu conține fișiere clasificate „LIPSĂ”.');
+      const result = await submitRows(missingRows);
       closeDecision();
       window.closeGuardReport?.();
       window.toast?.(`JDownloader: ${result.count} fișier(e) într-un singur pachet „${result.packageName}”`);
@@ -356,17 +354,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  async function confirmAll() {
-    if (!pending?.all?.length || busy) return;
-    const blocked = pending.duplicates.length;
-    const review = pending.review.length;
-    const ok = window.confirm(
-      `Confirmi trimiterea TUTUROR celor ${pending.all.length} fișiere în JDownloader?\n\nDDG indică ${blocked} „ai deja” și ${review} de verificat. Acestea vor fi trimise și ele.`
-    );
-    if (!ok) return;
-    await sendIDs(pending.all);
   }
 
   async function sendSafeOnly() {
@@ -439,5 +426,5 @@
 
   setTimeout(() => { window.sendSelectedJD2 = sendBatchAware; }, 1000);
 
-  window.ddgJDownloaderBatchConfirmV8564 = {sendBatchAware, confirmAll, sendSafeOnly, fullRecheck, onePackageName};
+  window.ddgJDownloaderBatchConfirmV8564 = {sendBatchAware, sendSafeOnly, fullRecheck, onePackageName};
 })();

@@ -84,7 +84,9 @@
   function strongLocalEvidence(row) {
     const status = statusOf(row);
     const guard = String(row?.guardVerdict || '').trim().toUpperCase();
-    return Boolean(row?.manual) || guard === 'DUPLICATE' || ['VERIFIED','HAVE','SAMPLED'].includes(status);
+    const manual = String(row?.manualStatus || '').trim().toUpperCase();
+    if (row?.localPresent !== true || !row?.localPath) return false;
+    return guard === 'DUPLICATE' || status === 'VERIFIED' || status === 'HAVE' || (Boolean(row?.manual) && manual === 'HAVE');
   }
 
   async function readAllRows(force = false) {
@@ -339,7 +341,7 @@
       .ddgFolderHintV85114 .folderHintTop{display:flex;gap:7px;align-items:center;min-width:0}.ddgFolderHintV85114 code{font-family:Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c7d9ea;min-width:0;flex:1}
       .ddgFolderHintV85114 .folderHintAlt{display:flex;gap:7px;align-items:center;margin-top:6px;padding-top:6px;border-top:1px solid #1e2b38}.ddgFolderHintV85114 .folderHintAlt span{font-size:10px;color:#8fa5ba;white-space:nowrap}
       .ddgFolderHintToolsV85114{display:flex;gap:7px;margin-top:7px;flex-wrap:wrap}
-      .ddgSourceDecisionV85128{display:grid;grid-template-columns:auto repeat(5,minmax(90px,1fr));gap:1px;background:#223141;border-top:1px solid #223141}
+      .ddgSourceDecisionV85128{display:grid;grid-template-columns:auto repeat(6,minmax(82px,1fr));gap:1px;background:#223141;border-top:1px solid #223141}
       .ddgSourceDecisionV85128 .decisionLabel{display:flex;align-items:center;padding:9px 11px;background:#0d151e;font-size:9px;font-weight:900;letter-spacing:.08em;color:#7691ab}
       .ddgSourceDecisionV85128 .decisionCell{padding:8px 10px;background:#0b131c;min-width:0}.ddgSourceDecisionV85128 .decisionCell span{display:block;font-size:8px;color:#6f8ba6;font-weight:800;letter-spacing:.06em}.ddgSourceDecisionV85128 .decisionCell b{display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:#d3dfeb}
       @media(max-width:980px){.ddgSourceDecisionV85128{grid-template-columns:repeat(3,1fr)}.ddgSourceDecisionV85128 .decisionLabel{grid-column:1/-1}}
@@ -416,7 +418,7 @@
     bar = document.createElement('div');
     bar.id = 'ddgSourceDecisionV85128';
     bar.className = 'ddgSourceDecisionV85128';
-    bar.innerHTML = '<div class="decisionLabel">SITUAȚIE CURENTĂ</div><div class="decisionCell"><span>TOTAL</span><b id="ddgDecisionTotalV85128">—</b></div><div class="decisionCell"><span>PE PC</span><b id="ddgDecisionLocalV85128">—</b></div><div class="decisionCell"><span>LIPSĂ</span><b id="ddgDecisionMissingV85128">—</b></div><div class="decisionCell"><span>SELECTATE</span><b id="ddgDecisionSelectedV85128">0</b></div><div class="decisionCell"><span>FOLDER</span><b id="ddgDecisionFolderV85128">—</b></div>';
+    bar.innerHTML = '<div class="decisionLabel">SITUAȚIE CURENTĂ</div><div class="decisionCell"><span>TOTAL</span><b id="ddgDecisionTotalV85128">—</b></div><div class="decisionCell"><span>PE PC</span><b id="ddgDecisionLocalV85128">—</b></div><div class="decisionCell"><span>DE VERIFICAT</span><b id="ddgDecisionReviewV85130">—</b></div><div class="decisionCell"><span>LIPSĂ</span><b id="ddgDecisionMissingV85128">—</b></div><div class="decisionCell"><span>SELECTATE</span><b id="ddgDecisionSelectedV85128">0</b></div><div class="decisionCell"><span>FOLDER</span><b id="ddgDecisionFolderV85128">—</b></div>';
     const hostList = card.querySelector('.providerHostList');
     if (hostList) hostList.insertAdjacentElement('beforebegin', bar);
     else card.appendChild(bar);
@@ -429,10 +431,11 @@
     let data = null;
     try { data = await api('/api/results/summary'); } catch (_) {}
     const summary = data?.summary || data || {};
-    const effective = summary?.effective || {};
+    const decision = summary?.decision || {};
     const total = Number(summary?.total || 0);
-    const local = Number(effective.HAVE || 0) + Number(effective.VERIFIED || 0) + Number(effective.SAMPLED || 0);
-    const missing = Number(effective.MISSING || 0);
+    const local = Number(decision.LOCAL || 0);
+    const review = Number(decision.REVIEW || 0);
+    const missing = Number(decision.MISSING || 0);
     const folder = lastReport?.items?.[0]?.folder || '—';
     const set = (id, value, title = '') => {
       const el = document.getElementById(id);
@@ -442,6 +445,7 @@
     };
     set('ddgDecisionTotalV85128', total ? total.toLocaleString('ro-RO') : '—');
     set('ddgDecisionLocalV85128', total ? local.toLocaleString('ro-RO') : '—');
+    set('ddgDecisionReviewV85130', total ? review.toLocaleString('ro-RO') : '—');
     set('ddgDecisionMissingV85128', total ? missing.toLocaleString('ro-RO') : '—');
     set('ddgDecisionSelectedV85128', selectedCount().toLocaleString('ro-RO'));
     set('ddgDecisionFolderV85128', folder, folder === '—' ? '' : folder);
@@ -481,7 +485,7 @@
     });
 
     document.addEventListener('click', event => {
-      if (event.target?.closest?.('#ddgMediaPickerV8566 .mediaCard,#ddgMediaPickerClearV8566,#ddgMediaPickerRecommendedV8566,#ddgMediaPickerAllVisibleV8566,#ddgMediaPickerSendSelectedV8566,#ddgMediaPickerSendAllV8566')) scheduleDecisionRefresh();
+      if (event.target?.closest?.('#ddgMediaPickerV8566 .mediaCard,#ddgMediaPickerClearV8566,#ddgMediaPickerRecommendedV8566,#ddgMediaPickerAllVisibleV8566,#ddgMediaPickerSendSelectedV8566')) scheduleDecisionRefresh();
       if (event.target?.closest?.('#tab-results,input[type="checkbox"],[data-row-id]')) scheduleDecisionRefresh();
     }, true);
 

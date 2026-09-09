@@ -122,6 +122,7 @@ type Result struct {
 	Confidence     string     `json:"confidence"`
 	Remote         RemoteItem `json:"remote"`
 	LocalPath      string     `json:"localPath,omitempty"`
+	LocalPresent   bool       `json:"localPresent"`
 	Candidates     int        `json:"candidates"`
 	Reason         string     `json:"reason"`
 	Manual         bool       `json:"manual"`
@@ -329,19 +330,19 @@ func main() {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("listener UI/API principal: %v", err)
 	}
 	addr := "http://" + ln.Addr().String()
 	controlLn, controlSrv, controlBase, err := newMegaPreviewControlServerV8532(a, addr)
 	if err != nil {
 		_ = ln.Close()
-		log.Fatal(err)
+		log.Fatalf("listener control MEGA Preview: %v", err)
 	}
 	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
 	if err != nil {
 		_ = ln.Close()
 		_ = controlLn.Close()
-		log.Fatal(err)
+		log.Fatalf("listener media MEGA Preview: %v", err)
 	}
 	a.previewControlBase = controlBase
 	a.previewMediaBase = mediaBase
@@ -365,15 +366,15 @@ func main() {
 	select {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server UI/API principal oprit neașteptat: %v", err)
 		}
 	case err := <-mediaServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server media MEGA Preview oprit neașteptat: %v", err)
 		}
 	case err := <-controlServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server control MEGA Preview oprit neașteptat: %v", err)
 		}
 	case <-shutdownCh:
 		a.logf("Interfața aplicației s-a închis; opresc DDG controlat")
@@ -1798,13 +1799,19 @@ func rankCandidate(remote RemoteItem, e FileEntry) Candidate {
 func enrichResult(r *Result, idx map[string]FileEntry) {
 	r.MediaKind = remoteMediaKind(r.Remote.Name)
 	r.SameSize, r.SameExt = false, false
+	r.LocalPresent = false
 	if r.LocalPath != "" {
 		if e, ok := idx[r.LocalPath]; ok {
+			r.LocalPresent = true
 			c := rankCandidate(r.Remote, e)
 			r.NameScore = c.NameScore
 			r.MatchScore = c.MatchScore
 			r.SameSize = c.SameSize
 			r.SameExt = c.SameExt
+		} else {
+			// A persisted result may outlive the indexed file it pointed at. Never
+			// expose that vanished path as current local evidence.
+			r.LocalPath = ""
 		}
 	}
 	st := r.AutoStatus
@@ -1827,9 +1834,58 @@ func enrichResult(r *Result, idx map[string]FileEntry) {
 
 func (a *App) enrichLoadedResults() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	resultsChanged := false
+	decisionsChanged := false
 	for i := range a.results {
-		enrichResult(&a.results[i], a.index)
+		r := &a.results[i]
+		oldPath := r.LocalPath
+		enrichResult(r, a.index)
+		if oldPath != "" && r.LocalPath == "" {
+			resultsChanged = true
+		}
+		if !r.Manual {
+			continue
+		}
+		key := decisionKey(r.Remote)
+		decision, ok := a.decisions[key]
+		if !ok {
+			continue
+		}
+		current := *r
+		current.Manual = false
+		current.ManualStatus = ""
+		current.ManualAt = 0
+		if r.AutoStatus != "" {
+			current.Status = r.AutoStatus
+			current.Confidence = r.AutoConfidence
+			current.Reason = r.AutoReason
+		}
+		if persistedDecisionAppliesV85130(decision, current, a.index) {
+			continue
+		}
+		if r.AutoStatus != "" {
+			r.Status = r.AutoStatus
+			r.Confidence = r.AutoConfidence
+			r.Reason = r.AutoReason
+		} else {
+			r.Status = "POSSIBLE"
+			r.Confidence = "Istoric local depășit"
+			r.Reason = "Marcajul manual vechi nu mai are dovadă locală actuală; rezultatul necesită reverificare."
+		}
+		r.Manual = false
+		r.ManualStatus = ""
+		r.ManualAt = 0
+		delete(a.decisions, key)
+		enrichResult(r, a.index)
+		resultsChanged = true
+		decisionsChanged = true
+	}
+	a.mu.Unlock()
+	if decisionsChanged {
+		_ = a.saveDecisions()
+	}
+	if resultsChanged {
+		_ = a.saveResults()
 	}
 }
 
@@ -2161,8 +2217,13 @@ func buildResultSummary(src []Result) map[string]any {
 	workflow := map[string]int{}
 	bytesByStatus := map[string]int64{}
 	bytesWorkflow := map[string]int64{}
+	decision := map[string]int{}
+	bytesDecision := map[string]int64{}
 	var totalBytes int64
 	for _, x := range src {
+		bucket := resultDecisionBucketV85130(x)
+		decision[bucket]++
+		bytesDecision[bucket] += x.Remote.Size
 		effective[x.Status]++
 		auto[resultAutoStatus(x)]++
 		bytesByStatus[x.Status] += x.Remote.Size
@@ -2237,8 +2298,35 @@ func buildResultSummary(src []Result) map[string]any {
 		"workflow":      workflow,
 		"bytesByStatus": bytesByStatus,
 		"bytesWorkflow": bytesWorkflow,
+		"decision":      decision,
+		"bytesDecision": bytesDecision,
 		"reviewPercent": reviewPct,
 	}
+}
+
+func resultDecisionBucketV85130(x Result) string {
+	auto := strings.ToUpper(strings.TrimSpace(resultAutoStatus(x)))
+	status := strings.ToUpper(strings.TrimSpace(x.Status))
+	manual := strings.ToUpper(strings.TrimSpace(x.ManualStatus))
+	guard := strings.ToUpper(strings.TrimSpace(x.GuardVerdict))
+	if x.LocalPresent {
+		if guard == "DUPLICATE" || auto == "VERIFIED" || status == "VERIFIED" {
+			return "LOCAL"
+		}
+		if x.Manual && manual == "HAVE" {
+			return "LOCAL"
+		}
+		remoteName := strings.TrimSpace(filepath.Base(x.Remote.Name))
+		localName := strings.TrimSpace(filepath.Base(x.LocalPath))
+		if auto == "HAVE" && x.SameSize && (x.NameScore >= 95 || (remoteName != "" && strings.EqualFold(remoteName, localName))) {
+			return "LOCAL"
+		}
+	}
+	if guard == "DOWNLOAD" || status == "MISSING" || status == "DIFFERENT" || auto == "MISSING" || auto == "DIFFERENT" ||
+		(x.Manual && (manual == "MISSING" || manual == "DIFFERENT")) {
+		return "MISSING"
+	}
+	return "REVIEW"
 }
 
 func resultLess(a, b Result, sortBy string) bool {

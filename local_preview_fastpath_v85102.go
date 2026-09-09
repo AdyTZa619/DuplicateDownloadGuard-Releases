@@ -38,6 +38,7 @@ var localPreviewRootSnapshotsV85102 sync.Map // map[*App]*localPreviewRootSnapsh
 type localPreviewLogEntryV85102 struct {
 	a    *App
 	line string
+	done chan struct{}
 }
 
 var localPreviewLogStateV85102 = struct {
@@ -87,6 +88,10 @@ func writeLocalPreviewLogFileV85104(a *App, line string) {
 func startLocalPreviewLogWorkerV85102() {
 	go func() {
 		for entry := range localPreviewLogStateV85102.q {
+			if entry.done != nil {
+				close(entry.done)
+				continue
+			}
 			if entry.a == nil {
 				continue
 			}
@@ -97,6 +102,27 @@ func startLocalPreviewLogWorkerV85102() {
 			writeLocalPreviewLogFileV85104(entry.a, entry.line)
 		}
 	}()
+}
+
+// flushLocalPreviewLogsV85130 is a FIFO barrier for graceful shutdown and
+// tests. It guarantees that diagnostics already accepted by the queue no
+// longer touch the installation directory after it returns.
+func flushLocalPreviewLogsV85130(timeout time.Duration) bool {
+	localPreviewLogStateV85102.once.Do(startLocalPreviewLogWorkerV85102)
+	done := make(chan struct{})
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case localPreviewLogStateV85102.q <- localPreviewLogEntryV85102{done: done}:
+	case <-timer.C:
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func localPreviewLogfV85102(a *App, format string, args ...any) {
