@@ -86,6 +86,7 @@ func TestHTMLHLSCandidateUsesPageTitleAndPosterV85133(t *testing.T) {
 	base := "https://filmepornonline.org/doua-romance-cu-silicoane-xxx-show.html"
 	page := `<html><head><title>Titlu vechi</title><meta property="og:title" content="Două romance cu silicoane"><meta property="og:image" content="/posters/show.jpg"></head><body><script>player={file:"https://cdn.test/119009.m3u8"}</script></body></html>`
 	items, _ := extractGenericMediaHTMLV85127(base, []byte(page))
+	items = pruneDecorativePageImagesV85133(items)
 	if len(items) != 1 {
 		t.Fatalf("expected one HLS video, got %#v", items)
 	}
