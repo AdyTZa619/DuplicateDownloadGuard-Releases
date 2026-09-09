@@ -78,3 +78,13 @@ test('generic Media Picker refuses every dedicated provider', () => {
   assert.equal(picker.genericPickerAllowed('https://cyberdrop.me/a/example'), false);
   assert.equal(picker.genericPickerAllowed('https://mega.nz/folder/example#key'), false);
 });
+
+test('generic Media Picker compares logical selected sources, not preview/thumbnail URLs', () => {
+  const picker = loadMediaPicker();
+  const urls = picker.candidateActionURLs([
+    {url: 'https://example.test/watch/one', previewUrl: 'https://cdn.test/one-1080.mp4', thumbnail: 'https://img.test/one.jpg'},
+    {url: 'https://example.test/watch/one', previewUrl: 'https://cdn.test/one-720.mp4'},
+    {url: 'https://example.test/watch/two', previewUrl: 'https://cdn.test/two.mp4'},
+  ]);
+  assert.deepEqual(Array.from(urls), ['https://example.test/watch/one', 'https://example.test/watch/two']);
+});

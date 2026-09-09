@@ -20,9 +20,18 @@ const (
 	// keep the conservative protection that avoids killing a healthy backend.
 	uiWatchdogMissingWindowTicksV85112 = 90
 	// TEST122: a real click on X destroys the already-latched native HWND. Once
-	// that exact handle is gone and no replacement DDG window exists, four
-	// seconds are enough to distinguish a real close from a normal page reload.
-	uiNativeCloseGraceV85122 = 4 * time.Second
+	// that exact handle is gone and no replacement DDG window exists, a short
+	// two-second grace is enough to distinguish a real close from a reload.
+	uiNativeCloseGraceV85122 = 2 * time.Second
+	// TEST132: Edge does not guarantee that pagehide/sendBeacon is delivered
+	// when its --app window is closed.  The native HWND is the authoritative
+	// signal in that case.  Require several consecutive observations so a very
+	// short shell recreation can still recover without losing the backend.
+	uiNativeWindowGoneTicksV85132 = 3
+	// Normal close must not leave the backend visible in Task Manager for tens
+	// of seconds merely because MEGAcmd's control pipe is wedged.
+	uiShutdownMegaBudgetV85132       = 2 * time.Second
+	uiShutdownPreviewLogBudgetV85132 = 750 * time.Millisecond
 )
 
 func (a *App) handleUIHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +80,10 @@ func shouldStopNativeCloseV85122(now time.Time, lastNS, hintNS int64, windowPres
 	return now.Sub(time.Unix(0, hintNS)) >= uiNativeCloseGraceV85122
 }
 
+func shouldStopNativeWindowGoneV85132(windowPresent, exactWindowDestroyed bool, goneTicks int) bool {
+	return !windowPresent && exactWindowDestroyed && goneTicks >= uiNativeWindowGoneTicksV85132
+}
+
 // startUIWatchdog has two paths:
 //  1. fast, high-confidence graceful close when the exact HWND that DDG had
 //     latched is destroyed and no replacement DDG window exists;
@@ -83,6 +96,7 @@ func startUIWatchdog(stop chan<- struct{}) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		missingWindowTicks := 0
+		nativeWindowGoneTicks := 0
 		for now := range ticker.C {
 			if !uiSeen.Load() {
 				continue
@@ -96,11 +110,27 @@ func startUIWatchdog(stop chan<- struct{}) {
 			windowPresent := ddgAppWindowPresentNative()
 			if windowPresent {
 				missingWindowTicks = 0
+				nativeWindowGoneTicks = 0
 			} else if missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
 				missingWindowTicks++
+				if exactWindowDestroyed {
+					nativeWindowGoneTicks++
+				} else {
+					nativeWindowGoneTicks = 0
+				}
 			}
 
 			hintNS := uiExitHintNS.Load()
+			if shouldStopNativeWindowGoneV85132(windowPresent, exactWindowDestroyed, nativeWindowGoneTicks) {
+				writeBackendExitDiagnosticV85119("ui_native_window_destroyed_without_beacon", now, lastNS, hintNS, windowPresent, missingWindowTicks)
+				appStopOnce.Do(func() {
+					select {
+					case stop <- struct{}{}:
+					default:
+					}
+				})
+				return
+			}
 			if shouldStopNativeCloseV85122(now, lastNS, hintNS, windowPresent, exactWindowDestroyed) {
 				writeBackendExitDiagnosticV85119("ui_native_window_confirmed_close", now, lastNS, hintNS, windowPresent, missingWindowTicks)
 				appStopOnce.Do(func() {
@@ -134,7 +164,7 @@ func startUIWatchdog(stop chan<- struct{}) {
 // did replace a previous session, the old session is still restored exactly as
 // before.
 func settleMegaOnShutdown(a *App) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), uiShutdownMegaBudgetV85132)
 	defer cancel()
 	if err := acquireMegaSession(ctx); err != nil {
 		a.logf("MEGA shutdown: sesiunea nu s-a eliberat la timp: %v", err)
@@ -234,5 +264,5 @@ func shutdownApp(a *App) {
 
 	// Persist all preview diagnostics accepted before close and prevent their
 	// background worker from touching portable files after shutdown completes.
-	_ = flushLocalPreviewLogsV85130(3 * time.Second)
+	_ = flushLocalPreviewLogsV85130(uiShutdownPreviewLogBudgetV85132)
 }

@@ -279,6 +279,8 @@ func main() {
 	mux.HandleFunc("/api/tools/manage", a.handleToolManage)
 	mux.HandleFunc("/api/tools/managed", a.handleManagedTools)
 	mux.HandleFunc("/api/source/batch", a.handleBatchSourceScan)
+	mux.HandleFunc("/api/generic-media/discover", a.handleGenericMediaDiscoverV85132)
+	mux.HandleFunc("/api/generic-media/preview", a.handleGenericMediaPreviewV85132)
 	mux.HandleFunc("/api/ai/status", a.handleAIStatus)
 	mux.HandleFunc("/api/ai/models", a.handleAIModels)
 	mux.HandleFunc("/api/ai/analyze", a.handleAIAnalyze)

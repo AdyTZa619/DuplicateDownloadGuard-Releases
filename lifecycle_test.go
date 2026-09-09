@@ -133,3 +133,21 @@ func TestUIWatchdogStillStopsAfterExplicitExitHintV85119(t *testing.T) {
 		t.Fatal("explicit old exit hint plus sustained native-window absence should stop DDG")
 	}
 }
+
+func TestNativeWindowCloseDoesNotRequirePagehideBeaconV85132(t *testing.T) {
+	if shouldStopNativeWindowGoneV85132(false, true, uiNativeWindowGoneTicksV85132-1) {
+		t.Fatal("native close must survive the short replacement grace interval")
+	}
+	if !shouldStopNativeWindowGoneV85132(false, true, uiNativeWindowGoneTicksV85132) {
+		t.Fatal("destroyed native DDG window must stop the backend even without pagehide/sendBeacon")
+	}
+}
+
+func TestNativeWindowCloseGuardRejectsReplacementOrUnlatchedWindowV85132(t *testing.T) {
+	if shouldStopNativeWindowGoneV85132(true, true, 100) {
+		t.Fatal("a replacement DDG window proves the application is still open")
+	}
+	if shouldStopNativeWindowGoneV85132(false, false, 100) {
+		t.Fatal("missing enumeration without a destroyed latched HWND is not enough to stop DDG")
+	}
+}
