@@ -61,6 +61,8 @@ func TestGenericMediaAdvancedUIIsGenericOnlyV85127(t *testing.T) {
 		"Compară selectatele cu PC",
 		"/api/generic-media/preview?token=",
 		"qualities",
+		"Video ${Number(totals.video || 0)",
+		"discoveryWarnings",
 		"/api/source/batch",
 		"adapter:'auto'",
 		"ddg:source-scan-complete",

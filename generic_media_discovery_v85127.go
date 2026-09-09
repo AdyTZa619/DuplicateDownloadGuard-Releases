@@ -33,6 +33,7 @@ const genericMediaMaxPagesV85127 = 8
 const genericMediaMaxDepthV85127 = 2
 const genericMediaMaxHTMLBytesV85127 = 4 << 20
 const genericMediaToolOutputLimitV85127 = 32 << 20
+const genericMediaHLSManifestLimitV85133 = 4 << 20
 
 type genericMediaQualityV85132 struct {
 	Label    string  `json:"label"`
@@ -83,12 +84,13 @@ var genericMediaStateV85127 genericMediaServiceStateV85127
 type genericMediaPreviewEntryV85132 struct {
 	Candidate genericMediaCandidateV85127
 	Expires   time.Time
+	Allowed   map[string]bool
 }
 
 var genericMediaPreviewStoreV85132 = struct {
 	sync.Mutex
-	Items map[string]genericMediaPreviewEntryV85132
-}{Items: map[string]genericMediaPreviewEntryV85132{}}
+	Items map[string]*genericMediaPreviewEntryV85132
+}{Items: map[string]*genericMediaPreviewEntryV85132{}}
 
 var genericMediaPreviewClientV85132 = &http.Client{
 	Transport: &http.Transport{
@@ -109,6 +111,10 @@ var genericMediaPreviewClientV85132 = &http.Client{
 var genericTagRxV85127 = regexp.MustCompile(`(?is)<(video|audio|source|img|iframe|a)\b[^>]*>`)
 var genericAttrRxV85127 = regexp.MustCompile(`(?is)\b(src|href|data-src|data-lazy-src|data-original|data-file|data-video|data-video-src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 var genericQuotedMediaRxV85127 = regexp.MustCompile(`(?is)["']([^"']+\.(?:m3u8|mpd|mp4|m4v|webm|mov|mkv|avi|flv|ts|m2ts|mts|wmv|mp3|m4a|aac|ogg|opus|flac|wav|jpg|jpeg|png|gif|webp|bmp|avif|heic|heif)(?:\?[^"']*)?)["']`)
+var genericHLSURIRxV85133 = regexp.MustCompile(`(?i)URI=(?:"([^"]+)"|'([^']+)')`)
+var genericHTMLTitleRxV85133 = regexp.MustCompile(`(?is)<title\b[^>]*>(.*?)</title>`)
+var genericHTMLMetaRxV85133 = regexp.MustCompile(`(?is)<meta\b[^>]*>`)
+var genericHTMLAnyAttrRxV85133 = regexp.MustCompile(`(?is)\b([a-z_:][a-z0-9_:.\-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 
 func init() {
 	base := strings.ToLower(filepath.Base(os.Args[0]))
@@ -289,7 +295,13 @@ func registerGenericMediaPreviewV85132(candidate genericMediaCandidateV85127, in
 			delete(genericMediaPreviewStoreV85132.Items, token)
 		}
 	}
-	genericMediaPreviewStoreV85132.Items[candidate.Token] = genericMediaPreviewEntryV85132{Candidate: candidate, Expires: now.Add(20 * time.Minute)}
+	allowed := map[string]bool{}
+	for _, raw := range []string{candidate.PreviewURL, candidate.Thumbnail} {
+		if target := firstHTTPV85132(raw); target != "" {
+			allowed[target] = true
+		}
+	}
+	genericMediaPreviewStoreV85132.Items[candidate.Token] = &genericMediaPreviewEntryV85132{Candidate: candidate, Expires: now.Add(20 * time.Minute), Allowed: allowed}
 	genericMediaPreviewStoreV85132.Unlock()
 	return candidate
 }
@@ -306,8 +318,8 @@ func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Req
 		delete(genericMediaPreviewStoreV85132.Items, token)
 		ok = false
 	}
-	genericMediaPreviewStoreV85132.Unlock()
 	if !ok {
+		genericMediaPreviewStoreV85132.Unlock()
 		http.Error(w, "preview expirat; reanalizează pagina", http.StatusNotFound)
 		return
 	}
@@ -316,6 +328,16 @@ func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Req
 	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("asset")), "thumbnail") {
 		target = entry.Candidate.Thumbnail
 	}
+	if child := firstHTTPV85132(r.URL.Query().Get("target")); child != "" {
+		if !entry.Allowed[child] {
+			genericMediaPreviewStoreV85132.Unlock()
+			http.Error(w, "resursă preview neautorizată", http.StatusForbidden)
+			return
+		}
+		target = child
+	}
+	candidate := entry.Candidate
+	genericMediaPreviewStoreV85132.Unlock()
 	if firstHTTPV85132(target) == "" {
 		http.Error(w, "preview indisponibil", http.StatusNotFound)
 		return
@@ -326,15 +348,15 @@ func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Req
 		return
 	}
 	for _, name := range []string{"User-Agent", "Referer", "Origin", "Accept", "Accept-Language"} {
-		if value := genericMediaHeaderV85132(entry.Candidate.Headers, name); value != "" {
+		if value := genericMediaHeaderV85132(candidate.Headers, name); value != "" {
 			req.Header.Set(name, value)
 		}
 	}
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36")
 	}
-	if req.Header.Get("Referer") == "" && firstHTTPV85132(entry.Candidate.Page) != "" {
-		req.Header.Set("Referer", entry.Candidate.Page)
+	if req.Header.Get("Referer") == "" && firstHTTPV85132(candidate.Page) != "" {
+		req.Header.Set("Referer", candidate.Page)
 	}
 	for _, name := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
@@ -347,6 +369,26 @@ func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Req
 		return
 	}
 	defer resp.Body.Close()
+	if r.Method == http.MethodGet && genericMediaKindV85127(resp.Request.URL.String(), resp.Header.Get("Content-Type")) == "hls" {
+		manifest, readErr := io.ReadAll(io.LimitReader(resp.Body, genericMediaHLSManifestLimitV85133+1))
+		if readErr != nil {
+			http.Error(w, "preview HLS: "+readErr.Error(), http.StatusBadGateway)
+			return
+		}
+		if len(manifest) > genericMediaHLSManifestLimitV85133 {
+			http.Error(w, "playlist HLS prea mare", http.StatusBadGateway)
+			return
+		}
+		rewritten, children := rewriteGenericHLSManifestV85133(token, resp.Request.URL.String(), string(manifest))
+		allowGenericMediaPreviewTargetsV85133(token, children)
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Content-Length", strconv.Itoa(len(rewritten)))
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.WriteString(w, rewritten)
+		return
+	}
 	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Cache-Control"} {
 		if value := resp.Header.Get(name); value != "" {
 			w.Header().Set(name, value)
@@ -357,6 +399,64 @@ func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Req
 	if r.Method == http.MethodGet {
 		_, _ = io.Copy(w, resp.Body)
 	}
+}
+
+func allowGenericMediaPreviewTargetsV85133(token string, targets []string) {
+	genericMediaPreviewStoreV85132.Lock()
+	defer genericMediaPreviewStoreV85132.Unlock()
+	entry := genericMediaPreviewStoreV85132.Items[token]
+	if entry == nil || time.Now().After(entry.Expires) {
+		return
+	}
+	if entry.Allowed == nil {
+		entry.Allowed = map[string]bool{}
+	}
+	for _, raw := range targets {
+		if target := firstHTTPV85132(raw); target != "" {
+			entry.Allowed[target] = true
+		}
+	}
+}
+
+func genericMediaPreviewProxyURLV85133(token, target string) string {
+	values := url.Values{}
+	values.Set("token", token)
+	values.Set("asset", "media")
+	values.Set("target", target)
+	return "/api/generic-media/preview?" + values.Encode()
+}
+
+func rewriteGenericHLSManifestV85133(token, manifestURL, manifest string) (string, []string) {
+	children := []string{}
+	proxyTarget := func(raw string) string {
+		resolved := resolveGenericURLV85127(manifestURL, raw)
+		if resolved == "" {
+			return raw
+		}
+		children = append(children, resolved)
+		return genericMediaPreviewProxyURLV85133(token, resolved)
+	}
+
+	lines := strings.Split(manifest, "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "#") {
+			lines[index] = proxyTarget(trimmed)
+			continue
+		}
+		lines[index] = genericHLSURIRxV85133.ReplaceAllStringFunc(line, func(match string) string {
+			parts := genericHLSURIRxV85133.FindStringSubmatch(match)
+			if len(parts) < 3 {
+				return match
+			}
+			raw := firstNonEmptyV85127(parts[1], parts[2])
+			return `URI="` + proxyTarget(raw) + `"`
+		})
+	}
+	return strings.Join(lines, "\n"), uniqueStringsV85127(children)
 }
 
 func genericMediaHeaderV85132(headers map[string]string, name string) string {
@@ -437,6 +537,7 @@ func discoverGenericMediaV85127(ctx context.Context, raw string) genericMediaSca
 		}
 	}
 	all = dedupeGenericCandidatesV85127(all)
+	all = pruneDecorativePageImagesV85133(all)
 	if len(all) > genericMediaMaxCandidatesV85127 {
 		all = all[:genericMediaMaxCandidatesV85127]
 		warnings = append(warnings, "rezultatele au fost limitate la 400 de URL-uri media")
@@ -447,6 +548,31 @@ func discoverGenericMediaV85127(ctx context.Context, raw string) genericMediaSca
 	}
 	warnings = uniqueStringsV85127(warnings)
 	return genericMediaScanReplyV85127{OK: true, URL: raw, Candidates: all, Counts: counts, Warnings: warnings}
+}
+
+// Raw <img> tags on a video page are normally logos, avatars, recommendations
+// and adverts. Once an actual video stream was found, keep images only when an
+// extractor identified them as media (yt-dlp/gallery-dl), instead of presenting
+// every decorative page asset as an equal Media Picker result.
+func pruneDecorativePageImagesV85133(items []genericMediaCandidateV85127) []genericMediaCandidateV85127 {
+	hasVideo := false
+	for _, item := range items {
+		if item.Kind == "video" || item.Kind == "hls" || item.Kind == "dash" {
+			hasVideo = true
+			break
+		}
+	}
+	if !hasVideo {
+		return items
+	}
+	filtered := make([]genericMediaCandidateV85127, 0, len(items))
+	for _, item := range items {
+		if item.Kind == "image" && (item.Via == "html" || item.Via == "js") {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func crawlGenericMediaHTMLV85127(ctx context.Context, root string) ([]genericMediaCandidateV85127, []string) {
@@ -530,6 +656,7 @@ func fetchGenericPageV85127(ctx context.Context, client *http.Client, raw string
 
 func extractGenericMediaHTMLV85127(pageURL string, body []byte) ([]genericMediaCandidateV85127, []string) {
 	text := string(body)
+	pageTitle, pageThumbnail := genericHTMLPageMetadataV85133(pageURL, text)
 	items := []genericMediaCandidateV85127{}
 	frames := []string{}
 	for _, loc := range genericTagRxV85127.FindAllStringIndex(text, -1) {
@@ -602,7 +729,48 @@ func extractGenericMediaHTMLV85127(pageURL string, body []byte) ([]genericMediaC
 		}
 		items = append(items, genericMediaCandidateV85127{URL: resolved, PreviewURL: resolved, Title: genericMediaTitleV85132(resolved), Kind: kind, Via: genericMediaViaV85127(kind, "js"), Page: pageURL})
 	}
+	for index := range items {
+		if items[index].Kind != "video" && items[index].Kind != "hls" && items[index].Kind != "dash" {
+			continue
+		}
+		if pageTitle != "" {
+			items[index].Title = pageTitle
+		}
+		if items[index].Thumbnail == "" {
+			items[index].Thumbnail = pageThumbnail
+		}
+	}
 	return dedupeGenericCandidatesV85127(items), uniqueStringsV85127(frames)
+}
+
+func genericHTMLPageMetadataV85133(pageURL, text string) (string, string) {
+	title := ""
+	if match := genericHTMLTitleRxV85133.FindStringSubmatch(text); len(match) > 1 {
+		title = strings.TrimSpace(html.UnescapeString(regexp.MustCompile(`(?is)<[^>]+>`).ReplaceAllString(match[1], " ")))
+	}
+	thumbnail := ""
+	for _, tag := range genericHTMLMetaRxV85133.FindAllString(text, -1) {
+		attrs := map[string]string{}
+		for _, match := range genericHTMLAnyAttrRxV85133.FindAllStringSubmatch(tag, -1) {
+			if len(match) < 5 {
+				continue
+			}
+			attrs[strings.ToLower(strings.TrimSpace(match[1]))] = strings.TrimSpace(html.UnescapeString(firstNonEmptyV85127(match[2], match[3], match[4])))
+		}
+		key := strings.ToLower(firstNonEmptyV85127(attrs["property"], attrs["name"]))
+		content := attrs["content"]
+		switch key {
+		case "og:title", "twitter:title":
+			if strings.TrimSpace(content) != "" {
+				title = strings.TrimSpace(content)
+			}
+		case "og:image", "og:image:url", "twitter:image", "twitter:image:src":
+			if thumbnail == "" {
+				thumbnail = resolveGenericURLV85127(pageURL, content)
+			}
+		}
+	}
+	return title, thumbnail
 }
 
 func genericToolURLsV85127(ctx context.Context, raw, tool string) ([]genericMediaCandidateV85127, string) {

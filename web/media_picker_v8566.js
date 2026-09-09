@@ -11,6 +11,7 @@
   let loading = false;
   let pageIndex = 0;
   let pickerMode = 'results';
+  let discoveryWarnings = [];
   const CARD_PAGE_SIZE = 72;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -238,7 +239,9 @@
     const pageRows = visibleRows();
     const start = shown.length ? pageIndex * CARD_PAGE_SIZE + 1 : 0;
     const end = shown.length ? Math.min(shown.length, (pageIndex + 1) * CARD_PAGE_SIZE) : 0;
-    document.getElementById('ddgMediaPickerSummaryV8566').textContent = `${shown.length.toLocaleString('ro-RO')} afișate • ${start}-${end} • ${rows.length.toLocaleString('ro-RO')} total`;
+    const totals = rows.reduce((out, row) => { const kind = mediaKind(row); out[kind] = (out[kind] || 0) + 1; return out; }, {});
+    const breakdown = [`Video ${Number(totals.video || 0).toLocaleString('ro-RO')}`, `Imagini ${Number(totals.image || 0).toLocaleString('ro-RO')}`, `Audio ${Number(totals.audio || 0).toLocaleString('ro-RO')}`];
+    document.getElementById('ddgMediaPickerSummaryV8566').textContent = `${shown.length.toLocaleString('ro-RO')} afișate • ${start}-${end} • ${breakdown.join(' • ')}`;
     document.getElementById('ddgMediaPickerPageV8566').textContent = `${pageIndex + 1}/${pages}`;
     document.getElementById('ddgMediaPickerPrevV8566').disabled = pageIndex <= 0;
     document.getElementById('ddgMediaPickerNextV8566').disabled = pageIndex + 1 >= pages;
@@ -269,7 +272,10 @@
   function syncChrome() {
     const discovery = pickerMode === 'discovery';
     const stage = document.getElementById('ddgMediaPickerStageV8566');
-    if (stage) stage.innerHTML = discovery ? '<b>Pasul 1/2:</b> verifică preview-ul și calitățile, apoi alege ce compari.' : '<b>Pasul 2/2:</b> rezultatele au fost comparate cu PC-ul; în JD pleacă numai lipsurile selectate.';
+    if (stage) {
+      const warning = discovery && discoveryWarnings.length ? ` <span>• ${esc(discoveryWarnings.join(' • '))}</span>` : '';
+      stage.innerHTML = discovery ? `<b>Pasul 1/2:</b> verifică preview-ul și calitățile, apoi alege ce compari.${warning}` : '<b>Pasul 2/2:</b> rezultatele au fost comparate cu PC-ul; în JD pleacă numai lipsurile selectate.';
+    }
     const primary = document.getElementById('ddgMediaPickerSendSelectedV8566');
     if (primary) primary.textContent = discovery ? 'Compară selectatele cu PC' : 'Trimite lipsurile selectate în JD';
     const recommended = document.getElementById('ddgMediaPickerRecommendedV8566');
@@ -336,7 +342,7 @@
   }
 
   function resetView() {
-    releaseGridMedia(); rows = []; selected.clear(); activeFilter = 'all'; query = ''; pageIndex = 0;
+    releaseGridMedia(); rows = []; selected.clear(); activeFilter = 'all'; query = ''; pageIndex = 0; discoveryWarnings = [];
     const search = document.getElementById('ddgMediaPickerSearchV8566'); if (search) search.value = '';
     document.querySelectorAll('#ddgMediaPickerV8566 [data-picker-filter]').forEach(x => x.classList.toggle('on', x.dataset.pickerFilter === 'all'));
   }
@@ -356,6 +362,7 @@
     sourceURL = String(raw || discovery?.url || '').trim();
     if (!genericPickerAllowed(sourceURL)) return;
     pickerMode = 'discovery'; resetView();
+    discoveryWarnings = Array.isArray(discovery?.warnings) ? discovery.warnings.filter(Boolean) : [];
     const candidates = Array.isArray(discovery?.candidates) ? discovery.candidates : [];
     rows = candidates.map((row, index) => ({...row, _pickerKey:`discovery:${String(row?.id || row?.token || index)}:${index}`}));
     if (!rows.length) rows = [{_pickerKey:'discovery:fallback:0', id:'fallback', url:sourceURL, title:'Pagina sursă — analiză automată la comparare', kind:'page', via:'fallback auto'}];

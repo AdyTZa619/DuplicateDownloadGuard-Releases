@@ -151,3 +151,28 @@ func TestNativeWindowCloseGuardRejectsReplacementOrUnlatchedWindowV85132(t *test
 		t.Fatal("missing enumeration without a destroyed latched HWND is not enough to stop DDG")
 	}
 }
+
+func TestDestroyedNativeWindowRemainsLatchedAcrossWatchdogTicksV85133(t *testing.T) {
+	var latch ddgWindowLatchStateV85133
+	if !latch.observe(false, 101) {
+		t.Fatal("the first matching DDG HWND must be latched")
+	}
+
+	for tick := 1; tick <= uiNativeWindowGoneTicksV85132; tick++ {
+		if latch.observe(false, 0) {
+			t.Fatalf("destroyed window reported present on tick %d", tick)
+		}
+		if !latch.definitelyClosed() {
+			t.Fatalf("destroyed evidence was lost on tick %d", tick)
+		}
+		// startUIWatchdog calls its presence probe after its exact-close probe.
+		// This second observation must not erase the destruction evidence.
+		if latch.observe(false, 0) || !latch.definitelyClosed() {
+			t.Fatalf("presence probe erased the destroyed latch on tick %d", tick)
+		}
+	}
+
+	if !latch.observe(false, 202) || latch.definitelyClosed() {
+		t.Fatal("a replacement DDG HWND must cancel the close decision")
+	}
+}

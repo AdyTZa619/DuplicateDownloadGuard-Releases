@@ -20,8 +20,8 @@ var uiIsWindow = uiUser32.NewProc("IsWindow")
 var uiShowWindow = uiUser32.NewProc("ShowWindow")
 
 var ddgPresenceWindowV85117 struct {
-	mu   sync.Mutex
-	hwnd uintptr
+	mu    sync.Mutex
+	state ddgWindowLatchStateV85133
 }
 
 func enumerateDDGWindows(match func(string) bool) []uintptr {
@@ -71,17 +71,15 @@ func ddgAppWindowPresentNative() bool {
 	ddgPresenceWindowV85117.mu.Lock()
 	defer ddgPresenceWindowV85117.mu.Unlock()
 
-	if ddgNativeWindowHandleStillValidV85117(ddgPresenceWindowV85117.hwnd) {
-		return true
+	currentValid := ddgNativeWindowHandleStillValidV85117(ddgPresenceWindowV85117.state.hwnd)
+	var replacement uintptr
+	if !currentValid {
+		windows := matchingDDGPresenceWindowsV85117()
+		if len(windows) > 0 {
+			replacement = windows[0]
+		}
 	}
-	ddgPresenceWindowV85117.hwnd = 0
-
-	windows := matchingDDGPresenceWindowsV85117()
-	if len(windows) == 0 {
-		return false
-	}
-	ddgPresenceWindowV85117.hwnd = windows[0]
-	return true
+	return ddgPresenceWindowV85117.state.observe(currentValid, replacement)
 }
 
 func closeDDGAppWindowsNative() int {
