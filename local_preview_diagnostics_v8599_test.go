@@ -104,7 +104,7 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflow, err := os.ReadFile(filepath.Join(".github", "workflows", "build-test.yml"))
+	mainSrc, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +130,8 @@ func TestLocalPreviewDiagnosticsStayIsolatedV8599(t *testing.T) {
 	if !strings.Contains(string(boot), "/local_preview_diagnostics_v8599.js") {
 		t.Fatal("diagnostic JS is not loaded by preview bootstrap")
 	}
-	if !strings.Contains(string(workflow), "registerLocalPreviewDiagnosticsV8599(mux, a)") {
-		t.Fatal("TEST build does not wire the diagnostic local-preview route")
+	if !strings.Contains(string(mainSrc), "registerLocalPreviewDiagnosticsV8599(mux, a)") {
+		t.Fatal("versioned source does not wire the diagnostic local-preview route")
 	}
 
 	combined := string(goSrc) + "\n" + string(fastSrc) + "\n" + string(js)
