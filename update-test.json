@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.131",
+  "version": "8.5.49-test.132",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "cff76e101f8056a9c1bead09dc8a2c5d3749bf21e17d357da0c7fb43085f9d84",
-  "notes": "TEST: Document TEST130 checkpoint and validation scope",
-  "publishedAt": "2026-09-09T07:51:00.9369623Z",
+  "sha256": "1ddd75cea6336505d41ec8250d45714f54831bbc492a3954ea4eb9a7047507b1",
+  "notes": "TEST: Merge PR #89: fix shutdown and Media Picker",
+  "publishedAt": "2026-09-09T12:36:45.6795577Z",
   "channel": "test"
 }
