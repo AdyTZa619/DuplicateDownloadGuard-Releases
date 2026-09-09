@@ -39,13 +39,34 @@ func TestGenericMediaAdvancedUIIsGenericOnlyV85127(t *testing.T) {
 		"isGeneric",
 		"addEventListener('click', interceptClick, true)",
 		"addEventListener('keydown', interceptEnter, true)",
-		"/api/source/batch",
-		"adapter:'http'",
-		"adapter:'auto'",
-		"ddg:source-scan-complete",
+		"/api/generic-media/discover",
+		"ddg:generic-media-discovered",
+		"discoveryOnly:true",
 	} {
 		if !strings.Contains(js, token) {
 			t.Fatalf("advanced generic UI missing %q", token)
+		}
+	}
+	if strings.Contains(js, "adapter:'http'") || strings.Contains(js, "body:JSON.stringify({urls:discoveredURLs") {
+		t.Fatal("discovery stage must not compare raw URLs before the user selects media")
+	}
+
+	picker, err := os.ReadFile("web/media_picker_v8566.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pickerJS := string(picker)
+	for _, token := range []string{
+		"openDiscovery",
+		"Compară selectatele cu PC",
+		"/api/generic-media/preview?token=",
+		"qualities",
+		"/api/source/batch",
+		"adapter:'auto'",
+		"ddg:source-scan-complete",
+	} {
+		if !strings.Contains(pickerJS, token) {
+			t.Fatalf("two-stage Media Picker missing %q", token)
 		}
 	}
 }

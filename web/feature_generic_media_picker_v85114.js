@@ -130,6 +130,20 @@
     }
   }
 
+  async function openDiscoveryWhenReady(raw, discovery) {
+    const seq = ++openSeq;
+    for (let i = 0; i < 30; i++) {
+      if (seq !== openSeq || !isGenericHTTP(raw)) return;
+      const picker = window.ddgMediaPickerV8566;
+      if (picker?.openDiscovery) {
+        await picker.openDiscovery(raw, discovery);
+        pendingURL = '';
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
   function bind() {
     loadAdvancedDiscoveryV85127();
     const input = document.getElementById('directUrl');
@@ -142,10 +156,17 @@
     if (document.documentElement.dataset.ddgGenericMediaEventsV85124 !== '1') {
       document.documentElement.dataset.ddgGenericMediaEventsV85124 = '1';
       window.addEventListener('ddg:source-scan-start', event => arm(event.detail?.url || currentURL()));
+      window.addEventListener('ddg:generic-media-discovered', event => {
+        const raw = String(event.detail?.url || '').trim();
+        if (!isGenericHTTP(raw)) return;
+        settleLayout();
+        void openDiscoveryWhenReady(raw, event.detail?.discovery || {});
+      });
       window.addEventListener('ddg:source-scan-complete', event => {
         const raw = String(event.detail?.url || '').trim();
         settleLayout();
         window.ddgSourceFolderHintV85114?.refresh?.();
+        if (event.detail?.mediaPicker) { pendingURL = ''; return; }
         if (!pendingURL || pendingURL !== raw || !isGenericHTTP(raw)) return;
         setTimeout(() => openPickerWhenReady(raw), 80);
       });

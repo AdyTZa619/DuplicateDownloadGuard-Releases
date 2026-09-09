@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
@@ -30,13 +32,36 @@ const genericMediaMaxCandidatesV85127 = 400
 const genericMediaMaxPagesV85127 = 8
 const genericMediaMaxDepthV85127 = 2
 const genericMediaMaxHTMLBytesV85127 = 4 << 20
-const genericMediaToolOutputLimitV85127 = 4 << 20
+const genericMediaToolOutputLimitV85127 = 32 << 20
+
+type genericMediaQualityV85132 struct {
+	Label    string  `json:"label"`
+	FormatID string  `json:"formatId,omitempty"`
+	Ext      string  `json:"ext,omitempty"`
+	Protocol string  `json:"protocol,omitempty"`
+	Width    int     `json:"width,omitempty"`
+	Height   int     `json:"height,omitempty"`
+	FPS      float64 `json:"fps,omitempty"`
+	Bitrate  float64 `json:"bitrate,omitempty"`
+	HasAudio bool    `json:"hasAudio"`
+}
 
 type genericMediaCandidateV85127 struct {
-	URL  string `json:"url"`
-	Kind string `json:"kind"`
-	Via  string `json:"via"`
-	Page string `json:"page,omitempty"`
+	Token      string                      `json:"token,omitempty"`
+	ID         string                      `json:"id,omitempty"`
+	URL        string                      `json:"url"`
+	PreviewURL string                      `json:"previewUrl,omitempty"`
+	Thumbnail  string                      `json:"thumbnail,omitempty"`
+	Title      string                      `json:"title,omitempty"`
+	Kind       string                      `json:"kind"`
+	Via        string                      `json:"via"`
+	Page       string                      `json:"page,omitempty"`
+	Extractor  string                      `json:"extractor,omitempty"`
+	Duration   float64                     `json:"duration,omitempty"`
+	Width      int                         `json:"width,omitempty"`
+	Height     int                         `json:"height,omitempty"`
+	Qualities  []genericMediaQualityV85132 `json:"qualities,omitempty"`
+	Headers    map[string]string           `json:"-"`
 }
 
 type genericMediaScanReplyV85127 struct {
@@ -54,6 +79,32 @@ type genericMediaServiceStateV85127 struct {
 }
 
 var genericMediaStateV85127 genericMediaServiceStateV85127
+
+type genericMediaPreviewEntryV85132 struct {
+	Candidate genericMediaCandidateV85127
+	Expires   time.Time
+}
+
+var genericMediaPreviewStoreV85132 = struct {
+	sync.Mutex
+	Items map[string]genericMediaPreviewEntryV85132
+}{Items: map[string]genericMediaPreviewEntryV85132{}}
+
+var genericMediaPreviewClientV85132 = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          24,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       45 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 8 {
+			return errors.New("prea multe redirectări preview")
+		}
+		return nil
+	},
+}
 
 var genericTagRxV85127 = regexp.MustCompile(`(?is)<(video|audio|source|img|iframe|a)\b[^>]*>`)
 var genericAttrRxV85127 = regexp.MustCompile(`(?is)\b(src|href|data-src|data-lazy-src|data-original|data-file|data-video|data-video-src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
@@ -195,6 +246,128 @@ func genericMediaJSONV85127(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+func (a *App) handleGenericMediaDiscoverV85132(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST necesar", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	raw := strings.TrimSpace(req.URL)
+	if !genericMediaAllowedRootV85127(raw) {
+		http.Error(w, "Media Picker acceptă numai pagini HTTP/HTTPS generice", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+	defer cancel()
+	reply := discoverGenericMediaV85127(ctx, raw)
+	for i := range reply.Candidates {
+		reply.Candidates[i] = registerGenericMediaPreviewV85132(reply.Candidates[i], i)
+	}
+	genericMediaJSONV85127(w, reply)
+}
+
+func registerGenericMediaPreviewV85132(candidate genericMediaCandidateV85127, index int) genericMediaCandidateV85127 {
+	if strings.TrimSpace(candidate.ID) == "" {
+		candidate.ID = "media-" + strconv.Itoa(index+1)
+	}
+	tokenBytes := make([]byte, 18)
+	if _, err := cryptorand.Read(tokenBytes); err == nil {
+		candidate.Token = hex.EncodeToString(tokenBytes)
+	} else {
+		candidate.Token = strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(index)
+	}
+	now := time.Now()
+	genericMediaPreviewStoreV85132.Lock()
+	for token, entry := range genericMediaPreviewStoreV85132.Items {
+		if now.After(entry.Expires) || len(genericMediaPreviewStoreV85132.Items) >= 1200 {
+			delete(genericMediaPreviewStoreV85132.Items, token)
+		}
+	}
+	genericMediaPreviewStoreV85132.Items[candidate.Token] = genericMediaPreviewEntryV85132{Candidate: candidate, Expires: now.Add(20 * time.Minute)}
+	genericMediaPreviewStoreV85132.Unlock()
+	return candidate
+}
+
+func (a *App) handleGenericMediaPreviewV85132(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "GET/HEAD necesar", http.StatusMethodNotAllowed)
+		return
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	genericMediaPreviewStoreV85132.Lock()
+	entry, ok := genericMediaPreviewStoreV85132.Items[token]
+	if ok && time.Now().After(entry.Expires) {
+		delete(genericMediaPreviewStoreV85132.Items, token)
+		ok = false
+	}
+	genericMediaPreviewStoreV85132.Unlock()
+	if !ok {
+		http.Error(w, "preview expirat; reanalizează pagina", http.StatusNotFound)
+		return
+	}
+
+	target := entry.Candidate.PreviewURL
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("asset")), "thumbnail") {
+		target = entry.Candidate.Thumbnail
+	}
+	if firstHTTPV85132(target) == "" {
+		http.Error(w, "preview indisponibil", http.StatusNotFound)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	for _, name := range []string{"User-Agent", "Referer", "Origin", "Accept", "Accept-Language"} {
+		if value := genericMediaHeaderV85132(entry.Candidate.Headers, name); value != "" {
+			req.Header.Set(name, value)
+		}
+	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36")
+	}
+	if req.Header.Get("Referer") == "" && firstHTTPV85132(entry.Candidate.Page) != "" {
+		req.Header.Set("Referer", entry.Candidate.Page)
+	}
+	for _, name := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
+		if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
+			req.Header.Set(name, value)
+		}
+	}
+	resp, err := genericMediaPreviewClientV85132.Do(req)
+	if err != nil {
+		http.Error(w, "preview: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Cache-Control"} {
+		if value := resp.Header.Get(name); value != "" {
+			w.Header().Set(name, value)
+		}
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(resp.StatusCode)
+	if r.Method == http.MethodGet {
+		_, _ = io.Copy(w, resp.Body)
+	}
+}
+
+func genericMediaHeaderV85132(headers map[string]string, name string) string {
+	for key, value := range headers {
+		if strings.EqualFold(strings.TrimSpace(key), name) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func genericMediaAllowedRootV85127(raw string) bool {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -311,7 +484,7 @@ func crawlGenericMediaHTMLV85127(ctx context.Context, root string) ([]genericMed
 			continue
 		}
 		if kind := genericMediaKindV85127(finalURL, contentType); kind != "" && !strings.Contains(strings.ToLower(contentType), "html") {
-			items = append(items, genericMediaCandidateV85127{URL: finalURL, Kind: kind, Via: genericMediaViaV85127(kind, "http"), Page: job.URL})
+			items = append(items, genericMediaCandidateV85127{URL: finalURL, PreviewURL: finalURL, Title: genericMediaTitleV85132(finalURL), Kind: kind, Via: genericMediaViaV85127(kind, "http"), Page: job.URL})
 			continue
 		}
 		pageItems, frames := extractGenericMediaHTMLV85127(finalURL, body)
@@ -409,7 +582,7 @@ func extractGenericMediaHTMLV85127(pageURL string, body []byte) ([]genericMediaC
 					}
 				}
 				if kind != "" {
-					items = append(items, genericMediaCandidateV85127{URL: resolved, Kind: kind, Via: genericMediaViaV85127(kind, "html"), Page: pageURL})
+					items = append(items, genericMediaCandidateV85127{URL: resolved, PreviewURL: resolved, Title: genericMediaTitleV85132(resolved), Kind: kind, Via: genericMediaViaV85127(kind, "html"), Page: pageURL})
 				}
 			}
 		}
@@ -427,7 +600,7 @@ func extractGenericMediaHTMLV85127(pageURL string, body []byte) ([]genericMediaC
 		if kind == "" {
 			continue
 		}
-		items = append(items, genericMediaCandidateV85127{URL: resolved, Kind: kind, Via: genericMediaViaV85127(kind, "js"), Page: pageURL})
+		items = append(items, genericMediaCandidateV85127{URL: resolved, PreviewURL: resolved, Title: genericMediaTitleV85132(resolved), Kind: kind, Via: genericMediaViaV85127(kind, "js"), Page: pageURL})
 	}
 	return dedupeGenericCandidatesV85127(items), uniqueStringsV85127(frames)
 }
@@ -440,7 +613,7 @@ func genericToolURLsV85127(ctx context.Context, raw, tool string) ([]genericMedi
 	var args []string
 	switch tool {
 	case "yt-dlp":
-		args = []string{"--no-warnings", "--skip-download", "--get-url", "--yes-playlist", raw}
+		args = []string{"--ignore-config", "--dump-json", "--no-warnings", "--skip-download", "--yes-playlist", "--playlist-end", strconv.Itoa(genericMediaMaxCandidatesV85127), raw}
 	case "gallery-dl":
 		args = []string{"-g", "--no-colors", raw}
 	default:
@@ -453,7 +626,12 @@ func genericToolURLsV85127(ctx context.Context, raw, tool string) ([]genericMedi
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 	err := cmd.Run()
-	items := parseGenericToolURLsV85127(out.String(), raw, tool)
+	items := []genericMediaCandidateV85127{}
+	if tool == "yt-dlp" {
+		items = parseGenericYtDlpCandidatesV85132(out.String(), raw)
+	} else {
+		items = parseGenericToolURLsV85127(out.String(), raw, tool)
+	}
 	if len(items) > 0 {
 		return items, ""
 	}
@@ -536,11 +714,275 @@ func parseGenericToolURLsV85127(output, pageURL, via string) []genericMediaCandi
 		}
 		kind := genericMediaKindV85127(line, "")
 		if kind == "" {
-			kind = "video"
+			kind = "other"
 		}
-		items = append(items, genericMediaCandidateV85127{URL: line, Kind: kind, Via: via, Page: pageURL})
+		items = append(items, genericMediaCandidateV85127{URL: line, PreviewURL: line, Title: genericMediaTitleV85132(line), Kind: kind, Via: via, Page: pageURL})
 	}
 	return dedupeGenericCandidatesV85127(items)
+}
+
+type genericYtDlpFormatV85132 struct {
+	FormatID    string            `json:"format_id"`
+	FormatNote  string            `json:"format_note"`
+	URL         string            `json:"url"`
+	Ext         string            `json:"ext"`
+	Protocol    string            `json:"protocol"`
+	VCodec      string            `json:"vcodec"`
+	ACodec      string            `json:"acodec"`
+	Width       int               `json:"width"`
+	Height      int               `json:"height"`
+	FPS         float64           `json:"fps"`
+	TBR         float64           `json:"tbr"`
+	HTTPHeaders map[string]string `json:"http_headers"`
+}
+
+type genericYtDlpEntryV85132 struct {
+	ID               string                     `json:"id"`
+	Title            string                     `json:"title"`
+	FullTitle        string                     `json:"fulltitle"`
+	URL              string                     `json:"url"`
+	WebpageURL       string                     `json:"webpage_url"`
+	OriginalURL      string                     `json:"original_url"`
+	Thumbnail        string                     `json:"thumbnail"`
+	Extractor        string                     `json:"extractor"`
+	ExtractorKey     string                     `json:"extractor_key"`
+	Ext              string                     `json:"ext"`
+	VCodec           string                     `json:"vcodec"`
+	ACodec           string                     `json:"acodec"`
+	Width            int                        `json:"width"`
+	Height           int                        `json:"height"`
+	FPS              float64                    `json:"fps"`
+	Duration         float64                    `json:"duration"`
+	HTTPHeaders      map[string]string          `json:"http_headers"`
+	Formats          []genericYtDlpFormatV85132 `json:"formats"`
+	RequestedFormats []genericYtDlpFormatV85132 `json:"requested_formats"`
+	Entries          []json.RawMessage          `json:"entries"`
+	Thumbnails       []struct {
+		URL string `json:"url"`
+	} `json:"thumbnails"`
+}
+
+func parseGenericYtDlpCandidatesV85132(output, pageURL string) []genericMediaCandidateV85127 {
+	decoder := json.NewDecoder(strings.NewReader(output))
+	items := []genericMediaCandidateV85127{}
+	for {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			break
+		}
+		items = append(items, parseGenericYtDlpEntryV85132(raw, pageURL)...)
+	}
+	return dedupeGenericCandidatesV85127(items)
+}
+
+func parseGenericYtDlpEntryV85132(raw json.RawMessage, pageURL string) []genericMediaCandidateV85127 {
+	var entry genericYtDlpEntryV85132
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil
+	}
+	if len(entry.Entries) > 0 {
+		items := []genericMediaCandidateV85127{}
+		for _, child := range entry.Entries {
+			items = append(items, parseGenericYtDlpEntryV85132(child, pageURL)...)
+		}
+		return items
+	}
+
+	actionURL := firstHTTPV85132(entry.WebpageURL, entry.OriginalURL, pageURL, entry.URL)
+	if actionURL == "" {
+		return nil
+	}
+	thumbnail := firstHTTPV85132(entry.Thumbnail)
+	if thumbnail == "" {
+		for i := len(entry.Thumbnails) - 1; i >= 0; i-- {
+			if thumbnail = firstHTTPV85132(entry.Thumbnails[i].URL); thumbnail != "" {
+				break
+			}
+		}
+	}
+
+	formats := append([]genericYtDlpFormatV85132{}, entry.Formats...)
+	formats = append(formats, entry.RequestedFormats...)
+	qualities := genericYtDlpQualitiesV85132(formats)
+	preview, headers, bestWidth, bestHeight := genericYtDlpPreviewV85132(entry, formats)
+	hasVideo := entry.Width > 0 || entry.Height > 0 || ytDlpCodecPresentV85132(entry.VCodec)
+	for _, format := range formats {
+		if ytDlpCodecPresentV85132(format.VCodec) {
+			hasVideo = true
+			break
+		}
+	}
+	kind := genericMediaKindV85127(entry.URL, "")
+	if hasVideo {
+		kind = "video"
+	} else if ytDlpCodecPresentV85132(entry.ACodec) {
+		kind = "audio"
+	} else if kind == "" {
+		kind = "other"
+	}
+	title := strings.TrimSpace(firstNonEmptyV85127(entry.Title, entry.FullTitle))
+	if title == "" {
+		title = genericMediaTitleV85132(actionURL)
+	}
+	extractor := strings.TrimSpace(firstNonEmptyV85127(entry.Extractor, entry.ExtractorKey))
+	return []genericMediaCandidateV85127{{
+		ID:         strings.TrimSpace(entry.ID),
+		URL:        actionURL,
+		PreviewURL: preview,
+		Thumbnail:  thumbnail,
+		Title:      title,
+		Kind:       kind,
+		Via:        "yt-dlp",
+		Page:       pageURL,
+		Extractor:  extractor,
+		Duration:   entry.Duration,
+		Width:      firstPositiveIntV85132(entry.Width, bestWidth),
+		Height:     firstPositiveIntV85132(entry.Height, bestHeight),
+		Qualities:  qualities,
+		Headers:    headers,
+	}}
+}
+
+func genericYtDlpQualitiesV85132(formats []genericYtDlpFormatV85132) []genericMediaQualityV85132 {
+	qualities := []genericMediaQualityV85132{}
+	seen := map[string]bool{}
+	for _, format := range formats {
+		if !ytDlpCodecPresentV85132(format.VCodec) {
+			continue
+		}
+		key := strings.Join([]string{format.FormatID, strconv.Itoa(format.Width), strconv.Itoa(format.Height), strconv.FormatFloat(format.FPS, 'f', 2, 64), format.Ext}, "|")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		label := genericYtDlpQualityLabelV85132(format)
+		qualities = append(qualities, genericMediaQualityV85132{
+			Label:    label,
+			FormatID: format.FormatID,
+			Ext:      format.Ext,
+			Protocol: format.Protocol,
+			Width:    format.Width,
+			Height:   format.Height,
+			FPS:      format.FPS,
+			Bitrate:  format.TBR,
+			HasAudio: ytDlpCodecPresentV85132(format.ACodec),
+		})
+	}
+	sort.SliceStable(qualities, func(i, j int) bool {
+		if qualities[i].Height != qualities[j].Height {
+			return qualities[i].Height > qualities[j].Height
+		}
+		if qualities[i].FPS != qualities[j].FPS {
+			return qualities[i].FPS > qualities[j].FPS
+		}
+		if qualities[i].HasAudio != qualities[j].HasAudio {
+			return qualities[i].HasAudio
+		}
+		return qualities[i].Bitrate > qualities[j].Bitrate
+	})
+	if len(qualities) > 24 {
+		qualities = qualities[:24]
+	}
+	return qualities
+}
+
+func genericYtDlpQualityLabelV85132(format genericYtDlpFormatV85132) string {
+	parts := []string{}
+	if format.Height > 0 {
+		label := strconv.Itoa(format.Height) + "p"
+		if format.FPS >= 50 {
+			label += strconv.Itoa(int(format.FPS + 0.5))
+		}
+		parts = append(parts, label)
+	} else if format.Width > 0 {
+		parts = append(parts, strconv.Itoa(format.Width)+"px")
+	} else if strings.TrimSpace(format.FormatNote) != "" {
+		parts = append(parts, strings.TrimSpace(format.FormatNote))
+	} else if strings.TrimSpace(format.FormatID) != "" {
+		parts = append(parts, strings.TrimSpace(format.FormatID))
+	}
+	if strings.TrimSpace(format.Ext) != "" {
+		parts = append(parts, strings.ToUpper(strings.TrimSpace(format.Ext)))
+	}
+	if ytDlpCodecPresentV85132(format.ACodec) {
+		parts = append(parts, "audio")
+	}
+	if len(parts) == 0 {
+		return "video"
+	}
+	return strings.Join(parts, " • ")
+}
+
+func genericYtDlpPreviewV85132(entry genericYtDlpEntryV85132, formats []genericYtDlpFormatV85132) (string, map[string]string, int, int) {
+	bestURL := ""
+	bestHeaders := entry.HTTPHeaders
+	bestWidth, bestHeight := entry.Width, entry.Height
+	bestScore := float64(-1)
+	for _, format := range formats {
+		if firstHTTPV85132(format.URL) == "" || !ytDlpCodecPresentV85132(format.VCodec) {
+			continue
+		}
+		score := float64(format.Height)*1000000 + float64(format.Width)*1000 + format.TBR
+		if ytDlpCodecPresentV85132(format.ACodec) {
+			score += 10000000000
+		}
+		if score > bestScore {
+			bestScore = score
+			bestURL = format.URL
+			bestHeaders = format.HTTPHeaders
+			bestWidth, bestHeight = format.Width, format.Height
+		}
+	}
+	if bestURL == "" {
+		bestURL = firstHTTPV85132(entry.URL)
+	}
+	if len(bestHeaders) == 0 {
+		bestHeaders = entry.HTTPHeaders
+	}
+	return bestURL, bestHeaders, bestWidth, bestHeight
+}
+
+func ytDlpCodecPresentV85132(codec string) bool {
+	codec = strings.ToLower(strings.TrimSpace(codec))
+	return codec != "" && codec != "none"
+}
+
+func firstHTTPV85132(values ...string) string {
+	for _, value := range values {
+		u, err := url.Parse(strings.TrimSpace(value))
+		if err == nil && u.Hostname() != "" && (u.Scheme == "http" || u.Scheme == "https") {
+			return u.String()
+		}
+	}
+	return ""
+}
+
+func firstPositiveIntV85132(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func genericMediaTitleV85132(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return strings.TrimSpace(raw)
+	}
+	name := strings.TrimSpace(filepath.Base(strings.TrimSuffix(u.Path, "/")))
+	if decoded, err := url.PathUnescape(name); err == nil {
+		name = decoded
+	}
+	name = strings.TrimSpace(html.UnescapeString(name))
+	if name == "" || name == "." {
+		name = u.Hostname()
+	}
+	return name
 }
 
 func genericMediaKindV85127(raw, contentType string) string {

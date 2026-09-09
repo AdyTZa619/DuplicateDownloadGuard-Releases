@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -149,5 +150,85 @@ func TestCappedWriterV85127DoesNotBackpressureChildProcess(t *testing.T) {
 	}
 	if len(w.String()) != 8 || !w.truncated {
 		t.Fatalf("unexpected capped writer state len=%d truncated=%v", len(w.String()), w.truncated)
+	}
+}
+
+func TestParseGenericYtDlpCandidatesV85132KeepsVideosMetadataAndQualities(t *testing.T) {
+	output := `{"id":"one","title":"Primul video","webpage_url":"https://example.test/watch/one","thumbnail":"https://img.test/one.jpg","duration":91,"extractor":"example","formats":[{"format_id":"360","url":"https://cdn.test/one-360.mp4","ext":"mp4","vcodec":"h264","acodec":"aac","width":640,"height":360,"fps":30,"tbr":500},{"format_id":"1080","url":"https://cdn.test/one-1080.mp4","ext":"mp4","vcodec":"h264","acodec":"none","width":1920,"height":1080,"fps":60,"tbr":4200}]}
+{"id":"two","title":"Al doilea video","webpage_url":"https://example.test/watch/two","thumbnail":"https://img.test/two.jpg","formats":[{"format_id":"720","url":"https://cdn.test/two-720.mp4","ext":"mp4","vcodec":"h264","acodec":"aac","width":1280,"height":720,"fps":30,"tbr":1800}]}`
+	items := parseGenericYtDlpCandidatesV85132(output, "https://example.test/playlist")
+	if len(items) != 2 {
+		t.Fatalf("expected two logical videos, got %#v", items)
+	}
+	byID := map[string]genericMediaCandidateV85127{}
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	one := byID["one"]
+	if one.Title != "Primul video" || one.Thumbnail != "https://img.test/one.jpg" || one.Kind != "video" || one.Via != "yt-dlp" {
+		t.Fatalf("metadata lost: %#v", one)
+	}
+	if one.PreviewURL != "https://cdn.test/one-360.mp4" {
+		t.Fatalf("preview should prefer a directly playable audio+video format, got %q", one.PreviewURL)
+	}
+	if len(one.Qualities) != 2 || one.Qualities[0].Height != 1080 || one.Qualities[1].Height != 360 {
+		t.Fatalf("qualities were not preserved/sorted: %#v", one.Qualities)
+	}
+	if one.Qualities[0].HasAudio || !one.Qualities[1].HasAudio {
+		t.Fatalf("audio availability was not preserved: %#v", one.Qualities)
+	}
+}
+
+func TestParseGenericYtDlpCandidatesV85132DoesNotCallThumbnailVideo(t *testing.T) {
+	output := `{"id":"photo","title":"Imagine","webpage_url":"https://example.test/photo","url":"https://img.test/photo.jpg","thumbnail":"https://img.test/thumb.jpg","vcodec":"none","acodec":"none","formats":[]}`
+	items := parseGenericYtDlpCandidatesV85132(output, "https://example.test/gallery")
+	if len(items) != 1 {
+		t.Fatalf("expected one logical item, got %#v", items)
+	}
+	if items[0].Kind != "image" {
+		t.Fatalf("image-only entry must remain an image, not become a video: %#v", items[0])
+	}
+}
+
+func TestRegisterGenericMediaPreviewV85132HidesRequestHeaders(t *testing.T) {
+	item := registerGenericMediaPreviewV85132(genericMediaCandidateV85127{
+		URL:     "https://example.test/watch",
+		Headers: map[string]string{"Referer": "https://example.test/", "Cookie": "secret=1"},
+	}, 0)
+	b, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Token == "" || strings.Contains(string(b), "secret=1") || strings.Contains(string(b), "Referer") {
+		t.Fatalf("preview token/header boundary invalid: %s", b)
+	}
+}
+
+func TestGenericMediaPreviewV85132ForwardsRangeAndReferer(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "bytes=2-5" {
+			t.Errorf("range not forwarded: %q", r.Header.Get("Range"))
+		}
+		if r.Referer() != "https://example.test/watch" {
+			t.Errorf("referer not forwarded: %q", r.Referer())
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 2-5/8")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("2345"))
+	}))
+	defer upstream.Close()
+
+	item := registerGenericMediaPreviewV85132(genericMediaCandidateV85127{
+		URL:        "https://example.test/watch",
+		PreviewURL: upstream.URL + "/video.mp4",
+		Page:       "https://example.test/watch",
+	}, 0)
+	req := httptest.NewRequest(http.MethodGet, "/api/generic-media/preview?token="+item.Token+"&asset=media", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rec := httptest.NewRecorder()
+	(&App{}).handleGenericMediaPreviewV85132(rec, req)
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" || rec.Header().Get("Content-Type") != "video/mp4" {
+		t.Fatalf("unexpected proxied preview: code=%d type=%q body=%q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
 }
