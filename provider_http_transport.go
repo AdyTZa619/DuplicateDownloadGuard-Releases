@@ -394,7 +394,7 @@ func ensureGalleryProviderContextV86(parent context.Context, sourceURL string) e
 	if at := providerSourceAtV86[sourceURL]; !at.IsZero() && time.Since(at) < 10*time.Minute {
 		return nil
 	}
-	exe := detectGalleryDLForProviderV86()
+	exe := preferredGalleryDLProviderV8560()
 	if exe == "" {
 		return errors.New("gallery-dl lipsește pentru contextul HTTP al providerului")
 	}
@@ -413,7 +413,11 @@ func ensureGalleryProviderContextV86(parent context.Context, sourceURL string) e
 	// message can be parsed incrementally even for albums with thousands of files.
 	// output.private exposes extractor-provided _http_headers such as Bunkr's
 	// required per-file Referer. Cookies are exported to a temporary file only.
-	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true", "--cookies-export", cookiePath, sourceURL}
+	args := []string{"-J", "--no-colors", "-o", "output.private=true", "-o", "output.jsonl=true", "--cookies-export", cookiePath}
+	if providerSourceLabelV86(sourceURL) == "BUNKR" {
+		args = append(args, "-o", "extractor.bunkr.tlds=true")
+	}
+	args = append(args, sourceURL)
 	cmd := exec.CommandContext(ctx, exe, args...)
 	hideChildWindow(cmd)
 	output, err := cmd.Output()

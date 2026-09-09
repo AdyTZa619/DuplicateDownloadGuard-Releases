@@ -3,10 +3,11 @@ name: DDG validation
 on:
   push:
     branches:
+      - 'feature/**'
       - 'fix/**'
       - 'release/**'
   pull_request:
-    branches: [main]
+    branches: [main, testing]
 
 permissions:
   contents: read
@@ -22,39 +23,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare version + verify changelog
+      - name: Prepare validation context
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path VERSION)) { throw 'VERSION lipsește.' }
-          if (-not (Test-Path CHANGELOG.md)) { throw 'CHANGELOG.md lipsește.' }
           $version = (Get-Content -Raw VERSION).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION invalid: $version" }
-          $changelog = Get-Content -Raw CHANGELOG.md
-          if (-not $changelog.Contains("## [$version]")) { throw "CHANGELOG.md nu conține secțiunea ## [$version]" }
 
-          # Execute the same changelog-section and release-notes logic used by
-          # build-release.yml, so PowerShell/parser regressions are caught in PR CI.
-          $escapedVersion = [regex]::Escape($version)
-          $section = [regex]::Match($changelog, "(?ms)^## \[$escapedVersion\][^\r\n]*\r?\n(?<body>.*?)(?=^## \[|\z)")
-          if (-not $section.Success) { throw "Nu pot extrage jurnalul pentru $version." }
-          $bullets = [regex]::Matches($section.Groups['body'].Value, '(?m)^- (.+)$') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 6
-          if ($bullets.Count -gt 0) {
-            $notesPreview = "Noutăți ${version}: " + ($bullets -join ' • ')
+          $isRelease = ($env:GITHUB_REF -like 'refs/heads/release/*') -or (($env:GITHUB_EVENT_NAME -eq 'pull_request') -and ($env:GITHUB_BASE_REF -eq 'main'))
+          if ($isRelease) {
+            if (-not (Test-Path CHANGELOG.md)) { throw 'CHANGELOG.md lipsește.' }
+            $changelog = Get-Content -Raw CHANGELOG.md
+            if (-not $changelog.Contains("## [$version]")) { throw "CHANGELOG.md nu conține secțiunea ## [$version]" }
+
+            $escapedVersion = [regex]::Escape($version)
+            $section = [regex]::Match($changelog, "(?ms)^## \[$escapedVersion\][^\r\n]*\r?\n(?<body>.*?)(?=^## \[|\z)")
+            if (-not $section.Success) { throw "Nu pot extrage jurnalul pentru $version." }
+            $bullets = [regex]::Matches($section.Groups['body'].Value, '(?m)^- (.+)$') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 6
+            if ($bullets.Count -gt 0) {
+              $notesPreview = "Noutăți ${version}: " + ($bullets -join ' • ')
+            } else {
+              $notesPreview = "Noutăți $version — vezi CHANGELOG.md"
+            }
+            if ([string]::IsNullOrWhiteSpace($notesPreview)) { throw 'Rezumatul updaterului este gol.' }
+            Write-Host $notesPreview
+
+            $main = Get-Content -Raw main.go
+            $pattern = 'const appVersion = "[^"]+"'
+            if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
+            $replacement = 'const appVersion = "' + $version + ' Pro Smart Media Guard"'
+            $main = [regex]::Replace($main, $pattern, $replacement, 1)
+            [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
+            Write-Host "Validare release $version cu jurnal prezent."
           } else {
-            $notesPreview = "Noutăți $version — vezi CHANGELOG.md"
+            Write-Host "Validare feature/testing: nu blochez testele pe jurnalul unei versiuni Stable vechi ($version)."
           }
-          if ([string]::IsNullOrWhiteSpace($notesPreview)) { throw 'Rezumatul updaterului este gol.' }
-          Write-Host $notesPreview
 
-          $main = Get-Content -Raw main.go
-          $pattern = 'const appVersion = "[^"]+"'
-          if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
-          $replacement = 'const appVersion = "' + $version + ' Pro Smart Media Guard"'
-          $main = [regex]::Replace($main, $pattern, $replacement, 1)
-          [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
           "DDG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Validare release $version cu jurnal prezent."
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -66,9 +72,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $bad = @()
-          Get-ChildItem -Filter *.go | ForEach-Object {
-            $out = gofmt -l $_.FullName
-            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($_.FullName)" }
+          $goFiles = @(Get-ChildItem -Path . -Recurse -Filter *.go -File | Where-Object { $_.FullName -notmatch '[\\/]vendor[\\/]' })
+          foreach ($file in $goFiles) {
+            $out = gofmt -l $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "gofmt failed: $($file.FullName)" }
             if ($out) { $bad += $out }
           }
           if ($bad.Count -gt 0) {
@@ -81,12 +88,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          $scripts = @(Get-ChildItem -Path web -Recurse -Filter *.js -File)
           if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
           foreach ($script in $scripts) {
             Write-Host "node --check $($script.FullName)"
             node --check $script.FullName
-            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.FullName)" }
+          }
+          $jsTests = @(Get-ChildItem -Path web/tests -Filter *.test.js -File -ErrorAction SilentlyContinue)
+          foreach ($test in $jsTests) {
+            node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript behavior test failed: $($test.Name)" }
           }
 
       - name: Tests

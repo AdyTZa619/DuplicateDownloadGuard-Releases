@@ -672,7 +672,13 @@ func (c *megaPreviewControllerV8526) preparePerFile(job *megaPreviewJobV8526) {
 		c.mu.Unlock()
 		return
 	}
+	// Several rapid A/B/C selections intentionally share the same source
+	// session while their short per-file jobs queue behind the MEGA gate. Keep
+	// the shared executable field under the controller lock; the previous
+	// unlocked read raced with another queued job publishing the detected path.
+	c.mu.Lock()
 	exe := strings.TrimSpace(svc.exe)
+	c.mu.Unlock()
 	if exe == "" {
 		exe = strings.TrimSpace(c.ops.detectExe())
 	}

@@ -15,6 +15,25 @@ var (
 	appStopOnce   sync.Once
 )
 
+const (
+	// Slow fallback: if Edge loses/recreates its app window in an unusual way,
+	// keep the conservative protection that avoids killing a healthy backend.
+	uiWatchdogMissingWindowTicksV85112 = 90
+	// TEST122: a real click on X destroys the already-latched native HWND. Once
+	// that exact handle is gone and no replacement DDG window exists, a short
+	// two-second grace is enough to distinguish a real close from a reload.
+	uiNativeCloseGraceV85122 = 2 * time.Second
+	// TEST132: Edge does not guarantee that pagehide/sendBeacon is delivered
+	// when its --app window is closed.  The native HWND is the authoritative
+	// signal in that case.  Require several consecutive observations so a very
+	// short shell recreation can still recover without losing the backend.
+	uiNativeWindowGoneTicksV85132 = 3
+	// Normal close must not leave the backend visible in Task Manager for tens
+	// of seconds merely because MEGAcmd's control pipe is wedged.
+	uiShutdownMegaBudgetV85132       = 2 * time.Second
+	uiShutdownPreviewLogBudgetV85132 = 750 * time.Millisecond
+)
+
 func (a *App) handleUIHeartbeat(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixNano()
 	uiHeartbeatNS.Store(now)
@@ -36,14 +55,48 @@ func (a *App) handleUIExitHint(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// startUIWatchdog terminates the local backend after the app-mode UI has gone
-// away. pagehide gives a fast close path, while the heartbeat fallback is kept
-// deliberately generous because Edge can throttle timers when minimized and a
-// sleeping Windows machine can resume after a long wall-clock gap.
+// shouldStopUIWatchdogV85112 is the conservative fallback. It is deliberately
+// slow because it covers situations where Edge/GPU/desktop switching can make
+// window enumeration temporarily unreliable.
+func shouldStopUIWatchdogV85112(now time.Time, lastNS, hintNS int64, windowPresent bool, missingWindowTicks int) bool {
+	if lastNS <= 0 || windowPresent || missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
+		return false
+	}
+	if hintNS <= 0 {
+		return false
+	}
+
+	hint := time.Unix(0, hintNS)
+	return lastNS <= hintNS && now.Sub(hint) > 30*time.Second
+}
+
+func shouldStopNativeCloseV85122(now time.Time, lastNS, hintNS int64, windowPresent, exactWindowDestroyed bool) bool {
+	if lastNS <= 0 || hintNS <= 0 || windowPresent || !exactWindowDestroyed {
+		return false
+	}
+	if lastNS > hintNS {
+		return false
+	}
+	return now.Sub(time.Unix(0, hintNS)) >= uiNativeCloseGraceV85122
+}
+
+func shouldStopNativeWindowGoneV85132(windowPresent, exactWindowDestroyed bool, goneTicks int) bool {
+	return !windowPresent && exactWindowDestroyed && goneTicks >= uiNativeWindowGoneTicksV85132
+}
+
+// startUIWatchdog has two paths:
+//  1. fast, high-confidence graceful close when the exact HWND that DDG had
+//     latched is destroyed and no replacement DDG window exists;
+//  2. the old conservative 90-second fallback for uncertain Edge states.
+//
+// This makes X close DDG promptly without reintroducing the OFFLINE regression
+// caused by renderer reloads/minimize/sleep.
 func startUIWatchdog(stop chan<- struct{}) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+		missingWindowTicks := 0
+		nativeWindowGoneTicks := 0
 		for now := range ticker.C {
 			if !uiSeen.Load() {
 				continue
@@ -52,16 +105,44 @@ func startUIWatchdog(stop chan<- struct{}) {
 			if lastNS <= 0 {
 				continue
 			}
-			last := time.Unix(0, lastNS)
-			hintNS := uiExitHintNS.Load()
-			shouldStop := now.Sub(last) > 90*time.Second
-			if hintNS > 0 {
-				hint := time.Unix(0, hintNS)
-				// If no heartbeat newer than pagehide arrived, this was a real
-				// window close rather than a reload/navigation.
-				shouldStop = lastNS <= hintNS && now.Sub(hint) > 4*time.Second
+
+			exactWindowDestroyed := ddgNativeWindowDefinitelyClosedV85122()
+			windowPresent := ddgAppWindowPresentNative()
+			if windowPresent {
+				missingWindowTicks = 0
+				nativeWindowGoneTicks = 0
+			} else if missingWindowTicks < uiWatchdogMissingWindowTicksV85112 {
+				missingWindowTicks++
+				if exactWindowDestroyed {
+					nativeWindowGoneTicks++
+				} else {
+					nativeWindowGoneTicks = 0
+				}
 			}
-			if shouldStop {
+
+			hintNS := uiExitHintNS.Load()
+			if shouldStopNativeWindowGoneV85132(windowPresent, exactWindowDestroyed, nativeWindowGoneTicks) {
+				writeBackendExitDiagnosticV85119("ui_native_window_destroyed_without_beacon", now, lastNS, hintNS, windowPresent, missingWindowTicks)
+				appStopOnce.Do(func() {
+					select {
+					case stop <- struct{}{}:
+					default:
+					}
+				})
+				return
+			}
+			if shouldStopNativeCloseV85122(now, lastNS, hintNS, windowPresent, exactWindowDestroyed) {
+				writeBackendExitDiagnosticV85119("ui_native_window_confirmed_close", now, lastNS, hintNS, windowPresent, missingWindowTicks)
+				appStopOnce.Do(func() {
+					select {
+					case stop <- struct{}{}:
+					default:
+					}
+				})
+				return
+			}
+			if shouldStopUIWatchdogV85112(now, lastNS, hintNS, windowPresent, missingWindowTicks) {
+				writeBackendExitDiagnosticV85119("ui_watchdog_confirmed_close", now, lastNS, hintNS, windowPresent, missingWindowTicks)
 				appStopOnce.Do(func() {
 					select {
 					case stop <- struct{}{}:
@@ -83,7 +164,7 @@ func startUIWatchdog(stop chan<- struct{}) {
 // did replace a previous session, the old session is still restored exactly as
 // before.
 func settleMegaOnShutdown(a *App) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), uiShutdownMegaBudgetV85132)
 	defer cancel()
 	if err := acquireMegaSession(ctx); err != nil {
 		a.logf("MEGA shutdown: sesiunea nu s-a eliberat la timp: %v", err)
@@ -103,17 +184,12 @@ func settleMegaOnShutdown(a *App) {
 	if !st.Active || st.Exe == "" {
 		return
 	}
-	// No previous MEGA account/session existed when DDG opened this public
-	// folder. Do not log out the folder just to log it back in on the next run.
-	// The hint contains only the public URL, never a MEGA session token.
 	if st.PreviousSession == "" && st.SourceURL != "" {
 		a.saveMegaPreviewRestartHintV859(st.SourceURL)
 		a.logf("MEGA shutdown: sesiunea folderului public a rămas activă pentru preview rapid la următoarea pornire")
 		return
 	}
 
-	// A real previous session existed. Preserve the public-folder cache but put
-	// MEGAcmd back exactly where the user had it before DDG opened the folder.
 	a.clearMegaPreviewRestartHintV859()
 	_, _ = runMegaControlTimed(ctx, 4*time.Second, st.Exe, "logout", "--keep-session")
 	if st.PreviousSession != "" && ctx.Err() == nil {
@@ -131,7 +207,9 @@ func shutdownApp(a *App) {
 		return
 	}
 
-	// Stop a scan/tool operation first.
+	// Stop a scan/tool operation first. exec.CommandContext children use the
+	// Windows tree-kill cancellation path, so gallery-dl/yt-dlp cannot keep DDG
+	// alive after the user closes the app.
 	a.mu.Lock()
 	cancel := a.cancel
 	a.cancel = nil
@@ -168,18 +246,23 @@ func shutdownApp(a *App) {
 		q.save(a)
 	}
 
-	// Stop WebDAV cleanly and preserve/restore the appropriate MEGA session.
 	settleMegaOnShutdown(a)
-
-	// aria2 is a long-lived helper. Stop it explicitly instead of leaving an
-	// orphan until Windows notices the parent process disappeared.
 	shutdownAriaRPC(a)
 
-	// Defensive final timer cleanup for the no-preview path.
 	a.previewMu.Lock()
 	if a.previewTTL != nil {
 		a.previewTTL.Stop()
 		a.previewTTL = nil
 	}
 	a.previewMu.Unlock()
+
+	// TEST122: recovery is intentionally detached so it can survive a crash,
+	// but a normal X-close is not a crash. Kill only the recovery helper that
+	// lives under THIS portable installation, otherwise Windows keeps an extra
+	// DuplicateDownloadGuard.recovery_*.exe process for up to 30 minutes.
+	stopRecoveryHelpersForAppDirV85122(a.appDir)
+
+	// Persist all preview diagnostics accepted before close and prevent their
+	// background worker from touching portable files after shutdown completes.
+	_ = flushLocalPreviewLogsV85130(uiShutdownPreviewLogBudgetV85132)
 }

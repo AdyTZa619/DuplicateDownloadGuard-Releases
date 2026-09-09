@@ -1,0 +1,311 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// TEST v8.5.102+: LOCAL preview must not wait behind App.mu. The diagnostic
+// evidence from TEST .101 showed auth waits of 6.7s and 29.7s even though
+// os.Stat/read took milliseconds. Preview authorization therefore uses a small
+// config-root snapshot that is independent from the global application mutex.
+// If a path is not covered by the configured roots, TryRLock provides a safe
+// exact-index fallback without ever blocking the media request.
+
+type localPreviewRootSnapshotV85102 struct {
+	mu     sync.Mutex
+	stamp  int64
+	size   int64
+	loaded bool
+	roots  []string
+}
+
+var localPreviewRootSnapshotsV85102 sync.Map // map[*App]*localPreviewRootSnapshotV85102
+
+// LOCAL preview diagnostics are deliberately isolated from App.logf. App.logf
+// takes App.mu as a writer; when a long reader is active, a waiting writer can
+// make subsequent readers queue behind it. That was able to stall results,
+// selection calls and REMOTE preview while diagnostic messages were waiting.
+// Capture the timestamp at the event, queue it, then use TryLock retries only.
+type localPreviewLogEntryV85102 struct {
+	a    *App
+	line string
+	done chan struct{}
+}
+
+var localPreviewLogStateV85102 = struct {
+	once   sync.Once
+	q      chan localPreviewLogEntryV85102
+	fileMu sync.Mutex
+}{q: make(chan localPreviewLogEntryV85102, 2048)}
+
+func appendLocalPreviewJournalV85104(a *App, line string) bool {
+	if a == nil || strings.TrimSpace(line) == "" {
+		return false
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if a.mu.TryLock() {
+			a.logs = append(a.logs, line)
+			if len(a.logs) > 1500 {
+				a.logs = a.logs[len(a.logs)-1500:]
+			}
+			a.mu.Unlock()
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func writeLocalPreviewLogFileV85104(a *App, line string) {
+	if a == nil || strings.TrimSpace(line) == "" {
+		return
+	}
+	localPreviewLogStateV85102.fileMu.Lock()
+	defer localPreviewLogStateV85102.fileMu.Unlock()
+	lp := a.logPath()
+	if st, err := os.Stat(lp); err == nil && st.Size() > 5<<20 {
+		_ = os.Remove(lp + ".old")
+		_ = os.Rename(lp, lp+".old")
+	}
+	if f, err := os.OpenFile(lp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+		_, _ = fmt.Fprintln(f, time.Now().Format("2006-01-02 ")+line)
+		_ = f.Close()
+	}
+}
+
+func startLocalPreviewLogWorkerV85102() {
+	go func() {
+		for entry := range localPreviewLogStateV85102.q {
+			if entry.done != nil {
+				close(entry.done)
+				continue
+			}
+			if entry.a == nil {
+				continue
+			}
+			// Never queue a blocking App.mu writer. If the journal is busy for a
+			// long time, the file still receives the diagnostic with its original
+			// event timestamp.
+			_ = appendLocalPreviewJournalV85104(entry.a, entry.line)
+			writeLocalPreviewLogFileV85104(entry.a, entry.line)
+		}
+	}()
+}
+
+// flushLocalPreviewLogsV85130 is a FIFO barrier for graceful shutdown and
+// tests. It guarantees that diagnostics already accepted by the queue no
+// longer touch the installation directory after it returns.
+func flushLocalPreviewLogsV85130(timeout time.Duration) bool {
+	localPreviewLogStateV85102.once.Do(startLocalPreviewLogWorkerV85102)
+	done := make(chan struct{})
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case localPreviewLogStateV85102.q <- localPreviewLogEntryV85102{done: done}:
+	case <-timer.C:
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func localPreviewLogfV85102(a *App, format string, args ...any) {
+	if a == nil || strings.TrimSpace(format) == "" {
+		return
+	}
+	localPreviewLogStateV85102.once.Do(startLocalPreviewLogWorkerV85102)
+	line := time.Now().Format("15:04:05") + "  " + fmt.Sprintf(format, args...)
+	select {
+	case localPreviewLogStateV85102.q <- localPreviewLogEntryV85102{a: a, line: line}:
+	default:
+		// Diagnostics must never block media or UI work. If the queue is full,
+		// preserve the event on disk asynchronously and skip the in-memory ring.
+		go writeLocalPreviewLogFileV85104(a, line)
+	}
+}
+
+func localPreviewRootStateV85102(a *App) *localPreviewRootSnapshotV85102 {
+	if raw, ok := localPreviewRootSnapshotsV85102.Load(a); ok {
+		return raw.(*localPreviewRootSnapshotV85102)
+	}
+	st := &localPreviewRootSnapshotV85102{}
+	actual, _ := localPreviewRootSnapshotsV85102.LoadOrStore(a, st)
+	return actual.(*localPreviewRootSnapshotV85102)
+}
+
+func normalizeLocalPreviewRootsV85102(paths []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(paths))
+	for _, raw := range paths {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(filepath.Clean(p)); err == nil {
+			p = abs
+		} else {
+			p = filepath.Clean(p)
+		}
+		key := pathKey(p)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func (a *App) localPreviewRootsV85102() []string {
+	if a == nil {
+		return nil
+	}
+	st := localPreviewRootStateV85102(a)
+	configPath := a.configPath()
+	info, statErr := os.Stat(configPath)
+	stamp, size := int64(-1), int64(-1)
+	if statErr == nil {
+		stamp = info.ModTime().UnixNano()
+		size = info.Size()
+	}
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.loaded && st.stamp == stamp && st.size == size {
+		return append([]string(nil), st.roots...)
+	}
+
+	type diskConfig struct {
+		LocalPaths  []string `json:"localPaths"`
+		DownloadDir string   `json:"downloadDir"`
+	}
+	var cfg diskConfig
+	if b, err := os.ReadFile(configPath); err == nil {
+		_ = json.Unmarshal(b, &cfg)
+	}
+	paths := append([]string(nil), cfg.LocalPaths...)
+	paths = append(paths, cfg.DownloadDir)
+	if strings.TrimSpace(cfg.DownloadDir) == "" {
+		paths = append(paths, portableDownloadsDir())
+	}
+	// appDir is always trusted for DDG-owned temporary/generated media.
+	paths = append(paths, a.appDir)
+	st.roots = normalizeLocalPreviewRootsV85102(paths)
+	st.stamp = stamp
+	st.size = size
+	st.loaded = true
+	return append([]string(nil), st.roots...)
+}
+
+func (a *App) localPreviewPathAllowedV85102(p string) bool {
+	p = strings.TrimSpace(p)
+	if a == nil || p == "" {
+		return false
+	}
+	ap, err := filepath.Abs(filepath.Clean(p))
+	if err != nil {
+		return false
+	}
+	for _, root := range a.localPreviewRootsV85102() {
+		if isUnder(ap, root) {
+			return true
+		}
+	}
+
+	// Exact fallback for legacy index entries outside current roots. Crucially,
+	// this never waits for a long writer on App.mu.
+	if !a.mu.TryRLock() {
+		return false
+	}
+	defer a.mu.RUnlock()
+	if _, ok := a.index[ap]; ok {
+		return true
+	}
+	if _, ok := a.index[p]; ok {
+		return true
+	}
+	for _, x := range a.results {
+		if x.LocalPath == p || x.LocalPath == ap {
+			return true
+		}
+	}
+	return false
+}
+
+// Dedicated LOCAL media origin. The main DDG origin also carries heartbeat,
+// logs and API calls that can all queue behind App.mu. Chromium/WebView limits
+// connections per origin, so LOCAL media bytes get their own loopback listener
+// just like the MEGA media path already does.
+type localPreviewDedicatedStateV85102 struct {
+	once sync.Once
+	base string
+	err  error
+}
+
+var localPreviewDedicatedStatesV85102 sync.Map // map[*App]*localPreviewDedicatedStateV85102
+
+func localPreviewDedicatedStateForV85102(a *App) *localPreviewDedicatedStateV85102 {
+	if raw, ok := localPreviewDedicatedStatesV85102.Load(a); ok {
+		return raw.(*localPreviewDedicatedStateV85102)
+	}
+	st := &localPreviewDedicatedStateV85102{}
+	actual, _ := localPreviewDedicatedStatesV85102.LoadOrStore(a, st)
+	return actual.(*localPreviewDedicatedStateV85102)
+}
+
+func (a *App) ensureLocalPreviewDedicatedV85102() (string, error) {
+	if a == nil {
+		return "", errors.New("aplicație indisponibilă")
+	}
+	st := localPreviewDedicatedStateForV85102(a)
+	st.once.Do(func() {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			st.err = err
+			return
+		}
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/local-preview", a.handleLocalPreviewDiagV8599)
+		mux.HandleFunc("/api/local-preview-buffered", a.handleLocalPreviewBufferedV8599)
+		h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Timing-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			mux.ServeHTTP(w, r)
+		})
+		srv := &http.Server{Handler: h}
+		st.base = "http://" + ln.Addr().String()
+		go func() {
+			_ = srv.Serve(ln)
+		}()
+		localPreviewLogfV85102(a, "LOCAL Preview media listener dedicat: %s", st.base)
+	})
+	return st.base, st.err
+}
+
+func (a *App) handleLocalPreviewBaseV85102(w http.ResponseWriter, r *http.Request) {
+	base, err := a.ensureLocalPreviewDedicatedV85102()
+	if err != nil || strings.TrimSpace(base) == "" {
+		if err == nil {
+			err = errors.New("listener LOCAL indisponibil")
+		}
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	jsonOut(w, map[string]any{"ok": true, "base": base, "mode": "dedicated-direct-local-media"})
+}

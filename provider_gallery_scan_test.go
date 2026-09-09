@@ -61,7 +61,7 @@ func TestParseGalleryRemoteItemsIgnoresQueueMessagesV86(t *testing.T) {
 }
 
 func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
-	output := `[3,"https://cdn.bunkr.si/path/clip.mp4?token=x",{"name":"clip","extension":"mp4","size":999,"id_url":"42","album_name":"Album X"}]` + "\n"
+	output := `[3,"https://cdn.bunkr.si/path/clip.mp4?token=x",{"name":"clip","extension":"mp4","size":999,"id_url":"42","slug":"clip-public-slug","album_name":"Album X"}]` + "\n"
 	items := parseGalleryRemoteItemsV86([]byte(output), "https://bunkr.si/a/album")
 	if len(items) != 1 {
 		t.Fatalf("items=%d", len(items))
@@ -70,8 +70,29 @@ func TestParseGalleryRemoteItemsBunkrV86(t *testing.T) {
 	if it.Source != "BUNKR" || it.Name != "clip.mp4" || it.ProviderID != "42" || it.Size != 999 {
 		t.Fatalf("unexpected Bunkr item: %+v", it)
 	}
+	if it.Handle != "clip-public-slug" {
+		t.Fatalf("Bunkr public media slug missing: %+v", it)
+	}
 	if !strings.Contains(filepathSlashForTestV86(it.Path), "Album X/clip.mp4") {
 		t.Fatalf("album path missing: %q", it.Path)
+	}
+}
+
+func TestBunkrRotatingDomainScanArgsV8555(t *testing.T) {
+	args := galleryScanArgsV8555("https://bunkrrr.example/a/album", "cookies.txt")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "extractor.bunkr.tlds=true") {
+		t.Fatalf("Bunkr rotating-domain compatibility missing: %q", joined)
+	}
+	if got := providerSourceLabelV86("https://app.bunkrrr.example/a/album"); got != "BUNKR" {
+		t.Fatalf("rotating Bunkr domain detected as %q", got)
+	}
+
+	for _, raw := range []string{"https://gofile.io/d/FOLDER", "https://cyberdrop.to/a/album"} {
+		other := strings.Join(galleryScanArgsV8555(raw, "cookies.txt"), " ")
+		if strings.Contains(other, "extractor.bunkr.tlds=true") {
+			t.Fatalf("Bunkr option leaked into non-Bunkr provider %s: %q", raw, other)
+		}
 	}
 }
 
@@ -83,11 +104,14 @@ func TestParseGalleryRemoteItemsCyberdropV86(t *testing.T) {
 	}
 }
 
-func TestKnownGalleryProvidersSkipBlockingHTTPEnrichmentV86(t *testing.T) {
-	for _, source := range []string{"GOFILE", "BUNKR", "CYBERDROP"} {
+func TestKnownGalleryProviderEnrichmentPolicyV86(t *testing.T) {
+	for _, source := range []string{"GOFILE", "CYBERDROP"} {
 		if shouldEnrichGalleryHTTPV86(source) {
-			t.Fatalf("%s should not block initial scan on per-file HTTP probes", source)
+			t.Fatalf("%s should keep lazy per-file HTTP enrichment", source)
 		}
+	}
+	if !shouldEnrichGalleryHTTPV86("BUNKR") {
+		t.Fatal("BUNKR must enrich HTTP metadata so missing album sizes become real Content-Length values")
 	}
 	if !shouldEnrichGalleryHTTPV86("GALLERY-DL") {
 		t.Fatal("generic gallery-dl sources should keep legacy enrichment fallback")

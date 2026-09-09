@@ -2,6 +2,27 @@
 
 Pentru istoricul complet până la 8.5.45 vezi `CHANGELOG_HISTORY_8.5.45.md`.
 
+## [9.0.0] — 2026-09-09
+
+### Promovarea versiunii curente
+- Promovează în Stable conținutul buildului `8.5.49-test.133`, fără alte schimbări funcționale în Media Picker.
+- Include starea curentă a comparației `PE PC / LIPSĂ / DE VERIFICAT`, a previewurilor dedicate și a integrării JDownloader.
+- Păstrează oprirea aplicației și gestionarea HLS exact în forma livrată în TEST `.133`.
+- Include în Stable rutele și legăturile funcționale care anterior erau injectate numai în buildul TEST.
+- Păstrează updaterul TEST cu manifestul și EXE-ul citite din aceeași revizie Git și verificate SHA-256.
+- Păstrează `8.5.49-test.129` ca punct explicit de revenire.
+
+## [TEST130] — 2026-09-09
+
+### Finalizare și punct de revenire
+- Păstrează `8.5.49-test.129` în branchul `checkpoint/test129-results-working-20260908` ca punct explicit de revenire.
+- Întărește preview-ul pentru Erome, GoFile, Bunkr și Cyberdrop, inclusiv reîmprospătarea linkurilor CDN expirate și diagnosticele pentru erori HTTP.
+- Corectează oprirea backendului, jurnalizarea fatală, cursa din controllerul MEGA Preview și verificarea exactă a versiunii după update.
+- Calculează `PE PC / LIPSĂ / DE VERIFICAT` numai din dovezi locale curente și elimină deciziile persistente rămase fără fișier local.
+- Menține Media Picker exclusiv pentru site-uri generice; MEGA, GoFile, Bunkr, Cyberdrop și Erome folosesc fluxurile dedicate.
+- Trimite către JDownloader numai fișierele confirmate `LIPSĂ`, într-un singur request și un singur pachet; elimină bypass-ul `Trimite TOATE`.
+- Extinde CI-ul cu verificare JavaScript recursivă și teste Node de comportament.
+
 ## [8.5.48] — 2026-09-06
 
 ### Updater TEST — reparare SHA-256 și revizie fixă

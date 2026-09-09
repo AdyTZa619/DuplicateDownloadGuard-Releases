@@ -69,3 +69,110 @@ func TestSettleMegaOnShutdownClearsWarmPreview(t *testing.T) {
 		t.Fatal("MEGA preview timer survived shutdown")
 	}
 }
+
+func TestUIWatchdogDoesNotStopOnPagehideWhileWindowExistsV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-50 * time.Second).UnixNano()
+	hint := now.Add(-45 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, true, 1000) {
+		t.Fatal("pagehide must never stop DDG while the native app window still exists")
+	}
+}
+
+func TestUIWatchdogRequiresSustainedWindowAbsenceV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-50 * time.Second).UnixNano()
+	hint := now.Add(-45 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112-1) {
+		t.Fatal("a transient missing-window observation must not stop DDG")
+	}
+	if !shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a real close should stop DDG after sustained native-window absence")
+	}
+}
+
+func TestUIWatchdogFreshExitHintNeedsAgeGuardV85119(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-25 * time.Second).UnixNano()
+	hint := now.Add(-20 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a recent Edge pagehide must not kill the backend even if native-window enumeration is temporarily empty")
+	}
+}
+
+func TestUIWatchdogFreshHeartbeatCancelsPagehideV85112(t *testing.T) {
+	now := time.Now()
+	hint := now.Add(-50 * time.Second).UnixNano()
+	last := now.Add(-2 * time.Second).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("a heartbeat newer than pagehide proves the UI recovered/reloaded")
+	}
+}
+
+func TestUIWatchdogDoesNotKillMinimizedOrSuspendedWindowV85112(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-30 * time.Minute).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, 0, true, 1000) {
+		t.Fatal("stale heartbeat alone must not kill a backend whose native window still exists")
+	}
+}
+
+func TestUIWatchdogDoesNotKillIdleBackendWhenWindowEnumerationTemporarilyFailsV85115(t *testing.T) {
+	now := time.Now()
+	last := now.Add(-2 * time.Hour).UnixNano()
+	if shouldStopUIWatchdogV85112(now, last, 0, false, 10000) {
+		t.Fatal("idle/minimize/lock without an explicit pagehide hint must never stop DDG")
+	}
+}
+
+func TestUIWatchdogStillStopsAfterExplicitExitHintV85119(t *testing.T) {
+	now := time.Now()
+	hint := now.Add(-45 * time.Second).UnixNano()
+	last := now.Add(-46 * time.Second).UnixNano()
+	if !shouldStopUIWatchdogV85112(now, last, hint, false, uiWatchdogMissingWindowTicksV85112) {
+		t.Fatal("explicit old exit hint plus sustained native-window absence should stop DDG")
+	}
+}
+
+func TestNativeWindowCloseDoesNotRequirePagehideBeaconV85132(t *testing.T) {
+	if shouldStopNativeWindowGoneV85132(false, true, uiNativeWindowGoneTicksV85132-1) {
+		t.Fatal("native close must survive the short replacement grace interval")
+	}
+	if !shouldStopNativeWindowGoneV85132(false, true, uiNativeWindowGoneTicksV85132) {
+		t.Fatal("destroyed native DDG window must stop the backend even without pagehide/sendBeacon")
+	}
+}
+
+func TestNativeWindowCloseGuardRejectsReplacementOrUnlatchedWindowV85132(t *testing.T) {
+	if shouldStopNativeWindowGoneV85132(true, true, 100) {
+		t.Fatal("a replacement DDG window proves the application is still open")
+	}
+	if shouldStopNativeWindowGoneV85132(false, false, 100) {
+		t.Fatal("missing enumeration without a destroyed latched HWND is not enough to stop DDG")
+	}
+}
+
+func TestDestroyedNativeWindowRemainsLatchedAcrossWatchdogTicksV85133(t *testing.T) {
+	var latch ddgWindowLatchStateV85133
+	if !latch.observe(false, 101) {
+		t.Fatal("the first matching DDG HWND must be latched")
+	}
+
+	for tick := 1; tick <= uiNativeWindowGoneTicksV85132; tick++ {
+		if latch.observe(false, 0) {
+			t.Fatalf("destroyed window reported present on tick %d", tick)
+		}
+		if !latch.definitelyClosed() {
+			t.Fatalf("destroyed evidence was lost on tick %d", tick)
+		}
+		// startUIWatchdog calls its presence probe after its exact-close probe.
+		// This second observation must not erase the destruction evidence.
+		if latch.observe(false, 0) || !latch.definitelyClosed() {
+			t.Fatalf("presence probe erased the destroyed latch on tick %d", tick)
+		}
+	}
+
+	if !latch.observe(false, 202) || latch.definitelyClosed() {
+		t.Fatal("a replacement DDG HWND must cancel the close decision")
+	}
+}
