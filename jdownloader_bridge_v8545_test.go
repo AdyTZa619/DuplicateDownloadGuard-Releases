@@ -19,6 +19,42 @@ func TestJDownloaderGoFileUsesStablePerFileURLV8545(t *testing.T) {
 	}
 }
 
+func TestJDownloaderDedicatedProvidersUseStablePerFileURLsV85130(t *testing.T) {
+	cases := []struct {
+		remote RemoteItem
+		want   string
+	}{
+		{RemoteItem{Source: "BUNKR", URL: "https://bunkr.example/a/album", Handle: "file-handle", DirectURL: "https://cdn.example/temporary.mp4"}, "https://bunkr.example/f/file-handle"},
+		{RemoteItem{Source: "CYBERDROP", URL: "https://cyberdrop.example/a/album", ProviderID: "file-id", DirectURL: "https://cdn.example/temporary.jpg"}, "https://cyberdrop.example/f/file-id"},
+	}
+	for _, tc := range cases {
+		if got := jdownloaderURLForResultV8545(Result{Remote: tc.remote}); got != tc.want {
+			t.Fatalf("source=%s URL=%q want=%q", tc.remote.Source, got, tc.want)
+		}
+	}
+}
+
+func TestJDownloaderBackendFailSafeAllowsOnlyMissingV85130(t *testing.T) {
+	b, err := os.ReadFile("jdownloader_direct_v8550.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, marker := range []string{
+		"if decision.Verdict == guardDownload",
+		"form.Set(\"descriptions\"",
+		"form.Set(\"fnames\"",
+		"form.Set(\"package\"",
+	} {
+		if !strings.Contains(s, marker) {
+			t.Fatalf("JD backend fail-safe missing %q", marker)
+		}
+	}
+	if strings.Contains(s, "decision.Verdict == guardReview") {
+		t.Fatal("JD backend still allows REVIEW rows to bypass the missing-only rule")
+	}
+}
+
 func TestWriteJDownloaderCrawlJobIsValidJSONV8545(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "DDG.crawljob")
 	if err := writeJDownloaderCrawlJobV8545(path, []string{"https://example.com/a", "https://example.com/b"}, `H:\\Downloads`); err != nil {

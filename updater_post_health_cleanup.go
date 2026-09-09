@@ -37,7 +37,7 @@ func runningNativeUpdaterMode(args []string) bool {
 	if len(args) < 2 {
 		return false
 	}
-	return args[1] == nativeUpdaterModeArg || args[1] == nativeUpdaterCleanupModeArg
+	return args[1] == nativeUpdaterModeArg || args[1] == nativeUpdaterCleanupModeArg || args[1] == recoveryHelperModeArgV85119
 }
 
 func currentHealthConfirmed(appDir string) bool {
@@ -45,8 +45,7 @@ func currentHealthConfirmed(appDir string) bool {
 	if err != nil {
 		return false
 	}
-	health := strings.TrimSpace(string(b))
-	return health != "" && strings.HasPrefix(health, appVersion)
+	return healthMarkerMatchesVersionV85130(b, appVersion)
 }
 
 func newestUpdaterBackup(updatesDir string) string {

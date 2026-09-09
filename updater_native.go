@@ -275,16 +275,28 @@ func waitForExpectedHealth(path, version string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile(path)
-		if err == nil {
-			health := strings.TrimSpace(string(b))
-			expected := strings.TrimSpace(version)
-			if health != "" && (expected == "" || strings.HasPrefix(health, expected)) {
-				return true
-			}
+		if err == nil && healthMarkerMatchesVersionV85130(b, version) {
+			return true
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return false
+}
+
+func healthMarkerMatchesVersionV85130(marker []byte, version string) bool {
+	firstLine := strings.TrimSpace(strings.SplitN(string(marker), "\n", 2)[0])
+	if firstLine == "" {
+		return false
+	}
+	expected := strings.TrimSpace(version)
+	if expected == "" {
+		return true
+	}
+	// Online manifests contain the semantic TEST version while health.ok stores
+	// the full application label (for example "...-test.130 Pro ..."). Accept
+	// only that exact version token, never a raw prefix such as .13 matching .130.
+	return strings.EqualFold(firstLine, expected) ||
+		(len(firstLine) > len(expected) && strings.EqualFold(firstLine[:len(expected)], expected) && firstLine[len(expected)] == ' ')
 }
 
 func restoreAndStart(req nativeUpdateRequest, logUpdate func(string)) error {

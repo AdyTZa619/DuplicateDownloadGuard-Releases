@@ -25,6 +25,24 @@ func TestIsDDGAppWindowTitleStrict(t *testing.T) {
 	}
 }
 
+func TestDDGWindowPresenceTitleToleratesEdgeDecorationV85117(t *testing.T) {
+	for _, title := range []string{
+		"Duplicate Download Guard Pro",
+		"Duplicate Download Guard Pro - Microsoft Edge",
+		"Profile 1 - Duplicate Download Guard Pro - Microsoft Edge",
+		"  Duplicate Download Guard Pro  ",
+	} {
+		if !isDDGAppWindowPresenceTitle(title) {
+			t.Fatalf("presence matcher should keep backend alive for %q", title)
+		}
+	}
+	for _, title := range []string{"", "Duplicate Download Guard", "Other window"} {
+		if isDDGAppWindowPresenceTitle(title) {
+			t.Fatalf("presence matcher must reject unrelated title %q", title)
+		}
+	}
+}
+
 func TestCleanupModeIsExcludedFromWindowHandoffCleanup(t *testing.T) {
 	for _, args := range [][]string{
 		{"ddg.exe", nativeUpdaterModeArg, "request.json"},

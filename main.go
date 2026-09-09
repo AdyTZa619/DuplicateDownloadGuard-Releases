@@ -37,7 +37,7 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.48 Pro Smart Media Guard"
+const appVersion = "9.0.0 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
@@ -122,6 +122,7 @@ type Result struct {
 	Confidence     string     `json:"confidence"`
 	Remote         RemoteItem `json:"remote"`
 	LocalPath      string     `json:"localPath,omitempty"`
+	LocalPresent   bool       `json:"localPresent"`
 	Candidates     int        `json:"candidates"`
 	Reason         string     `json:"reason"`
 	Manual         bool       `json:"manual"`
@@ -240,6 +241,7 @@ type App struct {
 	index              map[string]FileEntry
 	bySize             map[int64][]string
 	byName             map[string][]string
+	byIdentity         map[string][]string
 	results            []Result
 	decisions          map[string]Decision
 	undoMarks          []MarkHistory
@@ -277,11 +279,15 @@ func main() {
 	mux.HandleFunc("/api/tools/manage", a.handleToolManage)
 	mux.HandleFunc("/api/tools/managed", a.handleManagedTools)
 	mux.HandleFunc("/api/source/batch", a.handleBatchSourceScan)
+	mux.HandleFunc("/api/generic-media/discover", a.handleGenericMediaDiscoverV85132)
+	mux.HandleFunc("/api/generic-media/preview", a.handleGenericMediaPreviewV85132)
 	mux.HandleFunc("/api/ai/status", a.handleAIStatus)
 	mux.HandleFunc("/api/ai/models", a.handleAIModels)
 	mux.HandleFunc("/api/ai/analyze", a.handleAIAnalyze)
 	mux.HandleFunc("/api/ai/pull", a.handleAIPull)
-	mux.HandleFunc("/api/queue/add", a.handleQueueAdd)
+	mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)
+	mux.HandleFunc("/api/download/jdownloader-direct", a.handleJDownloaderDirectEndpointV8551)
+	mux.HandleFunc("/api/update/native-notify", a.handleUpdateNativeNotifyV8554)
 	mux.HandleFunc("/api/queue/list", a.handleQueueList)
 	mux.HandleFunc("/api/queue/action", a.handleQueueAction)
 	mux.HandleFunc("/api/app/heartbeat", a.handleUIHeartbeat)
@@ -321,26 +327,26 @@ func main() {
 	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
 	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
-	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
+	registerLocalPreviewDiagnosticsV8599(mux, a)
 	mux.HandleFunc("/api/local-meta", a.handleLocalMeta)
 	mux.HandleFunc("/api/logs", a.handleLogs)
 	mux.HandleFunc("/api/index/stats", a.handleIndexStats)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("listener UI/API principal: %v", err)
 	}
 	addr := "http://" + ln.Addr().String()
 	controlLn, controlSrv, controlBase, err := newMegaPreviewControlServerV8532(a, addr)
 	if err != nil {
 		_ = ln.Close()
-		log.Fatal(err)
+		log.Fatalf("listener control MEGA Preview: %v", err)
 	}
 	mediaLn, mediaSrv, mediaBase, err := newMegaPreviewMediaServerV8531(a)
 	if err != nil {
 		_ = ln.Close()
 		_ = controlLn.Close()
-		log.Fatal(err)
+		log.Fatalf("listener media MEGA Preview: %v", err)
 	}
 	a.previewControlBase = controlBase
 	a.previewMediaBase = mediaBase
@@ -364,15 +370,15 @@ func main() {
 	select {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server UI/API principal oprit neașteptat: %v", err)
 		}
 	case err := <-mediaServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server media MEGA Preview oprit neașteptat: %v", err)
 		}
 	case err := <-controlServeErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			log.Fatalf("server control MEGA Preview oprit neașteptat: %v", err)
 		}
 	case <-shutdownCh:
 		a.logf("Interfața aplicației s-a închis; opresc DDG controlat")
@@ -470,7 +476,7 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	_ = migrateLegacyPortableData(dir)
-	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, decisions: map[string]Decision{}}
+	a := &App{appDir: dir, index: map[string]FileEntry{}, bySize: map[int64][]string{}, byName: map[string][]string{}, byIdentity: map[string][]string{}, decisions: map[string]Decision{}}
 	a.cfg = Config{Mode: "balanced", SampleBlocks: 9, SampleBlockKB: 512, FullVerifyMaxMB: 12, VisualImageMaxMB: 25, DownloadMethod: "auto", DownloadGuardMode: guardModeSmart, DownloadConcurrency: 2, DownloadRetries: 3, AriaConnections: 8, AIEndpoint: "http://127.0.0.1:11434", AIVision: true, UpdateManifestURL: defaultUpdateManifestURL, AutoUpdateCheck: true, LiveRefreshCompare: true}
 	_ = a.loadConfig()
 	// v8.2 uses the project repository directly; no manifest URL setup is required.
@@ -512,7 +518,15 @@ func newApp() (*App, error) {
 	if strings.TrimSpace(a.cfg.AIEndpoint) == "" {
 		a.cfg.AIEndpoint = "http://127.0.0.1:11434"
 	}
-	if strings.TrimSpace(a.cfg.DownloadDir) == "" {
+	currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
+	legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
+	windowsDownloads := ""
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		windowsDownloads = filepath.Clean(filepath.Join(home, "Downloads"))
+	}
+	if currentDownloadDir == "" ||
+		strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) ||
+		(windowsDownloads != "" && strings.EqualFold(filepath.Clean(currentDownloadDir), windowsDownloads)) {
 		a.cfg.DownloadDir = portableDownloadsDir()
 	}
 	_ = a.loadIndex()
@@ -702,9 +716,13 @@ func (a *App) saveResults() error {
 func (a *App) rebuildMaps() {
 	a.bySize = map[int64][]string{}
 	a.byName = map[string][]string{}
+	a.byIdentity = map[string][]string{}
 	for p, e := range a.index {
 		a.bySize[e.Size] = append(a.bySize[e.Size], p)
 		a.byName[strings.ToLower(e.Name)] = append(a.byName[strings.ToLower(e.Name)], p)
+		for _, token := range strongFilenameIdentityTokensV85130(e.Name) {
+			a.byIdentity[token] = append(a.byIdentity[token], p)
+		}
 	}
 }
 func (a *App) logf(format string, args ...any) {
@@ -1793,13 +1811,19 @@ func rankCandidate(remote RemoteItem, e FileEntry) Candidate {
 func enrichResult(r *Result, idx map[string]FileEntry) {
 	r.MediaKind = remoteMediaKind(r.Remote.Name)
 	r.SameSize, r.SameExt = false, false
+	r.LocalPresent = false
 	if r.LocalPath != "" {
 		if e, ok := idx[r.LocalPath]; ok {
+			r.LocalPresent = true
 			c := rankCandidate(r.Remote, e)
 			r.NameScore = c.NameScore
 			r.MatchScore = c.MatchScore
 			r.SameSize = c.SameSize
 			r.SameExt = c.SameExt
+		} else {
+			// A persisted result may outlive the indexed file it pointed at. Never
+			// expose that vanished path as current local evidence.
+			r.LocalPath = ""
 		}
 	}
 	st := r.AutoStatus
@@ -1822,9 +1846,58 @@ func enrichResult(r *Result, idx map[string]FileEntry) {
 
 func (a *App) enrichLoadedResults() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	resultsChanged := false
+	decisionsChanged := false
 	for i := range a.results {
-		enrichResult(&a.results[i], a.index)
+		r := &a.results[i]
+		oldPath := r.LocalPath
+		enrichResult(r, a.index)
+		if oldPath != "" && r.LocalPath == "" {
+			resultsChanged = true
+		}
+		if !r.Manual {
+			continue
+		}
+		key := decisionKey(r.Remote)
+		decision, ok := a.decisions[key]
+		if !ok {
+			continue
+		}
+		current := *r
+		current.Manual = false
+		current.ManualStatus = ""
+		current.ManualAt = 0
+		if r.AutoStatus != "" {
+			current.Status = r.AutoStatus
+			current.Confidence = r.AutoConfidence
+			current.Reason = r.AutoReason
+		}
+		if persistedDecisionAppliesV85130(decision, current, a.index) {
+			continue
+		}
+		if r.AutoStatus != "" {
+			r.Status = r.AutoStatus
+			r.Confidence = r.AutoConfidence
+			r.Reason = r.AutoReason
+		} else {
+			r.Status = "POSSIBLE"
+			r.Confidence = "Istoric local depășit"
+			r.Reason = "Marcajul manual vechi nu mai are dovadă locală actuală; rezultatul necesită reverificare."
+		}
+		r.Manual = false
+		r.ManualStatus = ""
+		r.ManualAt = 0
+		delete(a.decisions, key)
+		enrichResult(r, a.index)
+		resultsChanged = true
+		decisionsChanged = true
+	}
+	a.mu.Unlock()
+	if decisionsChanged {
+		_ = a.saveDecisions()
+	}
+	if resultsChanged {
+		_ = a.saveResults()
 	}
 }
 
@@ -1892,9 +1965,11 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	a.mu.RLock()
 	bySize := a.bySize
 	byName := a.byName
+	byIdentity := a.byIdentity
 	idx := a.index
 	a.mu.RUnlock()
 	res := make([]Result, 0, len(items))
+	staleDecisionKeys := map[string]bool{}
 	for i, it := range items {
 		if ctx.Err() != nil {
 			return
@@ -1902,6 +1977,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 		it.ID = i + 1
 		r := Result{ID: i + 1, Remote: it, Status: "MISSING", Confidence: "—", Reason: "Nu există candidat local cu aceeași dimensiune."}
 		nameKeys := byName[strings.ToLower(it.Name)]
+		identityKeys := identityCandidatePathsV85130(it.Name, byIdentity)
 		sameNameSameSize := ""
 		sameNameDifferent := false
 		for _, p := range nameKeys {
@@ -1954,6 +2030,21 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			r.LocalPath = best
 			r.NameScore = 100
 			r.Reason = "Există același nume local, dar dimensiunea diferă."
+		} else if len(identityKeys) > 0 {
+			best := bestResultCandidatePathV85130(it, identityKeys, idx)
+			if best != "" {
+				candidate := rankCandidate(it, idx[best])
+				r.Status = "POSSIBLE"
+				r.Confidence = "Medie • identificator comun"
+				r.LocalPath = best
+				r.NameScore = candidate.NameScore
+				r.Candidates = uniqueCandidateCountV85130(candidates, identityKeys)
+				if candidate.SameSize {
+					r.Reason = "Există un fișier local cu același identificator stabil în nume și exact același număr de bytes. Este candidat local, nu fișier lipsă; confirmarea bit-cu-bit necesită Smart Verify."
+				} else {
+					r.Reason = "Există un fișier local cu același identificator stabil în nume, dar cu altă dimensiune. Poate fi o versiune redimensionată sau recompresată; necesită verificare, nu poate fi declarat lipsă."
+				}
+			}
 		} else if len(candidates) > 0 {
 			best := candidates[0]
 			bestScore := nameSimilarity(it.Name, idx[best].Name)
@@ -1963,15 +2054,21 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 				}
 			}
 			r.NameScore = bestScore
-			if bestScore >= 55 {
+			bestCandidate := rankCandidate(it, idx[best])
+			if bestScore >= 55 || bestCandidate.SameExt {
 				r.Status = "POSSIBLE"
-				r.Confidence = "Medie"
 				r.LocalPath = best
+			}
+			if bestScore >= 55 {
+				r.Confidence = "Medie"
 				r.Reason = fmt.Sprintf("Aceeași dimensiune și nume suficient de apropiat; %d candidat(ți), cel mai bun nume: %d%%.", len(candidates), bestScore)
+			} else if bestCandidate.SameExt {
+				r.Confidence = "Scăzută • aceeași dimensiune și extensie"
+				r.Reason = fmt.Sprintf("Există %d fișier(e) local(e) cu exact același număr de bytes și același format, dar cu nume diferit (maxim %d%%). Fișierul rămâne DE VERIFICAT; nu este declarat lipsă fără verificarea candidatului.", len(candidates), bestScore)
 			} else {
 				r.Status = "MISSING"
-				r.Confidence = "Doar mărime — nu este potrivire"
-				r.Reason = fmt.Sprintf("Există %d fișier(e) cu aceeași dimensiune, dar numele sunt fără legătură (maxim %d%%). Nu sunt afișate ca POSIBIL; ExactGuard le verifică totuși înainte de download.", len(candidates), bestScore)
+				r.Confidence = "Doar mărime — format diferit"
+				r.Reason = fmt.Sprintf("Există %d fișier(e) cu aceeași dimensiune, dar numele și formatele sunt fără legătură (maxim %d%%). Nu sunt tratate drept copii locale.", len(candidates), bestScore)
 			}
 		}
 		if mode == "strict" && it.Hash == "" && r.Status == "HAVE" {
@@ -1983,6 +2080,10 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 		a.mu.RLock()
 		d, hasDecision := a.decisions[decisionKey(it)]
 		a.mu.RUnlock()
+		if hasDecision && !persistedDecisionAppliesV85130(d, r, idx) {
+			staleDecisionKeys[decisionKey(it)] = true
+			hasDecision = false
+		}
 		if hasDecision && (d.Status == "HAVE" || d.Status == "MISSING" || d.Status == "DIFFERENT") {
 			r.Status = d.Status
 			r.Manual = true
@@ -2010,8 +2111,16 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	}
 	a.mu.Lock()
 	a.results = res
+	for key := range staleDecisionKeys {
+		delete(a.decisions, key)
+	}
 	a.mu.Unlock()
 	a.revision.Add(1)
+	if len(staleDecisionKeys) > 0 {
+		if err := a.saveDecisions(); err != nil {
+			a.logf("Atenție: nu am putut elimina %d decizie(ii) manuală(e) depășită(e): %v", len(staleDecisionKeys), err)
+		}
+	}
 	if err := a.saveResults(); err != nil {
 		a.logf("Atenție: nu am putut salva ultima sesiune de rezultate: %v", err)
 	}
@@ -2120,8 +2229,13 @@ func buildResultSummary(src []Result) map[string]any {
 	workflow := map[string]int{}
 	bytesByStatus := map[string]int64{}
 	bytesWorkflow := map[string]int64{}
+	decision := map[string]int{}
+	bytesDecision := map[string]int64{}
 	var totalBytes int64
 	for _, x := range src {
+		bucket := resultDecisionBucketV85130(x)
+		decision[bucket]++
+		bytesDecision[bucket] += x.Remote.Size
 		effective[x.Status]++
 		auto[resultAutoStatus(x)]++
 		bytesByStatus[x.Status] += x.Remote.Size
@@ -2196,8 +2310,35 @@ func buildResultSummary(src []Result) map[string]any {
 		"workflow":      workflow,
 		"bytesByStatus": bytesByStatus,
 		"bytesWorkflow": bytesWorkflow,
+		"decision":      decision,
+		"bytesDecision": bytesDecision,
 		"reviewPercent": reviewPct,
 	}
+}
+
+func resultDecisionBucketV85130(x Result) string {
+	auto := strings.ToUpper(strings.TrimSpace(resultAutoStatus(x)))
+	status := strings.ToUpper(strings.TrimSpace(x.Status))
+	manual := strings.ToUpper(strings.TrimSpace(x.ManualStatus))
+	guard := strings.ToUpper(strings.TrimSpace(x.GuardVerdict))
+	if x.LocalPresent {
+		if guard == "DUPLICATE" || auto == "VERIFIED" || status == "VERIFIED" {
+			return "LOCAL"
+		}
+		if x.Manual && manual == "HAVE" {
+			return "LOCAL"
+		}
+		remoteName := strings.TrimSpace(filepath.Base(x.Remote.Name))
+		localName := strings.TrimSpace(filepath.Base(x.LocalPath))
+		if auto == "HAVE" && x.SameSize && (x.NameScore >= 95 || (remoteName != "" && strings.EqualFold(remoteName, localName))) {
+			return "LOCAL"
+		}
+	}
+	if guard == "DOWNLOAD" || status == "MISSING" || status == "DIFFERENT" || auto == "MISSING" || auto == "DIFFERENT" ||
+		(x.Manual && (manual == "MISSING" || manual == "DIFFERENT")) {
+		return "MISSING"
+	}
+	return "REVIEW"
 }
 
 func resultLess(a, b Result, sortBy string) bool {

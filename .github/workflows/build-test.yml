@@ -7,6 +7,9 @@ on:
       - 'test-releases/**'
       - 'update-test.json'
       - 'SHA256SUMS_TEST.txt'
+      - 'STABILITY_CONTRACT.md'
+      - 'stability/**'
+      - '.github/workflows/stability-boundary.yml'
   workflow_dispatch:
 
 permissions:
@@ -40,7 +43,11 @@ jobs:
           if (-not [regex]::IsMatch($main, $pattern)) { throw 'Nu am găsit appVersion în main.go.' }
           $replacement = 'const appVersion = "' + $testVersion + ' Pro Smart Media Guard TEST"'
           $main = [regex]::Replace($main, $pattern, $replacement, 1)
+
           [System.IO.File]::WriteAllText((Resolve-Path main.go), $main, [System.Text.UTF8Encoding]::new($false))
+
+          # Rutele și comportamentul TEST sunt parte din sursa versionată.
+          # CI schimbă numai eticheta versiunii; nu mai injectează funcții temporare.
 
           $subject = (git log -1 --pretty=%s).Trim()
           if ([string]::IsNullOrWhiteSpace($subject)) { $subject = 'build de test DDG' }
@@ -57,6 +64,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          gofmt -w main.go v8_extra.go jdownloader_direct_v8550.go update_notify_windows.go provider_bunkr_official_v8560.go provider_gallery_scan.go provider_http_transport.go local_preview_diagnostics_v8599.go local_preview_routes_v8599.go generic_media_discovery_v85127.go generic_media_discovery_v85127_test.go lifecycle.go lifecycle_test.go
+          if ($LASTEXITCODE -ne 0) { throw 'gofmt failed while normalizing TEST source patches' }
           $bad = @()
           Get-ChildItem -Filter *.go | ForEach-Object {
             $out = gofmt -l $_.FullName
@@ -67,11 +76,16 @@ jobs:
             $bad | ForEach-Object { Write-Host $_ }
             throw 'Go formatting check failed; TEST aborted'
           }
-          $scripts = @(Get-ChildItem -Path web -Filter *.js -File)
+          $scripts = @(Get-ChildItem -Path web -Filter *.js -File -Recurse)
           if ($scripts.Count -eq 0) { throw 'Nu există fișiere JavaScript în web/.' }
           foreach ($script in $scripts) {
             node --check $script.FullName
             if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.Name)" }
+          }
+          $jsTests = @(Get-ChildItem -Path web/tests -Filter *.test.js -File -ErrorAction SilentlyContinue)
+          foreach ($test in $jsTests) {
+            node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript behavior test failed: $($test.Name)" }
           }
 
       - name: Tests
@@ -92,45 +106,42 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force test-releases | Out-Null
-          $env:CGO_ENABLED = '0'
-          $env:GOOS = 'windows'
-          $env:GOARCH = 'amd64'
-          go build -trimpath -ldflags '-s -w -H=windowsgui' -o test-releases/DuplicateDownloadGuard_PRO_TEST.exe .
-          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 TEST build failed' }
-          if (-not (Test-Path 'test-releases/DuplicateDownloadGuard_PRO_TEST.exe')) { throw 'TEST EXE lipsește după build' }
+          $env:CGO_ENABLED='0'
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o DuplicateDownloadGuard_PRO_TEST.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Build Windows x64 failed; TEST aborted' }
 
       - name: Generate TEST manifest
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = 'test-releases/DuplicateDownloadGuard_PRO_TEST.exe'
-          $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
-          if ($sha -notmatch '^[0-9a-f]{64}$') { throw 'SHA-256 TEST invalid.' }
+          $sha = (Get-FileHash -Algorithm SHA256 DuplicateDownloadGuard_PRO_TEST.exe).Hash.ToLowerInvariant()
+          $size = (Get-Item DuplicateDownloadGuard_PRO_TEST.exe).Length
           $url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe'
+          $publishedAt = [DateTime]::UtcNow.ToString('o')
           $manifest = [ordered]@{
             version = $env:DDG_TEST_VERSION
             url = $url
             sha256 = $sha
-            notes = ('TEST: ' + $env:DDG_TEST_SUBJECT)
-            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            notes = "TEST: $env:DDG_TEST_SUBJECT"
+            publishedAt = $publishedAt
             channel = 'test'
-          }
-          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 update-test.json
+          } | ConvertTo-Json
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'update-test.json'), $manifest, [System.Text.UTF8Encoding]::new($false))
           "$sha  DuplicateDownloadGuard_PRO_TEST.exe" | Set-Content -Encoding ascii SHA256SUMS_TEST.txt
+          "DDG_TEST_SHA256=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DDG_TEST_SIZE=$size" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "TEST manifest: version=$env:DDG_TEST_VERSION size=$size sha256=$sha"
 
       - name: Publish TEST updater files
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force test-releases | Out-Null
+          Copy-Item DuplicateDownloadGuard_PRO_TEST.exe test-releases/DuplicateDownloadGuard_PRO_TEST.exe -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add test-releases/DuplicateDownloadGuard_PRO_TEST.exe update-test.json SHA256SUMS_TEST.txt
-          if (git diff --cached --quiet) {
-            Write-Host 'Nu sunt schimbări TEST de publicat.'
-            exit 0
-          }
           git commit -m "Publish TEST updater build $env:DDG_TEST_VERSION [skip ci]"
-          if ($LASTEXITCODE -ne 0) { throw 'git commit TEST failed' }
           git push
-          if ($LASTEXITCODE -ne 0) { throw 'git push TEST failed' }

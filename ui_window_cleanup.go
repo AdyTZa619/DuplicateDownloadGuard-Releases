@@ -11,13 +11,63 @@ const (
 	updateHandoffRequestName = "apply_update.json"
 )
 
-// isDDGAppWindowTitle is intentionally strict. During the one-time post-update
-// cleanup we only close the dedicated Edge app window whose title is exactly
-// the DDG application title. We do not match ordinary browser windows such as
-// "Duplicate Download Guard Pro - Microsoft Edge", because closing one of
-// those could also close unrelated tabs in the same browser window.
+// ddgWindowLatchStateV85133 keeps the native-close decision stable across
+// watchdog ticks. The previous implementation retained only hwnd. Once
+// ddgAppWindowPresentNative cleared an invalid handle, the following tick could
+// no longer prove that a real, previously observed DDG window had been
+// destroyed. That made the three-tick close confirmation impossible.
+type ddgWindowLatchStateV85133 struct {
+	hwnd      uintptr
+	seen      bool
+	destroyed bool
+}
+
+func (s *ddgWindowLatchStateV85133) observe(handleValid bool, replacement uintptr) bool {
+	if s == nil {
+		return false
+	}
+	if s.hwnd != 0 && handleValid {
+		s.seen = true
+		s.destroyed = false
+		return true
+	}
+	if s.hwnd != 0 {
+		s.seen = true
+		s.destroyed = true
+		s.hwnd = 0
+	}
+	if replacement != 0 {
+		s.hwnd = replacement
+		s.seen = true
+		s.destroyed = false
+		return true
+	}
+	return false
+}
+
+func (s *ddgWindowLatchStateV85133) definitelyClosed() bool {
+	return s != nil && s.seen && s.hwnd == 0 && s.destroyed
+}
+
+// isDDGAppWindowTitle is intentionally strict and is used only during ordinary
+// startup cleanup. We must never close a normal browser window just because one
+// tab happens to contain DDG text.
 func isDDGAppWindowTitle(title string) bool {
 	return strings.EqualFold(strings.TrimSpace(title), ddgAppWindowTitle)
+}
+
+// isDDGAppWindowPresenceTitle is deliberately more tolerant than the cleanup
+// matcher. Edge can temporarily decorate an --app window title (for example
+// with a browser/profile suffix) while minimized, suspended, restored or while
+// the renderer is being recreated. For lifecycle presence detection a false
+// positive is harmless (the backend stays alive a little longer), while a
+// false negative can kill a healthy backend and leave the visible UI offline.
+func isDDGAppWindowPresenceTitle(title string) bool {
+	t := strings.ToLower(strings.TrimSpace(title))
+	if t == "" {
+		return false
+	}
+	return strings.Contains(t, strings.ToLower(ddgAppWindowTitle))
 }
 
 func updateHandoffMarkerPathForRoot(root string) string {
@@ -33,19 +83,35 @@ func postUpdateHandoffPending() bool {
 	return updateHandoffPendingAtRoot(executableDir())
 }
 
-// The native updater keeps apply_update.json until the freshly started version
-// writes its health marker. That gives the new executable a safe, precise way
-// to know it is a post-update launch. The previous backend is already gone at
-// this point, but its Edge --app window may still be visible. Close that stale
-// window before main() opens the new UI.
+// Normal DDG launches are single-instance per portable installation. During an
+// updater handoff, the previous backend has intentionally exited but its Edge
+// --app shell can survive and display a stale OFFLINE UI. TEST126 detects the
+// handoff marker and closes that tolerant DDG window before the new UI is
+// created. Updater/recovery helper modes remain independent application modes.
 func init() {
-	// Both updater helper modes run from the same freshly installed EXE. The
-	// cleanup helper must never close the normal post-update UI window.
 	if runningNativeUpdaterMode(os.Args) {
 		return
 	}
-	if !postUpdateHandoffPending() {
-		return
+
+	// Claim the per-install mutex first. A second launch must only restore the
+	// already-running healthy DDG instance and must never perform cleanup around
+	// it. TEST126's mutex is path-scoped, so an old TEST125 global mutex cannot
+	// block a successful update handoff.
+	if !claimDDGSingleInstanceNative() {
+		activateExistingDDGWindowNative()
+		os.Exit(0)
 	}
-	closeDDGAppWindowsNative()
+
+	if postUpdateHandoffPending() {
+		// apply_update.json proves this is the freshly replaced executable. The
+		// old Edge shell can carry a decorated title, so use the tolerant handoff
+		// matcher here. This is intentionally not used on ordinary launches.
+		closeDDGPresenceWindowsForHandoffNative()
+	} else {
+		closeDDGAppWindowsNative()
+	}
+
+	// Migration/recovery path for pre-single-instance backends. Kill only stale
+	// DDG processes whose full executable path is exactly this installation.
+	terminateOtherDDGProcessesSameImageNative()
 }
