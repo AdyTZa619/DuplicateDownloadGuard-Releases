@@ -25,6 +25,12 @@ func testLocalPreviewAppV8599(t *testing.T) (*App, string, []byte) {
 		index:  map[string]FileEntry{path: {Path: path, Name: filepath.Base(path), Size: int64(len(body))}},
 		appDir: dir,
 	}
+	t.Cleanup(func() {
+		if !flushLocalPreviewLogsV85130(3 * time.Second) {
+			t.Error("local preview diagnostic queue did not drain")
+		}
+		localPreviewRootSnapshotsV85102.Delete(app)
+	})
 	return app, path, body
 }
 

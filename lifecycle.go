@@ -231,4 +231,8 @@ func shutdownApp(a *App) {
 	// lives under THIS portable installation, otherwise Windows keeps an extra
 	// DuplicateDownloadGuard.recovery_*.exe process for up to 30 minutes.
 	stopRecoveryHelpersForAppDirV85122(a.appDir)
+
+	// Persist all preview diagnostics accepted before close and prevent their
+	// background worker from touching portable files after shutdown completes.
+	_ = flushLocalPreviewLogsV85130(3 * time.Second)
 }

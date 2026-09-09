@@ -102,12 +102,14 @@ func TestFolderAdvisorV2UIContractV85128(t *testing.T) {
 		"SITUAȚIE CURENTĂ",
 		"ddgDecisionTotalV85128",
 		"ddgDecisionLocalV85128",
+		"ddgDecisionReviewV85130",
 		"ddgDecisionMissingV85128",
 		"ddgDecisionSelectedV85128",
 		"ddgDecisionFolderV85128",
 		"ddg:source-scan-complete",
 		"ddg:folder-advisor-updated",
 		"lastReport",
+		"row?.localPresent !== true",
 	} {
 		if !strings.Contains(js, token) {
 			t.Fatalf("Folder Advisor v2 missing %q", token)

@@ -95,7 +95,7 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 	}
 	allowed := make(map[int]bool, len(report.Decisions))
 	for _, decision := range report.Decisions {
-		if decision.Verdict == guardDownload || (decision.Verdict == guardReview && req.AllowReview) {
+		if decision.Verdict == guardDownload {
 			allowed[decision.ResultID] = true
 		}
 	}
@@ -148,7 +148,8 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 func sendJDownloaderFlashGotV8550(r *http.Request, links, descriptions []string, destination string) error {
 	form := url.Values{}
 	form.Set("urls", strings.Join(links, "\n"))
-	form.Set("description", strings.Join(descriptions, "\n"))
+	form.Set("descriptions", strings.Join(descriptions, "\n"))
+	form.Set("fnames", strings.Join(descriptions, "\n"))
 	form.Set("package", "Duplicate Download Guard")
 	form.Set("dir", strings.TrimSpace(destination))
 	form.Set("autostart", "1")

@@ -37,7 +37,7 @@
     if (!button || busy) return;
     if (liveEngine() === 'jdownloader') {
       button.textContent = '⬇ Verifică și trimite în JDownloader';
-      button.title = 'Folosește rezultatele curente fără rescanarea HDD-urilor. Alegi recomandate, TOATE sau reverificare completă.';
+      button.title = 'Folosește rezultatele curente fără rescanarea HDD-urilor și trimite numai lipsurile, într-un singur pachet.';
     } else if (button.textContent.includes('JDownloader')) {
       button.textContent = '⬇ Descarcă';
     }

@@ -29,6 +29,16 @@ func jdownloaderURLForResultV8545(x Result) string {
 			}
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(r.Source), "BUNKR") && strings.TrimSpace(r.Handle) != "" {
+		if u, err := url.Parse(strings.TrimSpace(r.URL)); err == nil && u.Scheme != "" && u.Host != "" {
+			return u.Scheme + "://" + u.Host + "/f/" + url.PathEscape(strings.TrimSpace(r.Handle))
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Source), "CYBERDROP") && strings.TrimSpace(r.ProviderID) != "" {
+		if u, err := url.Parse(strings.TrimSpace(r.URL)); err == nil && u.Scheme != "" && u.Host != "" {
+			return u.Scheme + "://" + u.Host + "/f/" + url.PathEscape(strings.TrimSpace(r.ProviderID))
+		}
+	}
 	return resultDownloadURL(x)
 }
 

@@ -45,8 +45,7 @@ func currentHealthConfirmed(appDir string) bool {
 	if err != nil {
 		return false
 	}
-	health := strings.TrimSpace(string(b))
-	return health != "" && strings.HasPrefix(health, appVersion)
+	return healthMarkerMatchesVersionV85130(b, appVersion)
 }
 
 func newestUpdaterBackup(updatesDir string) string {

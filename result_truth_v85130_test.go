@@ -94,3 +94,62 @@ func TestNoCandidateRemainsMissingV85130(t *testing.T) {
 		t.Fatalf("absent file should remain missing, got %#v", got)
 	}
 }
+
+func TestDecisionSummaryUsesOnlyCurrentLocalEvidenceV85130(t *testing.T) {
+	rows := []Result{
+		{Status: "HAVE", AutoStatus: "HAVE", LocalPath: "A.jpg", LocalPresent: true, SameSize: true, NameScore: 100, Remote: RemoteItem{Name: "A.jpg", Size: 100}},
+		{Status: "SAMPLED", AutoStatus: "SAMPLED", LocalPath: "B.jpg", LocalPresent: true, SameSize: true, Remote: RemoteItem{Name: "B.jpg", Size: 200}},
+		{Status: "HAVE", AutoStatus: "HAVE", LocalPath: "gone.jpg", LocalPresent: false, SameSize: true, NameScore: 100, Remote: RemoteItem{Name: "gone.jpg", Size: 300}},
+		{Status: "MISSING", AutoStatus: "MISSING", Remote: RemoteItem{Name: "D.jpg", Size: 400}},
+	}
+	summary := buildResultSummary(rows)
+	decision := summary["decision"].(map[string]int)
+	if decision["LOCAL"] != 1 || decision["REVIEW"] != 2 || decision["MISSING"] != 1 {
+		t.Fatalf("current decision summary is wrong: %#v", decision)
+	}
+}
+
+func TestEnrichLoadedResultsReleasesStaleManualMissingV85130(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "2591736107.jpg")
+	remote := RemoteItem{Name: "2591736107.jpg", Path: "pics/2591736107.jpg", Size: 125966, Source: "MEGA", URL: "https://mega.nz/folder/example#key", Handle: "HANDLE"}
+	key := decisionKey(remote)
+	a := &App{
+		appDir:    dir,
+		index:     map[string]FileEntry{path: {Path: path, Name: remote.Name, Size: remote.Size}},
+		decisions: map[string]Decision{key: {Status: "MISSING", LocalPath: "old.jpg", UpdatedAt: 1}},
+		results: []Result{{
+			ID: 1, Remote: remote, Status: "MISSING", Manual: true, ManualStatus: "MISSING", ManualAt: 1,
+			AutoStatus: "HAVE", AutoConfidence: "Ridicată", AutoReason: "dovadă curentă", LocalPath: path,
+		}},
+	}
+	a.enrichLoadedResults()
+	got := a.results[0]
+	if got.Manual || got.Status != "HAVE" || !got.LocalPresent || got.LocalPath != path {
+		t.Fatalf("stale manual MISSING survived current local evidence: %#v", got)
+	}
+	if _, exists := a.decisions[key]; exists {
+		t.Fatal("stale persisted decision was not removed during startup enrichment")
+	}
+}
+
+func TestEnrichLoadedResultsClearsVanishedPathV85130(t *testing.T) {
+	a := &App{
+		appDir:    t.TempDir(),
+		index:     map[string]FileEntry{},
+		decisions: map[string]Decision{},
+		results: []Result{{
+			ID: 1, Status: "HAVE", AutoStatus: "HAVE", LocalPath: filepath.Join(t.TempDir(), "gone.jpg"),
+			Remote: RemoteItem{Name: "gone.jpg", Size: 100, Source: "MEGA"},
+		}},
+	}
+	a.enrichLoadedResults()
+	got := a.results[0]
+	if got.LocalPath != "" || got.LocalPresent {
+		t.Fatalf("vanished local path remained current evidence: %#v", got)
+	}
+	decision := buildResultSummary(a.results)["decision"].(map[string]int)
+	if decision["LOCAL"] != 0 || decision["REVIEW"] != 1 {
+		t.Fatalf("vanished path counted as local: %#v", decision)
+	}
+}

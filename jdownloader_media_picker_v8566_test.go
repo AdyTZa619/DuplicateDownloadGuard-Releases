@@ -19,7 +19,11 @@ func TestJDownloaderFastV8567UsesOneShotCurrentFlashGotShape(t *testing.T) {
 		"params.set('package', packageName)",
 		"params.set('referer', referer)",
 		"form.submit()",
-		"Trimite TOATE",
+		"Trimite numai lipsurile",
+		"const missing = groups.DOWNLOAD",
+		"submitRows(missing)",
+		"row?.localPresent === true",
+		"ddgJDFastFolderV85130",
 		"sendExactIDs",
 		"event.stopImmediatePropagation()",
 	} {
@@ -36,6 +40,9 @@ func TestJDownloaderFastV8567UsesOneShotCurrentFlashGotShape(t *testing.T) {
 	if strings.Contains(s, "fetch(`${JD_BASE}/flashgot`") {
 		t.Fatal("fast JD flow must not POST once via fetch and retry via form")
 	}
+	if strings.Contains(s, "Trimite TOATE") || strings.Contains(s, "ddgJDFastAllV8567") {
+		t.Fatal("JD fast flow must not offer an all-files bypass")
+	}
 }
 
 func TestJDownloaderPopupUsesFinalGuardVerdictV8568(t *testing.T) {
@@ -44,9 +51,9 @@ func TestJDownloaderPopupUsesFinalGuardVerdictV8568(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	finalVerdict := "if (['DOWNLOAD','DUPLICATE','REVIEW'].includes(guard)) return guard;"
-	if !strings.Contains(s, finalVerdict) {
-		t.Fatalf("JD popup is not using DDG's final guard verdict first: missing %q", finalVerdict)
+	finalVerdict := "if (guard === 'DOWNLOAD') return 'DOWNLOAD';"
+	if !strings.Contains(s, finalVerdict) || !strings.Contains(s, "if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';") {
+		t.Fatal("JD popup is not combining final Guard verdict with current local presence")
 	}
 	if strings.Contains(s, "if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';") {
 		t.Fatal("manual flag must not override a final DOWNLOAD guard verdict")
@@ -92,16 +99,21 @@ func TestMediaPickerV8566UsesEstablishedExtractorsAndExactJDIDs(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		"erome\\.com",
-		"cyberdrop\\.",
-		"select.value = 'gallery-dl'",
 		"/api/provider-preview/media?id=",
 		"sendExactIDs",
-		"Trimite TOATE în JD",
+		"Trimite lipsurile selectate în JD",
+		"Selectează lipsurile",
+		"function genericPickerAllowed(raw)",
+		"if (!genericPickerAllowed(sourceURL))",
 		"Media Picker",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing Media Picker behavior %q", want)
+		}
+	}
+	for _, forbidden := range []string{"autoOpenAfterScan", "knownGallery", "select.value = 'gallery-dl'", "Trimite TOATE în JD"} {
+		if strings.Contains(s, forbidden) {
+			t.Fatalf("generic Media Picker retained dedicated/all-files path %q", forbidden)
 		}
 	}
 }

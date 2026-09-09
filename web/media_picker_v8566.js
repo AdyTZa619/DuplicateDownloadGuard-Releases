@@ -1,5 +1,5 @@
-// TEST v8.5.66 — generic Media Picker over CURRENT DDG results.
-// Erome/Cyberdrop use gallery-dl, an established extractor; this module is UI only.
+// Generic Media Picker over CURRENT DDG results. Dedicated providers never arm
+// this module; generic-site discovery owns automatic opening through events.
 (() => {
   'use strict';
 
@@ -9,7 +9,6 @@
   let activeFilter = 'all';
   let query = '';
   let loading = false;
-  let autoOpenAfterScan = false;
   let pageIndex = 0;
 
   // TEST118 memory guard: never create hundreds/thousands of live image/video
@@ -19,6 +18,17 @@
   const CARD_PAGE_SIZE = 72;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[ch]));
+
+  function genericPickerAllowed(raw) {
+    try {
+      const u = new URL(/^https?:\/\//i.test(String(raw || '').trim()) ? String(raw || '').trim() : `https://${String(raw || '').trim()}`);
+      const host = u.hostname.toLowerCase();
+      if (!/^https?:$/i.test(u.protocol)) return false;
+      return !(/^(?:www\.)?mega\.(?:nz|co\.nz)$/i.test(host) ||
+        /(^|\.)gofile\.io$/i.test(host) || /(^|\.)erome\.com$/i.test(host) ||
+        /(^|\.)cyberdrop\.[a-z]{2,}$/i.test(host) || /(^|\.)bunkr/i.test(host));
+    } catch (_) { return false; }
+  }
 
   function providerName(raw = sourceURL) {
     try {
@@ -102,7 +112,7 @@
           <div class="head"><div class="title" id="ddgMediaPickerTitleV8566">Media Picker</div><button class="btn" id="ddgMediaPickerRefreshV8566">↻ Reîncarcă</button><button class="btn" id="ddgMediaPickerCloseV8566">Închide</button></div>
           <div class="tools"><input class="field search" id="ddgMediaPickerSearchV8566" placeholder="Caută nume / cale…"><button class="chip on" data-picker-filter="all">Toate</button><button class="chip" data-picker-filter="image">Imagini</button><button class="chip" data-picker-filter="video">Video</button><button class="chip" data-picker-filter="audio">Audio</button><button class="btn" id="ddgMediaPickerPrevV8566">‹</button><span id="ddgMediaPickerPageV8566" class="small muted">1/1</span><button class="btn" id="ddgMediaPickerNextV8566">›</button><span class="summary" id="ddgMediaPickerSummaryV8566">—</span></div>
           <div class="grid" id="ddgMediaPickerGridV8566"></div>
-          <div class="foot"><span class="count" id="ddgMediaPickerCountV8566">0 selectate</span><button class="btn" id="ddgMediaPickerClearV8566">Nimic</button><button class="btn" id="ddgMediaPickerRecommendedV8566">Selectează recomandate DDG</button><button class="btn" id="ddgMediaPickerAllVisibleV8566">Selectează toate afișate</button><button class="btn" id="ddgMediaPickerSendSelectedV8566">Trimite selectate în JD</button><button class="btn primary" id="ddgMediaPickerSendAllV8566">Trimite TOATE în JD</button></div>
+          <div class="foot"><span class="count" id="ddgMediaPickerCountV8566">0 selectate</span><button class="btn" id="ddgMediaPickerClearV8566">Nimic</button><button class="btn" id="ddgMediaPickerRecommendedV8566">Selectează lipsurile</button><button class="btn" id="ddgMediaPickerAllVisibleV8566">Selectează toate afișate</button><button class="btn primary" id="ddgMediaPickerSendSelectedV8566">Trimite lipsurile selectate în JD</button></div>
         </div></div>`);
       document.getElementById('ddgMediaPickerCloseV8566')?.addEventListener('click', close);
       document.getElementById('ddgMediaPickerRefreshV8566')?.addEventListener('click', () => loadRows(true));
@@ -110,7 +120,6 @@
       document.getElementById('ddgMediaPickerRecommendedV8566')?.addEventListener('click', () => { for (const row of rows) if (isRecommended(row)) selected.add(Number(row.id)); render(); });
       document.getElementById('ddgMediaPickerAllVisibleV8566')?.addEventListener('click', () => { for (const row of visibleRows()) selected.add(Number(row.id)); render(); });
       document.getElementById('ddgMediaPickerSendSelectedV8566')?.addEventListener('click', () => sendIDs([...selected]));
-      document.getElementById('ddgMediaPickerSendAllV8566')?.addEventListener('click', () => sendIDs(rows.map(r => Number(r.id))));
       document.getElementById('ddgMediaPickerPrevV8566')?.addEventListener('click', () => { if (pageIndex > 0) { pageIndex--; render(); } });
       document.getElementById('ddgMediaPickerNextV8566')?.addEventListener('click', () => { const pages = Math.max(1, Math.ceil(filteredRows().length / CARD_PAGE_SIZE)); if (pageIndex + 1 < pages) { pageIndex++; render(); } });
       document.getElementById('ddgMediaPickerSearchV8566')?.addEventListener('input', event => { query = String(event.target.value || '').trim().toLowerCase(); pageIndex = 0; render(); });
@@ -204,7 +213,6 @@
     document.getElementById('ddgMediaPickerNextV8566').disabled = pageIndex + 1 >= pages;
     document.getElementById('ddgMediaPickerCountV8566').textContent = `${selected.size.toLocaleString('ro-RO')} selectate`;
     document.getElementById('ddgMediaPickerSendSelectedV8566').disabled = selected.size === 0;
-    document.getElementById('ddgMediaPickerSendAllV8566').disabled = rows.length === 0;
     document.getElementById('ddgMediaPickerAllVisibleV8566').disabled = pageRows.length === 0;
     releaseGridMedia();
     if (!shown.length) { grid.innerHTML = '<div class="previewEmpty">Nu există rezultate pentru filtrul curent.</div>'; return; }
@@ -233,6 +241,10 @@
   async function open(raw = '') {
     installUI();
     sourceURL = String(raw || document.getElementById('directUrl')?.value || '').trim();
+    if (!genericPickerAllowed(sourceURL)) {
+      window.toast?.('Media Picker este disponibil numai pentru site-uri generice; acest link folosește providerul dedicat.');
+      return;
+    }
     releaseGridMedia();
     rows = []; selected.clear(); activeFilter = 'all'; query = ''; pageIndex = 0;
     const search = document.getElementById('ddgMediaPickerSearchV8566'); if (search) search.value = '';
@@ -249,45 +261,11 @@
     document.getElementById('ddgMediaPickerV8566')?.classList.add('hidden');
   }
 
-  function currentOnlineHost() {
-    const raw = String(document.getElementById('directUrl')?.value || '').trim();
-    try { return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase(); }
-    catch (_) { return ''; }
-  }
-
-  // Erome and Cyberdrop are explicit gallery-dl supported sites. Force that
-  // established extractor before provider_sources handles the scan button.
-  document.addEventListener('click', event => {
-    const target = event.target?.closest?.('#universalScanButton, button[onclick="scanUniversal()"]');
-    if (!target) return;
-    const host = currentOnlineHost();
-    const knownGallery = /(^|\.)erome\.com$/i.test(host) || /(^|\.)cyberdrop\.[a-z]{2,}$/i.test(host);
-    autoOpenAfterScan = knownGallery;
-    if (knownGallery) {
-      const select = document.getElementById('sourceAdapter');
-      if (select) select.value = 'gallery-dl';
-    }
-  }, true);
-
-  function installScanCompletionWatch() {
-    const top = document.getElementById('topStatus');
-    if (!top || top.dataset.ddgMediaPickerWatchV8566) return;
-    top.dataset.ddgMediaPickerWatchV8566 = '1';
-    const observer = new MutationObserver(() => {
-      if (!autoOpenAfterScan) return;
-      if (!String(top.textContent || '').toLowerCase().includes('analiză terminată')) return;
-      autoOpenAfterScan = false;
-      const raw = String(document.getElementById('directUrl')?.value || '').trim();
-      setTimeout(() => open(raw), 60);
-    });
-    observer.observe(top, {childList:true, characterData:true,subtree:true});
-  }
-
   function boot() {
-    installUI(); installScanCompletionWatch();
+    installUI();
     setTimeout(installLaunchButton, 500); setTimeout(installLaunchButton, 1500);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
-  window.ddgMediaPickerV8566 = {open, close, reload:() => loadRows(true)};
+  window.ddgMediaPickerV8566 = {open, close, reload:() => loadRows(true), genericPickerAllowed};
 })();

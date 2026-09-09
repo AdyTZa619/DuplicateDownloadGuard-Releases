@@ -124,8 +124,9 @@
   }
 
   function currentAuto(row) { return upper(row?.autoStatus || row?.status); }
+  function localPresent(row) { return row?.localPresent === true && Boolean(row?.localPath); }
   function strongLocalEvidence(row) {
-    if (!row?.localPath) return false;
+    if (!localPresent(row)) return false;
     const guard = upper(row.guardVerdict), auto = currentAuto(row);
     if (guard === 'DUPLICATE') return true;
     if (auto === 'VERIFIED' || upper(row.status) === 'VERIFIED') return true;
@@ -136,7 +137,7 @@
     return false;
   }
   function exactCurrentEvidence(row) {
-    if (!row?.localPath) return false;
+    if (!localPresent(row)) return false;
     const guard = upper(row.guardVerdict), auto = currentAuto(row);
     if (guard === 'DUPLICATE' || auto === 'VERIFIED' || upper(row.status) === 'VERIFIED') return true;
     return auto === 'HAVE' && Boolean(row.sameSize) && exactName(row);
@@ -154,19 +155,19 @@
     if (strongLocalEvidence(row)) return 'HAVE';
     if (pendingTransfer(row, store)) return 'IN_JD';
     const guard = upper(row?.guardVerdict);
-    if (guard === 'DUPLICATE') return 'HAVE';
+    if (guard === 'DUPLICATE') return localPresent(row) ? 'HAVE' : 'REVIEW';
     if (guard === 'DOWNLOAD') return 'DOWNLOAD';
     if (guard === 'REVIEW') return 'REVIEW';
     const status = upper(row?.status), auto = currentAuto(row), manual = Boolean(row?.manual), ms = manualStatus(row);
     if (manual) {
-      if (ms === 'HAVE') return 'HAVE';
+      if (ms === 'HAVE') return localPresent(row) ? 'HAVE' : 'REVIEW';
       if (ms === 'MISSING' || ms === 'DIFFERENT') return 'DOWNLOAD';
     }
-    if (status === 'VERIFIED' || auto === 'VERIFIED') return 'HAVE';
+    if (status === 'VERIFIED' || auto === 'VERIFIED') return localPresent(row) ? 'HAVE' : 'REVIEW';
     if (status === 'MISSING' || status === 'DIFFERENT' || auto === 'MISSING' || auto === 'DIFFERENT') return 'DOWNLOAD';
-    if (status === 'HAVE' || auto === 'HAVE') return row?.localPath ? 'HAVE' : 'REVIEW';
+    if (status === 'HAVE' || auto === 'HAVE') return localPresent(row) ? 'HAVE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status) || ['POSSIBLE','SAMPLED'].includes(auto)) return 'REVIEW';
-    return row?.localPath ? 'REVIEW' : 'DOWNLOAD';
+    return localPresent(row) ? 'REVIEW' : 'DOWNLOAD';
   }
 
   function stateReason(row, state, store = loadTransfers()) {
@@ -558,7 +559,7 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 
   window.ddgSmartStateEngineV8569={
-    finalState,shouldReleaseManual,strongLocalEvidence,exactCurrentEvidence,rowKey,pendingTransfer,
+    finalState,shouldReleaseManual,strongLocalEvidence,exactCurrentEvidence,localPresent,rowKey,pendingTransfer,
     fetchAllRows,scheduleCycle,reconcileBestCandidates,candidateIsStrong,candidatePriority,manualReconcile
   };
 })();

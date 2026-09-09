@@ -11,6 +11,40 @@ import (
 	"time"
 )
 
+const providerPreviewResponseHeaderTimeoutV85130 = 30 * time.Second
+
+var providerPreviewClientV85130 = &http.Client{
+	Transport: newProviderPreviewTransportV85130(),
+}
+
+func newProviderPreviewTransportV85130() http.RoundTripper {
+	base := http.DefaultTransport
+	for {
+		switch wrapped := base.(type) {
+		case *providerContextFirstTransportV8558:
+			if wrapped.base == nil {
+				break
+			}
+			base = wrapped.base
+			continue
+		case *providerAwareTransportV86:
+			if wrapped.base == nil {
+				break
+			}
+			base = wrapped.base
+			continue
+		}
+		break
+	}
+	if transport, ok := base.(*http.Transport); ok {
+		bounded := transport.Clone()
+		bounded.ResponseHeaderTimeout = providerPreviewResponseHeaderTimeoutV85130
+		base = bounded
+	}
+	providerAware := &providerAwareTransportV86{base: base}
+	return &providerContextFirstTransportV8558{base: providerAware}
+}
+
 func providerPreviewTargetV86(item RemoteItem) (string, error) {
 	target := strings.TrimSpace(item.DirectURL)
 	if target == "" {
@@ -70,7 +104,7 @@ func copyProviderPreviewResponseHeadersV86(dst, src http.Header) {
 
 func providerRefreshableSourceV86(source string) bool {
 	switch strings.ToUpper(strings.TrimSpace(source)) {
-	case "GOFILE", "BUNKR", "CYBERDROP", "GALLERY-DL":
+	case "GOFILE", "BUNKR", "CYBERDROP", "EROME", "GALLERY-DL":
 		return true
 	default:
 		return false
@@ -123,20 +157,64 @@ func (a *App) refreshProviderRemoteV86(ctx context.Context, old RemoteItem) (Rem
 	if bestCount > 1 {
 		return RemoteItem{}, fmt.Errorf("reîmprospătarea este ambiguă: %d fișiere corespund aceleiași identități", bestCount)
 	}
+	if strings.TrimSpace(best.DirectURL) == "" {
+		return RemoteItem{}, fmt.Errorf("providerul nu a întors un URL media direct nou")
+	}
+	if _, err := providerPreviewTargetV86(best); err != nil {
+		return RemoteItem{}, fmt.Errorf("URL-ul media reîmprospătat nu este utilizabil: %w", err)
+	}
 	return best, nil
 }
 
-func (a *App) replaceResultRemoteV86(resultID int, fresh RemoteItem) {
+func mergeProviderRemoteV85130(old, fresh RemoteItem) RemoteItem {
+	fresh.ID = old.ID
+	if strings.TrimSpace(fresh.Path) == "" {
+		fresh.Path = old.Path
+	}
+	if strings.TrimSpace(fresh.Name) == "" {
+		fresh.Name = old.Name
+	}
+	if fresh.Size <= 0 {
+		fresh.Size = old.Size
+	}
+	if strings.TrimSpace(fresh.URL) == "" {
+		fresh.URL = old.URL
+	}
+	if strings.TrimSpace(fresh.Source) == "" {
+		fresh.Source = old.Source
+	}
+	if strings.TrimSpace(fresh.Extractor) == "" {
+		fresh.Extractor = old.Extractor
+	}
+	if strings.TrimSpace(fresh.ProviderID) == "" {
+		fresh.ProviderID = old.ProviderID
+	}
+	if strings.TrimSpace(fresh.ContentType) == "" {
+		fresh.ContentType = old.ContentType
+	}
+	return fresh
+}
+
+func (a *App) replaceResultRemoteV86(resultID int, fresh RemoteItem) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	replaced := false
 	for i := range a.results {
 		if a.results[i].ID != resultID {
 			continue
 		}
-		fresh.ID = a.results[i].Remote.ID
-		a.results[i].Remote = fresh
-		return
+		a.results[i].Remote = mergeProviderRemoteV85130(a.results[i].Remote, fresh)
+		replaced = true
+		break
 	}
+	a.mu.Unlock()
+	if !replaced {
+		return false
+	}
+	a.revision.Add(1)
+	if err := a.saveResults(); err != nil {
+		a.logf("Atenție: URL-ul providerului a fost reîmprospătat, dar nu a putut fi salvat: %v", err)
+	}
+	return true
 }
 
 func invalidateGoFileGuestTokenV86() {
@@ -160,8 +238,7 @@ func doProviderPreviewRequestV86(ctx context.Context, incoming *http.Request, it
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 0}
-	return client.Do(req)
+	return providerPreviewClientV85130.Do(req)
 }
 
 // gallery-dl's maintained Bunkr extractor rejects these exact redirects as
@@ -231,6 +308,16 @@ func providerPreviewDiagnosticV8559(resp *http.Response, item RemoteItem, refres
 		out["code"] = "ACCESS_DENIED"
 		out["title"] = "Acces refuzat de server"
 		out["detail"] = appendRefresh(fmt.Sprintf("Serverul a răspuns HTTP %d. Linkul temporar poate fi expirat sau providerul cere un context nou de acces.", status))
+	case status == http.StatusTooManyRequests:
+		out["code"] = "RATE_LIMITED"
+		out["title"] = "Providerul limitează temporar cererile"
+		detail := "Serverul a răspuns HTTP 429. Așteaptă puțin înainte de o nouă încercare; DDG nu reextrage repetat albumul în această situație."
+		if resp != nil {
+			if retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After")); retryAfter != "" {
+				detail += " Retry-After: " + retryAfter + "."
+			}
+		}
+		out["detail"] = appendRefresh(detail)
 	case status >= 500:
 		out["code"] = "REMOTE_SERVER_ERROR"
 		out["title"] = "Problemă pe serverul providerului"

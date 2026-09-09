@@ -176,13 +176,17 @@
     // shown by Smart Guard in the main results table. Do not let an older manual
     // or auto status reclassify it inside the JDownloader popup.
     const guard = String(row?.guardVerdict || '').trim().toUpperCase();
-    if (['DOWNLOAD','DUPLICATE','REVIEW'].includes(guard)) return guard;
+    const localPresent = row?.localPresent === true && Boolean(row?.localPath);
+    if (guard === 'DOWNLOAD') return 'DOWNLOAD';
+    if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';
+    if (guard === 'REVIEW') return 'REVIEW';
 
     // Legacy fallback only for rows that have no final Guard verdict yet.
     const manual = Boolean(row?.manual);
     const status = String(row?.status || row?.autoStatus || '').trim().toUpperCase();
-    if (manual && ['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
-    if (['HAVE','VERIFIED'].includes(status)) return 'DUPLICATE';
+    const manualStatus = String(row?.manualStatus || '').trim().toUpperCase();
+    if (manual && manualStatus === 'HAVE') return localPresent ? 'DUPLICATE' : 'REVIEW';
+    if (['HAVE','VERIFIED'].includes(status)) return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
     if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
     return manual ? 'REVIEW' : 'DOWNLOAD';
@@ -193,6 +197,8 @@
     for (const row of rows || []) groups[classify(row)].push(row);
     return groups;
   }
+
+  function downloadRows(rows) { return splitRows(rows).DOWNLOAD; }
 
   async function submitRows(rows) {
     if (!(await checkJD())) throw new Error('JDownloader 2 nu răspunde pe 127.0.0.1:9666. Verifică dacă JD este pornit și External Interface/FlashGot este activ.');
@@ -211,7 +217,7 @@
       #ddgJDFastDecisionV8567 .box{width:min(720px,94vw);background:#0e1721;border:1px solid #32465a;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.45);overflow:hidden}
       #ddgJDFastDecisionV8567 .head{padding:16px 18px;border-bottom:1px solid #26394b;font-size:17px;font-weight:800}
       #ddgJDFastDecisionV8567 .body{padding:16px 18px;color:#c7d7e7;line-height:1.5}
-      #ddgJDFastDecisionV8567 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:13px 0}
+      #ddgJDFastDecisionV8567 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:13px 0}
       #ddgJDFastDecisionV8567 .card{border:1px solid #2c4053;border-radius:10px;padding:11px;background:#0a121a}
       #ddgJDFastDecisionV8567 .card b{display:block;font-size:20px;margin-bottom:2px}
       #ddgJDFastDecisionV8567 .note{padding:10px 12px;border-left:3px solid #65b7ff;background:#102030;border-radius:8px;font-size:12px}
@@ -229,22 +235,19 @@
               <div class="card"><b id="ddgJDFastDownloadV8567">0</b>Recomandate</div>
               <div class="card"><b id="ddgJDFastDuplicateV8567">0</b>Ai deja</div>
               <div class="card"><b id="ddgJDFastReviewV8567">0</b>De verificat</div>
+              <div class="card"><b id="ddgJDFastFolderV85130">—</b>Folder recomandat</div>
             </div>
             <div class="note">Folosesc exclusiv rezultatele scanării curente. Nu pornesc /api/download/preflight și nu rescanez HDD-urile. Trimiterea către JD este un singur POST FlashGot cu un singur nume de pachet.</div>
           </div>
           <div class="foot">
             <button class="btn" type="button" id="ddgJDFastCancelV8567">Anulează</button>
-            <button class="btn" type="button" id="ddgJDFastRecommendedV8567">Trimite recomandate</button>
-            <button class="btn primary" type="button" id="ddgJDFastAllV8567">Trimite TOATE</button>
+            <button class="btn primary" type="button" id="ddgJDFastRecommendedV8567">Trimite numai lipsurile</button>
           </div>
         </div>
       </div>`);
     document.getElementById('ddgJDFastCancelV8567')?.addEventListener('click', closeDialog);
     document.getElementById('ddgJDFastRecommendedV8567')?.addEventListener('click', async () => {
       if (pending?.recommended?.length) await sendRowsNow(pending.recommended);
-    });
-    document.getElementById('ddgJDFastAllV8567')?.addEventListener('click', async () => {
-      if (pending?.all?.length) await sendRowsNow(pending.all);
     });
   }
 
@@ -258,12 +261,12 @@
     document.getElementById('ddgJDFastDownloadV8567').textContent = String(groups.DOWNLOAD.length);
     document.getElementById('ddgJDFastDuplicateV8567').textContent = String(groups.DUPLICATE.length);
     document.getElementById('ddgJDFastReviewV8567').textContent = String(groups.REVIEW.length);
+    const recommendedFolder = String(window.ddgSourceFolderHintV85114?.lastReport?.()?.items?.[0]?.folder || window.cfg?.downloadDir || '—');
+    document.getElementById('ddgJDFastFolderV85130').textContent = recommendedFolder;
+    document.getElementById('ddgJDFastFolderV85130').title = recommendedFolder === '—' ? '' : recommendedFolder;
     const recommended = document.getElementById('ddgJDFastRecommendedV8567');
-    const all = document.getElementById('ddgJDFastAllV8567');
     recommended.disabled = groups.DOWNLOAD.length === 0;
-    recommended.textContent = `Trimite recomandate (${groups.DOWNLOAD.length})`;
-    all.disabled = rows.length === 0;
-    all.textContent = `Trimite TOATE (${rows.length})`;
+    recommended.textContent = `Trimite numai lipsurile (${groups.DOWNLOAD.length})`;
     document.getElementById('ddgJDFastDecisionV8567')?.classList.remove('hidden');
   }
 
@@ -271,7 +274,9 @@
     if (busy || !rows?.length) return;
     busy = true;
     try {
-      const result = await submitRows(rows);
+      const missing = downloadRows(rows);
+      if (!missing.length) throw new Error('Selecția nu conține niciun fișier confirmat ca lipsă. Elementele „Ai deja” și „De verificat” nu sunt trimise.');
+      const result = await submitRows(missing);
       closeDialog();
       pending = null;
       window.toast?.(`JDownloader: ${result.count} fișier(e) • un singur pachet „${result.packageName}”`);
@@ -302,11 +307,16 @@
     try {
       const rows = await rowsForIDs(unique);
       const groups = splitRows(rows);
+      const missing = groups.DOWNLOAD;
+      if (!missing.length) {
+        window.toast?.('Nimic de trimis: selecția nu conține fișiere clasificate „LIPSĂ”.');
+        return;
+      }
       if (options.confirm !== false) {
-        const ok = window.confirm(`Trimit ${rows.length} fișier(e) într-un singur pachet JDownloader?\n\nRecomandate: ${groups.DOWNLOAD.length}\nAi deja: ${groups.DUPLICATE.length}\nDe verificat: ${groups.REVIEW.length}\n\nNu se face nicio rescanare HDD.`);
+        const ok = window.confirm(`Din ${rows.length} fișier(e) selectate trimit numai cele ${missing.length} clasificate „LIPSĂ”, într-un singur pachet JDownloader.\n\nAi deja: ${groups.DUPLICATE.length}\nDe verificat: ${groups.REVIEW.length}\n\nNu se face nicio rescanare HDD.`);
         if (!ok) return;
       }
-      const result = await submitRows(rows);
+      const result = await submitRows(missing);
       window.toast?.(`JDownloader: ${result.count} fișier(e) • un singur pachet „${result.packageName}”`);
       return result;
     } catch (error) {
@@ -347,7 +357,7 @@
   setTimeout(install, 400);
   setTimeout(install, 1200);
 
-  const api = {sendBatchAware, sendExactIDs, rowsForIDs, onePackageName, buildSubmission};
+  const api = {sendBatchAware, sendExactIDs, rowsForIDs, onePackageName, buildSubmission, classify, splitRows, downloadRows};
   window.ddgJDownloaderFastV8567 = api;
   // Compatibility alias for Media Picker/window guard created in the same TEST series.
   window.ddgJDownloaderFastV8566 = api;

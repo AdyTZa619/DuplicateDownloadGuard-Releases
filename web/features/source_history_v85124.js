@@ -119,14 +119,14 @@
   }
 
   function statusCounts(summary) {
-    const eff = summary?.effective || {};
+    const decision = summary?.decision || {};
     const wf = summary?.workflow || {};
-    const local = Number(eff.HAVE || 0) + Number(eff.VERIFIED || 0) + Number(eff.SAMPLED || 0);
+    const local = Number(decision.LOCAL || 0);
     return {
       total:Number(summary?.total || 0),
       local,
-      missing:Number(eff.MISSING || 0),
-      review:Number(wf.REVIEW || 0),
+      missing:Number(decision.MISSING || 0),
+      review:Number(decision.REVIEW || wf.REVIEW || 0),
       manual:Number(wf.MANUAL || 0)
     };
   }
