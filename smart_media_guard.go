@@ -616,7 +616,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		// foreground guard releases its lock; the warm worker is coalesced/bounded.
 		scheduleMediaCacheWarmV85(a, entries)
 		if bestScore < 94 && pending > 0 {
-			return mediaReviewDecisionV85(res, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
+			return incompleteMediaDecisionV90(res, bestScore, pending, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
 		}
 	} else {
 		if a.detectFFmpeg() == "" || a.detectFFprobe() == "" {
@@ -640,13 +640,13 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		bestScore, secondScore = analysis.BestScore, analysis.SecondScore
 		bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
 		if bestScore < 85 && pending > 0 {
-			return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Necesită verificare suplimentară: %d candidați locali încă neanalizați. Datele deja calculate sunt păstrate pentru următoarea verificare.", pending), len(candidates), bestPath)
+			return incompleteMediaDecisionV90(res, bestScore, pending, "media-index-incomplete", fmt.Sprintf("Necesită verificare suplimentară: %d candidați locali încă neanalizați. Datele deja calculate sunt păstrate pentru următoarea verificare.", pending), len(candidates), bestPath)
 		}
 	}
 	if ctx.Err() != nil {
 		return mediaReviewDecisionV85(res, "media-unverified", "Verificarea media a fost întreruptă înainte de un verdict sigur.", localCount, bestPath)
 	}
-	if bestScore < 85 || bestPath == "" {
+	if bestScore < 60 || bestPath == "" {
 		return DownloadGuardDecision{}, false
 	}
 

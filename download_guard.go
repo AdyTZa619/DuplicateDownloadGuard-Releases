@@ -527,41 +527,8 @@ func (a *App) applyGuardDecisions(decisions []DownloadGuardDecision) {
 			continue
 		}
 		x := &a.results[i]
-		x.Detector = decorateDetectorEvidenceV90(decision).Detector
-		x.GuardVerdict, x.GuardMethod, x.GuardReason, x.GuardAt = decision.Verdict, decision.Method, decision.Reason, now
-		x.Candidates = decision.Candidates
-		if decision.LocalPath != "" {
-			x.LocalPath = decision.LocalPath
-		}
-		switch decision.Verdict {
-		case guardDuplicate:
-			x.AutoStatus = "VERIFIED"
-			x.AutoConfidence = "ExactGuard • 100% conținut"
-			x.AutoReason = decision.Reason
-			x.MatchScore, x.SameSize = 100, true
-		case guardReview:
-			status := "POSSIBLE"
-			if decision.Method == "deterministic-samples" {
-				status = "SAMPLED"
-				x.MatchScore = 99
-			}
-			if decision.Similarity > 0 {
-				x.VisualScore = decision.Similarity
-				if x.MatchScore < decision.Similarity {
-					x.MatchScore = decision.Similarity
-				}
-			}
-			x.AutoStatus = status
-			x.AutoConfidence = "ExactGuard • necesită verificare"
-			x.AutoReason = decision.Reason
-		case guardDownload:
-			x.AutoStatus = "MISSING"
-			x.AutoConfidence = "ExactGuard • fără corespondent relevant"
-			x.AutoReason = decision.Reason
-		}
-		if !x.Manual {
-			x.Status, x.Confidence, x.Reason = x.AutoStatus, x.AutoConfidence, x.AutoReason
-		}
+		applyGuardDecisionV90(x, decision, now)
+		enrichResult(x, a.index)
 	}
 	a.mu.Unlock()
 	a.revision.Add(1)
@@ -695,4 +662,46 @@ func (a *App) handleDownloadPreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, report)
+}
+
+func applyGuardDecisionV90(x *Result, decision DownloadGuardDecision, now int64) {
+	x.Detector = decorateDetectorEvidenceV90(decision).Detector
+	x.GuardVerdict, x.GuardMethod, x.GuardReason, x.GuardAt = decision.Verdict, decision.Method, decision.Reason, now
+	x.MatchScore, x.VisualScore = 0, 0
+	x.Candidates = decision.Candidates
+	if decision.LocalPath != "" {
+		x.LocalPath = decision.LocalPath
+	}
+	switch decision.Verdict {
+	case guardDuplicate:
+		x.AutoStatus = "VERIFIED"
+		x.AutoConfidence = "ExactGuard • 100% conținut"
+		x.AutoReason = decision.Reason
+		if decision.Exact {
+			x.MatchScore, x.SameSize = 100, true
+		} else {
+			x.AutoStatus = "POSSIBLE"
+			x.AutoConfidence = "Istoric disponibil; conținut neverificat"
+		}
+	case guardReview:
+		status := "POSSIBLE"
+		if decision.Method == "deterministic-samples" {
+			status = "SAMPLED"
+			x.MatchScore = 0
+		}
+		if decision.Similarity > 0 {
+			x.VisualScore = decision.Similarity
+			x.MatchScore = min(99, decision.Similarity)
+		}
+		x.AutoStatus = status
+		x.AutoConfidence = "ExactGuard • necesită verificare"
+		x.AutoReason = decision.Reason
+	case guardDownload:
+		x.AutoStatus = "MISSING"
+		x.AutoConfidence = "ExactGuard • fără corespondent relevant"
+		x.AutoReason = decision.Reason
+	}
+	if !x.Manual {
+		x.Status, x.Confidence, x.Reason = x.AutoStatus, x.AutoConfidence, x.AutoReason
+	}
 }

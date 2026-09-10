@@ -207,6 +207,8 @@ func shutdownApp(a *App) {
 		return
 	}
 
+	a.cancelDuplicateScanV90()
+
 	// Stop a scan/tool operation first. exec.CommandContext children use the
 	// Windows tree-kill cancellation path, so gallery-dl/yt-dlp cannot keep DDG
 	// alive after the user closes the app.
