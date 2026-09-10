@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/md5"
-	"crypto/sha256"
 	"embed"
 	"encoding/base64"
 	"encoding/csv"
@@ -37,16 +35,17 @@ import (
 //go:embed web/*
 var webFS embed.FS
 
-const appVersion = "8.5.46 Pro Smart Media Guard"
+const appVersion = "9.0.0 Pro Smart Media Guard"
 const defaultUpdateManifestURL = "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/main/update.json"
 
 type FileEntry struct {
-	Path   string
-	Name   string
-	Size   int64
-	MTime  int64
-	SHA256 string
-	MD5    string
+	Path         string
+	Name         string
+	Size         int64
+	MTime        int64
+	SHA256       string
+	MD5          string
+	HashIdentity string
 }
 
 type Profile struct {
@@ -117,41 +116,42 @@ type RemoteItem struct {
 }
 
 type Result struct {
-	ID             int        `json:"id"`
-	Status         string     `json:"status"`
-	Confidence     string     `json:"confidence"`
-	Remote         RemoteItem `json:"remote"`
-	LocalPath      string     `json:"localPath,omitempty"`
-	LocalPresent   bool       `json:"localPresent"`
-	Candidates     int        `json:"candidates"`
-	Reason         string     `json:"reason"`
-	Manual         bool       `json:"manual"`
-	ManualStatus   string     `json:"manualStatus,omitempty"`
-	ManualAt       int64      `json:"manualAt,omitempty"`
-	AutoStatus     string     `json:"autoStatus,omitempty"`
-	AutoConfidence string     `json:"autoConfidence,omitempty"`
-	AutoReason     string     `json:"autoReason,omitempty"`
-	NameScore      int        `json:"nameScore,omitempty"`
-	MatchScore     int        `json:"matchScore,omitempty"`
-	SameSize       bool       `json:"sameSize,omitempty"`
-	SameExt        bool       `json:"sameExt,omitempty"`
-	MediaKind      string     `json:"mediaKind,omitempty"`
-	SampleMatched  int        `json:"sampleMatched,omitempty"`
-	SampleTotal    int        `json:"sampleTotal,omitempty"`
-	VisualScore    int        `json:"visualScore,omitempty"`
-	VisualMethod   string     `json:"visualMethod,omitempty"`
-	VerifiedBytes  int64      `json:"verifiedBytes,omitempty"`
-	DownloadedAt   int64      `json:"downloadedAt,omitempty"`
-	DownloadPath   string     `json:"downloadPath,omitempty"`
-	AIVerdict      string     `json:"aiVerdict,omitempty"`
-	AIConfidence   int        `json:"aiConfidence,omitempty"`
-	AIReason       string     `json:"aiReason,omitempty"`
-	AIModel        string     `json:"aiModel,omitempty"`
-	AIAt           int64      `json:"aiAt,omitempty"`
-	GuardVerdict   string     `json:"guardVerdict,omitempty"`
-	GuardMethod    string     `json:"guardMethod,omitempty"`
-	GuardReason    string     `json:"guardReason,omitempty"`
-	GuardAt        int64      `json:"guardAt,omitempty"`
+	Detector       *DuplicateEvidenceV90 `json:"detector,omitempty"`
+	ID             int                   `json:"id"`
+	Status         string                `json:"status"`
+	Confidence     string                `json:"confidence"`
+	Remote         RemoteItem            `json:"remote"`
+	LocalPath      string                `json:"localPath,omitempty"`
+	LocalPresent   bool                  `json:"localPresent"`
+	Candidates     int                   `json:"candidates"`
+	Reason         string                `json:"reason"`
+	Manual         bool                  `json:"manual"`
+	ManualStatus   string                `json:"manualStatus,omitempty"`
+	ManualAt       int64                 `json:"manualAt,omitempty"`
+	AutoStatus     string                `json:"autoStatus,omitempty"`
+	AutoConfidence string                `json:"autoConfidence,omitempty"`
+	AutoReason     string                `json:"autoReason,omitempty"`
+	NameScore      int                   `json:"nameScore,omitempty"`
+	MatchScore     int                   `json:"matchScore,omitempty"`
+	SameSize       bool                  `json:"sameSize,omitempty"`
+	SameExt        bool                  `json:"sameExt,omitempty"`
+	MediaKind      string                `json:"mediaKind,omitempty"`
+	SampleMatched  int                   `json:"sampleMatched,omitempty"`
+	SampleTotal    int                   `json:"sampleTotal,omitempty"`
+	VisualScore    int                   `json:"visualScore,omitempty"`
+	VisualMethod   string                `json:"visualMethod,omitempty"`
+	VerifiedBytes  int64                 `json:"verifiedBytes,omitempty"`
+	DownloadedAt   int64                 `json:"downloadedAt,omitempty"`
+	DownloadPath   string                `json:"downloadPath,omitempty"`
+	AIVerdict      string                `json:"aiVerdict,omitempty"`
+	AIConfidence   int                   `json:"aiConfidence,omitempty"`
+	AIReason       string                `json:"aiReason,omitempty"`
+	AIModel        string                `json:"aiModel,omitempty"`
+	AIAt           int64                 `json:"aiAt,omitempty"`
+	GuardVerdict   string                `json:"guardVerdict,omitempty"`
+	GuardMethod    string                `json:"guardMethod,omitempty"`
+	GuardReason    string                `json:"guardReason,omitempty"`
+	GuardAt        int64                 `json:"guardAt,omitempty"`
 }
 
 type Decision struct {
@@ -285,7 +285,9 @@ func main() {
 	mux.HandleFunc("/api/ai/models", a.handleAIModels)
 	mux.HandleFunc("/api/ai/analyze", a.handleAIAnalyze)
 	mux.HandleFunc("/api/ai/pull", a.handleAIPull)
-	mux.HandleFunc("/api/queue/add", a.handleQueueAdd)
+	mux.HandleFunc("/api/queue/add", a.handleQueueAddRoutedV8550)
+	mux.HandleFunc("/api/download/jdownloader-direct", a.handleJDownloaderDirectEndpointV8551)
+	mux.HandleFunc("/api/update/native-notify", a.handleUpdateNativeNotifyV8554)
 	mux.HandleFunc("/api/queue/list", a.handleQueueList)
 	mux.HandleFunc("/api/queue/action", a.handleQueueAction)
 	mux.HandleFunc("/api/app/heartbeat", a.handleUIHeartbeat)
@@ -325,7 +327,7 @@ func main() {
 	mux.HandleFunc("/api/remote-preview/event", a.handleMegaPreviewEventV8526)
 	mux.HandleFunc("/api/remote-preview/timings", a.handleMegaPreviewTimingsV8526)
 	mux.HandleFunc("/api/remote-preview/player", a.handleRemotePreviewPlayer)
-	mux.HandleFunc("/api/local-preview", a.handleLocalPreview)
+	registerLocalPreviewDiagnosticsV8599(mux, a)
 	mux.HandleFunc("/api/local-meta", a.handleLocalMeta)
 	mux.HandleFunc("/api/logs", a.handleLogs)
 	mux.HandleFunc("/api/index/stats", a.handleIndexStats)
@@ -516,7 +518,15 @@ func newApp() (*App, error) {
 	if strings.TrimSpace(a.cfg.AIEndpoint) == "" {
 		a.cfg.AIEndpoint = "http://127.0.0.1:11434"
 	}
-	if strings.TrimSpace(a.cfg.DownloadDir) == "" {
+	currentDownloadDir := strings.TrimSpace(a.cfg.DownloadDir)
+	legacyPortableDownloads := filepath.Clean(filepath.Join(executableDir(), "downloads"))
+	windowsDownloads := ""
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		windowsDownloads = filepath.Clean(filepath.Join(home, "Downloads"))
+	}
+	if currentDownloadDir == "" ||
+		strings.EqualFold(filepath.Clean(currentDownloadDir), legacyPortableDownloads) ||
+		(windowsDownloads != "" && strings.EqualFold(filepath.Clean(currentDownloadDir), windowsDownloads)) {
 		a.cfg.DownloadDir = portableDownloadsDir()
 	}
 	_ = a.loadIndex()
@@ -1040,6 +1050,7 @@ func (a *App) runIndex(ctx context.Context, roots []string, extensions string, m
 			if o, ok := old[path]; ok && o.Size == ent.Size && o.MTime == ent.MTime {
 				ent.SHA256 = o.SHA256
 				ent.MD5 = o.MD5
+				ent.HashIdentity = o.HashIdentity
 			}
 			idx[path] = ent
 			count++
@@ -2116,45 +2127,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	}
 }
 func (a *App) ensureHash(path, kind string) (string, error) {
-	a.mu.RLock()
-	e, ok := a.index[path]
-	a.mu.RUnlock()
-	if !ok {
-		return "", os.ErrNotExist
-	}
-	if kind == "sha256" && e.SHA256 != "" {
-		return e.SHA256, nil
-	}
-	if kind == "md5" && e.MD5 != "" {
-		return e.MD5, nil
-	}
-	f, er := os.Open(path)
-	if er != nil {
-		return "", er
-	}
-	defer f.Close()
-	var h string
-	if kind == "md5" {
-		x := md5.New()
-		_, er = io.Copy(x, f)
-		if er == nil {
-			h = hex.EncodeToString(x.Sum(nil))
-			e.MD5 = h
-		}
-	} else {
-		x := sha256.New()
-		_, er = io.Copy(x, f)
-		if er == nil {
-			h = hex.EncodeToString(x.Sum(nil))
-			e.SHA256 = h
-		}
-	}
-	if er == nil {
-		a.mu.Lock()
-		a.index[path] = e
-		a.mu.Unlock()
-	}
-	return h, er
+	return a.ensureHashContextV90(context.Background(), path, kind)
 }
 
 func resultAutoStatus(x Result) string {

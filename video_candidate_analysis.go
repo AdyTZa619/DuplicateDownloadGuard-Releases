@@ -14,6 +14,8 @@ type videoCandidateAnalysisV85 struct {
 	BestNote    string
 	BestQuality string
 	BestInfo    MediaInfo
+	Analyzed    int
+	CacheHits   int
 }
 
 // scoreVideoCandidatesDetailedV85 keeps the runner-up score as well as the
@@ -25,6 +27,11 @@ func (a *App) scoreVideoCandidatesDetailedV85(ctx context.Context, remoteFP vide
 	for _, candidate := range candidates {
 		if ctx.Err() != nil {
 			break
+		}
+		if fp, ok := cachedLocalVideoFingerprintV85(a, candidate); ok && richVideoFingerprintUsableV90(fp) {
+			out.CacheHits++
+		} else {
+			out.Analyzed++
 		}
 		score, note, li, err := a.scoreLocalVideoFingerprintV85(ctx, remoteFP, candidate)
 		if err != nil {

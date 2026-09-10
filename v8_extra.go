@@ -55,7 +55,7 @@ func portableDataDir() (string, error) {
 }
 
 func portableToolsDir() string     { return filepath.Join(executableDir(), "tools") }
-func portableDownloadsDir() string { return filepath.Join(executableDir(), "downloads") }
+func portableDownloadsDir() string { return executableDir() }
 
 func copyFileSimple(src, dst string) error {
 	in, err := os.Open(src)
@@ -1190,8 +1190,13 @@ func (q *DownloadQueue) runJob(a *App, id string, ctx context.Context) {
 				path, err = runAriaRPCQueueJob(ctx, a, q, id, res, dest)
 			}
 		default:
-			q.update(a, id, func(x *DownloadJob) { x.Stage = "HTTP: descarc direct cu resume" })
-			path, err = internalDownloadV855(ctx, res, dest, progress)
+			if strings.EqualFold(strings.TrimSpace(res.Remote.Source), "BUNKR") {
+				q.update(a, id, func(x *DownloadJob) { x.Stage = "BUNKR: gallery-dl oficial" })
+				path, err = a.galleryDLDownloadBunkrV8560(ctx, res, dest, progress)
+			} else {
+				q.update(a, id, func(x *DownloadJob) { x.Stage = "HTTP: descarc direct cu resume" })
+				path, err = internalDownloadV855(ctx, res, dest, progress)
+			}
 		}
 		if ctx.Err() != nil {
 			return

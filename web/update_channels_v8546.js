@@ -1,13 +1,11 @@
-// DDG Stable + TEST updater channels.
-// TEST discovery/install deliberately avoids api.github.com so public GitHub API
-// rate limits cannot block the updater. The moving raw branch is protected by
-// SHA-256 verification and a bounded re-fetch on publish/cache races.
+// DDG 9.0.0 — Stable + TEST updater channels.
+// TEST reads manifest + EXE from one pinned Git commit via GitHub REST JSON/base64,
+// so browser CORS and moving-branch SHA races cannot corrupt the update.
 (() => {
   'use strict';
 
-  const RAW_ROOT = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases';
-  const TEST_MANIFEST_URL = `${RAW_ROOT}/testing/update-test.json`;
-  const DEFAULT_TEST_EXE_URL = `${RAW_ROOT}/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe`;
+  const REPO_API = 'https://api.github.com/repos/AdyTZa619/DuplicateDownloadGuard-Releases';
+  const TEST_BRANCH_REF_API = `${REPO_API}/git/ref/heads/testing`;
   const RECOVERY_PORTS = [51289, 51290, 51291, 51292];
   const CORNER_ID = 'ddgUpdateCorner';
   const TEST_BOX_ID = 'ddgTestUpdaterBox';
@@ -90,7 +88,7 @@
     box.className = 'ddgTestUpdater';
     box.innerHTML = `
       <div class="ddgTestUpdaterHead"><span class="ddgTestBadge">TEST</span><b>Canal separat pentru versiuni de probă</b></div>
-      <div class="muted small">Canalul TEST folosește fișiere raw GitHub, fără API public și fără limita de 60 cereri/oră. EXE-ul este verificat SHA-256 înainte de instalare.</div>
+      <div class="muted small">Build-urile TEST sunt separate de Stable. Manifestul și EXE-ul sunt citite din aceeași revizie Git și verificate SHA-256 înainte de instalare.</div>
       <div class="ddgTestActions"><button class="btn" id="ddgCheckTestUpdate">↻ Verifică TEST</button><button class="btn" id="ddgInstallTestUpdate">⬇ Instalează TEST</button></div>
       <div class="muted small" id="ddgTestUpdateStatus" style="margin-top:8px">Nu a fost verificat încă.</div>`;
     stableText.parentElement.appendChild(box);
@@ -137,39 +135,56 @@
     return currentVersion;
   }
 
-  function cacheBust(url) {
-    const sep = String(url).includes('?') ? '&' : '?';
-    return `${url}${sep}ddg=${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  async function rawResponse(url, accept = '*/*') {
-    const response = await fetch(cacheBust(url), {
+  async function githubJSON(url) {
+    const response = await fetch(url, {
       cache: 'no-store',
-      headers: {'Accept': accept}
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
     });
     if (!response.ok) {
       let detail = '';
       try { detail = (await response.text()).trim(); } catch (_) {}
-      throw new Error(`GitHub raw HTTP ${response.status}${detail ? ` — ${detail.slice(0, 160)}` : ''}`);
+      throw new Error(`GitHub API HTTP ${response.status}${detail ? ` — ${detail.slice(0, 160)}` : ''}`);
     }
-    return response;
+    return await response.json();
+  }
+
+  function decodeBase64(value) {
+    const clean = String(value || '').replace(/\s+/g, '');
+    if (!clean) throw new Error('GitHub nu a returnat conținutul fișierului');
+    const raw = atob(clean);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function contentsBytes(path, ref) {
+    const meta = await githubJSON(`${REPO_API}/contents/${path}?ref=${encodeURIComponent(ref)}`);
+    if (meta?.encoding === 'base64' && meta?.content) return decodeBase64(meta.content);
+    const blobURL = meta?.git_url || (meta?.sha ? `${REPO_API}/git/blobs/${meta.sha}` : '');
+    if (!blobURL) throw new Error(`GitHub nu a furnizat blob-ul pentru ${path}`);
+    const blob = await githubJSON(blobURL);
+    if (blob?.encoding !== 'base64' || !blob?.content) {
+      throw new Error(`GitHub nu a furnizat conținut base64 pentru ${path}`);
+    }
+    return decodeBase64(blob.content);
   }
 
   async function fetchTestSnapshot() {
-    const response = await rawResponse(TEST_MANIFEST_URL, 'application/json');
+    const branch = await githubJSON(TEST_BRANCH_REF_API);
+    const ref = String(branch?.object?.sha || '').trim();
+    if (!/^[0-9a-f]{40}$/i.test(ref)) throw new Error('Nu pot fixa revizia canalului TEST');
+    const manifestBytes = await contentsBytes('update-test.json', ref);
     let manifest;
     try {
-      manifest = JSON.parse((await response.text()).replace(/^\uFEFF/, ''));
+      manifest = JSON.parse(new TextDecoder('utf-8').decode(manifestBytes).replace(/^\uFEFF/, ''));
     } catch (_) {
       throw new Error('manifest TEST invalid');
     }
-    if (!manifest?.version || !/^[0-9a-f]{64}$/i.test(String(manifest?.sha256 || '').trim())) {
-      throw new Error('manifest TEST incomplet');
-    }
-    const exeURL = /^https:\/\//i.test(String(manifest.url || '').trim())
-      ? String(manifest.url).trim()
-      : DEFAULT_TEST_EXE_URL;
-    return {manifest, exeURL};
+    if (!manifest?.version || !manifest?.sha256) throw new Error('manifest TEST incomplet');
+    return {ref, manifest};
   }
 
   async function checkStable(silent = true) {
@@ -190,8 +205,8 @@
   async function checkTest(silent = true) {
     const text = document.getElementById('ddgTestUpdateStatus');
     try {
-      const [{manifest, exeURL}, installed] = await Promise.all([fetchTestSnapshot(), localVersion()]);
-      testState = {configured: true, manifest, exeURL, newer: isNewer(manifest.version, installed)};
+      const [{ref, manifest}, installed] = await Promise.all([fetchTestSnapshot(), localVersion()]);
+      testState = {configured: true, ref, manifest, newer: isNewer(manifest.version, installed)};
       if (text) {
         text.textContent = testState.newer
           ? `TEST disponibil: ${manifest.version} — ${manifest.notes || ''}`
@@ -256,16 +271,15 @@
     let state = initialState;
     let lastMismatch = '';
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (!state?.manifest?.sha256 || !state?.exeURL) state = await fetchTestSnapshot();
-      const response = await rawResponse(state.exeURL, 'application/octet-stream');
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!state?.manifest?.sha256 || !state?.ref) state = await fetchTestSnapshot();
+      const bytes = await contentsBytes('test-releases/DuplicateDownloadGuard_PRO_TEST.exe', state.ref);
       if (bytes.byteLength > 100 * 1024 * 1024) throw new Error('build TEST prea mare (>100 MB)');
       const got = await sha256Hex(bytes);
       const expected = String(state.manifest.sha256).trim().toLowerCase();
       if (got.toLowerCase() === expected) return {state, bytes};
       lastMismatch = `${got.slice(0,12)}… != ${expected.slice(0,12)}…`;
-      // A GitHub raw edge can briefly cache manifest and EXE from adjacent publish
-      // commits. Re-read both instead of using api.github.com or accepting mismatch.
+      // Refă snapshotul complet; nu accepta niciodată un manifest și un EXE
+      // provenite din revizii Git diferite.
       await sleep(450 + attempt * 500);
       state = await fetchTestSnapshot();
     }
@@ -333,8 +347,8 @@
   async function installTest(button) {
     const btn = button || document.getElementById('ddgInstallTestUpdate');
     try {
-      if (!testState?.newer) await checkTest(false);
-      if (!testState?.newer) {
+      if (!testState?.newer || !testState?.ref) await checkTest(false);
+      if (!testState?.newer || !testState?.ref) {
         if (typeof window.toast === 'function') window.toast('Nu există un build TEST mai nou.');
         return;
       }
@@ -343,7 +357,6 @@
         btn.disabled = true;
         btn.classList.add('busy');
       }
-
       // TEST119: if the main API already died, do not download 9+ MB into the
       // stale Edge renderer only to discover that /api/update/apply is gone.
       // The independent recovery helper verifies/downloads the official build

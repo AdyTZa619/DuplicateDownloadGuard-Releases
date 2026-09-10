@@ -360,6 +360,9 @@ func (a *App) probeGalleryDLRichV86(ctx context.Context, sourceURL string) ([]Re
 	}
 
 	exe := a.detectGalleryDL()
+	if source == "BUNKR" {
+		exe = a.officialGalleryDLForBunkrV8560(ctx)
+	}
 	if exe == "" {
 		if nativeErr != nil {
 			return nil, errors.New("GoFile API: " + nativeErr.Error() + " | gallery-dl nu este instalat/configurat")

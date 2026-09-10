@@ -95,6 +95,11 @@ jobs:
             node --check $script.FullName
             if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($script.FullName)" }
           }
+          $jsTests = @(Get-ChildItem -Path web/tests -Filter *.test.js -File -ErrorAction SilentlyContinue)
+          foreach ($test in $jsTests) {
+            node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript behavior test failed: $($test.Name)" }
+          }
 
       - name: Tests
         shell: pwsh

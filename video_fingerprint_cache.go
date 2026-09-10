@@ -10,9 +10,10 @@ import (
 )
 
 type localVideoFingerprintCacheEntry struct {
-	Size  int64               `json:"size"`
-	MTime int64               `json:"mtime"`
-	FP    videoFingerprintV85 `json:"fingerprint"`
+	Aligned map[string]videoFingerprintV85 `json:"aligned,omitempty"`
+	Size    int64                          `json:"size"`
+	MTime   int64                          `json:"mtime"`
+	FP      videoFingerprintV85            `json:"fingerprint"`
 }
 
 var localVideoFingerprintCacheState = struct {
@@ -26,7 +27,7 @@ var localVideoFingerprintCacheState = struct {
 }{}
 
 func localVideoFingerprintCacheFile(a *App) string {
-	return filepath.Join(a.appDir, "video_fingerprint_cache.json")
+	return filepath.Join(a.appDir, "video_fingerprint_cache_v90.json")
 }
 
 func ensureLocalVideoFingerprintCacheLoaded(a *App) {
@@ -156,8 +157,14 @@ func flushLocalVideoFingerprintCacheV85(a *App) error {
 }
 
 func (a *App) buildLocalVideoFingerprintV85(ctx context.Context, candidate FileEntry) (videoFingerprintV85, error) {
-	if cached, ok := cachedLocalVideoFingerprintV85(a, candidate); ok {
+	if cached, ok := cachedLocalVideoFingerprintV85(a, candidate); ok && richVideoFingerprintUsableV90(cached) {
+		if m := detectorMetricsFromV90(ctx); m != nil {
+			m.LocalHits.Add(1)
+		}
 		return cached, nil
+	}
+	if m := detectorMetricsFromV90(ctx); m != nil {
+		m.Deep.Add(1)
 	}
 	ff := a.detectFFmpeg()
 	fpExe := a.detectFFprobe()
@@ -174,14 +181,14 @@ func (a *App) buildLocalVideoFingerprintV85(ctx context.Context, candidate FileE
 	if !info.OK || info.Duration <= 0 {
 		return videoFingerprintV85{}, fmt.Errorf("nu pot citi durata videoclipului local")
 	}
-	out := videoFingerprintV85{Info: info, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints))}
+	out := videoFingerprintV85{Info: info, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints)), Frames: make([]imageSignatureV85, len(v85FramePoints))}
 	valid := 0
 	for i, p := range v85FramePoints {
-		h, informative, err := frameSignatureV85(ctx, ff, candidate.Path, info.Duration*p)
+		sig, informative, err := videoFrameSignatureV90(ctx, ff, candidate.Path, info.Duration*p)
 		if err != nil || !informative {
 			continue
 		}
-		out.Hashes[i] = h
+		out.Hashes[i], out.Frames[i] = sig.Hash, sig
 		out.Valid[i] = true
 		valid++
 	}

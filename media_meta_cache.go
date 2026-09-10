@@ -194,7 +194,7 @@ func durationCompatibleV85(remoteInfo, localInfo MediaInfo) (float64, bool) {
 	// Candidate discovery must be broader than the final verdict. A recode with
 	// a short intro/outro can legitimately differ by tens of seconds; frame
 	// fingerprinting decides whether it is really the same material.
-	if ratio > .12 || delta > 90 {
+	if (ratio > .12 && delta > 3) || delta > 90 {
 		return ratio, false
 	}
 	if remoteInfo.Width > 0 && remoteInfo.Height > 0 && localInfo.Width > 0 && localInfo.Height > 0 {
@@ -256,7 +256,10 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 		return result
 	}
 	ensureLocalMediaMetaCacheLoaded(a)
-	cacheChanged := pruneLocalMediaMetaCache(a, entries)
+	cacheChanged := false
+	if ctx.Value(detectorCandidateViewV90{}) != true {
+		cacheChanged = pruneLocalMediaMetaCache(a, entries)
+	}
 
 	matched := make([]cachedDurationCandidateV85, 0, 16)
 	type rough struct {
@@ -350,7 +353,8 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 
 	for _, row := range matched {
 		if len(result.Candidates) >= limit {
-			break
+			result.Pending++
+			continue
 		}
 		if !hasEntryPath(result.Candidates, row.Entry.Path) {
 			result.Candidates = append(result.Candidates, row.Entry)

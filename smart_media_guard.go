@@ -37,6 +37,7 @@ const (
 var v85FramePoints = []float64{.08, .20, .35, .50, .65, .80, .92}
 
 func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
+	d = decorateDetectorEvidenceV90(d)
 	if d.UserStatus != "" {
 		return d
 	}
@@ -203,6 +204,7 @@ type videoFingerprintV85 struct {
 	Info   MediaInfo
 	Hashes []uint64
 	Valid  []bool
+	Frames []imageSignatureV85
 }
 
 // frameSignatureV85 filters low-information frames before they enter dHash
@@ -253,6 +255,14 @@ func frameSignatureV85(ctx context.Context, ff, target string, sec float64) (uin
 }
 
 func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string) (videoFingerprintV85, error) {
+	ctx, target, closeRemote, remoteErr := prepareDetectorRemoteV90(ctx, target)
+	if remoteErr != nil {
+		return videoFingerprintV85{}, remoteErr
+	}
+	defer closeRemote()
+	if cached, ok := cachedRemoteFingerprintV90(a, ctx); ok {
+		return cached, nil
+	}
 	ff := a.detectFFmpeg()
 	fp := a.detectFFprobe()
 	if ff == "" || fp == "" {
@@ -262,19 +272,20 @@ func (a *App) buildRemoteVideoFingerprintV85(ctx context.Context, target string)
 	if !ri.OK || ri.Duration <= 0 {
 		return videoFingerprintV85{}, fmt.Errorf("nu pot citi durata videoclipului remote")
 	}
-	out := videoFingerprintV85{Info: ri, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints))}
+	out := videoFingerprintV85{Info: ri, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints)), Frames: make([]imageSignatureV85, len(v85FramePoints))}
 	valid := 0
 	for i, p := range v85FramePoints {
-		h, informative, err := frameSignatureV85(ctx, ff, target, ri.Duration*p)
+		sig, informative, err := videoFrameSignatureV90(ctx, ff, target, ri.Duration*p)
 		if err != nil || !informative {
 			continue
 		}
-		out.Hashes[i], out.Valid[i] = h, true
+		out.Hashes[i], out.Valid[i], out.Frames[i] = sig.Hash, true, sig
 		valid++
 	}
 	if valid < 4 {
 		return videoFingerprintV85{}, fmt.Errorf("prea puține cadre informative remote: %d/7", valid)
 	}
+	saveRemoteFingerprintV90(a, ctx, out)
 	return out, nil
 }
 
@@ -341,9 +352,15 @@ func (a *App) alignedVideoScoreV85(ctx context.Context, remoteFP videoFingerprin
 			continue
 		}
 		seenOffset[key] = true
-		localHashes := make([]uint64, len(v85FramePoints))
-		localValid := make([]bool, len(v85FramePoints))
+		alignmentKey := fmt.Sprintf("%.3f:%.3f", remoteFP.Info.Duration, offset)
+		alignedFP, cached := cachedAlignedFingerprintV90(a, candidate, alignmentKey)
+		if !cached {
+			alignedFP = videoFingerprintV85{Info: localInfo, Hashes: make([]uint64, len(v85FramePoints)), Valid: make([]bool, len(v85FramePoints)), Frames: make([]imageSignatureV85, len(v85FramePoints))}
+		}
 		for i, p := range v85FramePoints {
+			if cached {
+				break
+			}
 			if i >= len(remoteFP.Valid) || !remoteFP.Valid[i] {
 				continue
 			}
@@ -351,13 +368,16 @@ func (a *App) alignedVideoScoreV85(ctx context.Context, remoteFP videoFingerprin
 			if sec < .05 || sec >= localInfo.Duration-.05 {
 				continue
 			}
-			h, informative, err := frameSignatureV85(ctx, ff, candidate.Path, sec)
+			sig, informative, err := videoFrameSignatureV90(ctx, ff, candidate.Path, sec)
 			if err != nil || !informative {
 				continue
 			}
-			localHashes[i], localValid[i] = h, true
+			alignedFP.Hashes[i], alignedFP.Valid[i], alignedFP.Frames[i] = sig.Hash, true, sig
 		}
-		score, matched, high, veryHigh := scoreFrameSetV85(remoteFP.Hashes, remoteFP.Valid, localHashes, localValid)
+		if !cached {
+			cacheAlignedFingerprintV90(a, candidate, alignmentKey, alignedFP)
+		}
+		score, matched, high, veryHigh := scoreRichFrameSetV90(remoteFP, alignedFP)
 		if matched < 4 {
 			continue
 		}
@@ -387,6 +407,9 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 	}
 
 	score, matched, highMatches, veryHighMatches := scoreFrameSetV85(remoteFP.Hashes, remoteFP.Valid, localFP.Hashes, localFP.Valid)
+	if len(remoteFP.Frames) > 0 && len(localFP.Frames) > 0 {
+		score, matched, highMatches, veryHighMatches = scoreRichFrameSetV90(remoteFP, localFP)
+	}
 	if matched < 4 {
 		return 0, "", li, fmt.Errorf("prea puține cadre informative comparabile: %d/7", matched)
 	}
@@ -406,6 +429,11 @@ func (a *App) scoreLocalVideoFingerprintV85(ctx context.Context, remoteFP videoF
 }
 
 func (a *App) visualVideoScoreV85(ctx context.Context, target, local string) (int, string, MediaInfo, MediaInfo, error) {
+	ctx, target, closeRemote, remoteErr := prepareDetectorRemoteV90(ctx, target)
+	if remoteErr != nil {
+		return 0, "", MediaInfo{}, MediaInfo{}, remoteErr
+	}
+	defer closeRemote()
 	remoteFP, err := a.buildRemoteVideoFingerprintV85(ctx, target)
 	if err != nil {
 		return 0, "", MediaInfo{}, MediaInfo{}, err
@@ -499,6 +527,10 @@ func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, remote
 		return -1, "", "", 0, err
 	}
 	search := a.imageCandidatesCachedV85(ctx, remoteSig, remote, entries, candidates, 7)
+	if m := detectorMetricsFromV90(ctx); m != nil {
+		m.LocalHits.Add(int64(search.Cached))
+		m.Deep.Add(int64(search.Probed))
+	}
 	note := fmt.Sprintf("semnătură perceptuală imagine • cache %d • analizate %d", search.Cached, search.Probed)
 	return search.BestScore, search.BestPath, note, search.Pending, nil
 }
@@ -524,7 +556,7 @@ func (a *App) scoreVideoCandidatesV85(ctx context.Context, remoteFP videoFingerp
 	return bestScore, bestPath, bestNote, bestQuality
 }
 
-func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entries []FileEntry, megaRemoteAvailable bool) (DownloadGuardDecision, bool) {
+func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entries []FileEntry, megaRemoteAvailable bool) (decision DownloadGuardDecision, found bool) {
 	kind := remoteMediaKind(res.Remote.Name)
 	if kind != "image" && kind != "video" {
 		return DownloadGuardDecision{}, false
@@ -540,6 +572,29 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	if err != nil {
 		return mediaReviewDecisionV85(res, "remote-unavailable", "Nu pot accesa conținutul remote pentru verificarea media: "+err.Error(), localCount, res.LocalPath)
 	}
+	if kind == "video" {
+		var closeRemote func()
+		ctx, target, closeRemote, err = prepareDetectorRemoteV90(ctx, target)
+		if err != nil {
+			return mediaReviewDecisionV85(res, "media-unverified", "Necesită verificare suplimentară: "+err.Error(), localCount, res.LocalPath)
+		}
+		defer closeRemote()
+	}
+	defer func() {
+		decision = decorateDetectorEvidenceV90(decision)
+		if session, ok := ctx.Value(detectorRemoteKeyV90{}).(*detectorRemoteV90); ok {
+			session.mu.Lock()
+			decision.Detector.RemoteBytes, decision.Detector.RemoteCacheHit = session.Bytes, session.CacheHit
+			if m := detectorMetricsFromV90(ctx); m != nil {
+				m.RemoteBytes.Add(session.Bytes)
+				m.RemoteHit.Store(session.CacheHit)
+			}
+			if session.Err != nil {
+				decision.Detector.Signals = append(decision.Detector.Signals, session.Err.Error())
+			}
+			session.mu.Unlock()
+		}
+	}()
 
 	candidates := mediaGuardCandidates(res.Remote, entries, 5)
 	bestScore := -1
@@ -550,6 +605,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	pending := 0
 	var remoteVideoInfo MediaInfo
 	var localVideoInfo MediaInfo
+	deepAnalyzed, localCacheHits := 0, 0
 
 	if kind == "image" {
 		bestScore, bestPath, bestNote, pending, err = a.scoreImageCandidatesV85(ctx, target, res.Remote, entries, candidates)
@@ -577,22 +633,14 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul video remote nu a putut fi calculat sigur: "+fpErr.Error(), localCount, res.LocalPath)
 		}
 		remoteVideoInfo = remoteFP.Info
+		search := a.videoCandidatesV90(ctx, remoteFP, res.Remote, entries)
+		candidates, pending = search.Candidates, search.Pending
 		analysis := a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
+		deepAnalyzed, localCacheHits = analysis.Analyzed, analysis.CacheHits
 		bestScore, secondScore = analysis.BestScore, analysis.SecondScore
 		bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
-		// A weak/possible 85–93% match is not strong enough to stop discovery.
-		// Search duration-compatible candidates across the collection so a fully
-		// renamed 98–100% re-encode cannot remain hidden behind the first shortlist.
-		if bestScore < 94 && ctx.Err() == nil {
-			search := a.videoDurationCandidatesCached(ctx, remoteFP.Info, res.Remote, entries, candidates, 7)
-			candidates = search.Candidates
-			pending = search.Pending
-			analysis = a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
-			bestScore, secondScore = analysis.BestScore, analysis.SecondScore
-			bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
-			if bestScore < 94 && pending > 0 {
-				return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Mai există %d videoclipuri locale fără metadate media validate. Au fost analizate %d acum; cache-ul se completează progresiv. Nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude un re-encode complet redenumit.", pending, search.Probed), localCount, bestPath)
-			}
+		if bestScore < 85 && pending > 0 {
+			return mediaReviewDecisionV85(res, "media-index-incomplete", fmt.Sprintf("Necesită verificare suplimentară: %d candidați locali încă neanalizați. Datele deja calculate sunt păstrate pentru următoarea verificare.", pending), len(candidates), bestPath)
 		}
 	}
 	if ctx.Err() != nil {
@@ -603,7 +651,20 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	}
 
 	d := DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardReview, LocalPath: bestPath, Candidates: len(candidates), Similarity: bestScore, QualityHint: bestQuality}
+	d.Detector = &DuplicateEvidenceV90{Pending: pending, Signals: []string{bestNote}, DeepAnalyzed: deepAnalyzed, LocalCacheHits: localCacheHits}
+	for _, e := range entries {
+		if pathKey(e.Path) == pathKey(bestPath) {
+			st, statErr := os.Stat(bestPath)
+			if statErr != nil || st.Size() != e.Size || st.ModTime().UnixNano() != e.MTime {
+				return mediaReviewDecisionV85(res, "media-unverified", "Fișierul local s-a schimbat în timpul analizei. Necesită verificare suplimentară.", len(candidates), bestPath)
+			}
+			break
+		}
+	}
 	if kind == "video" {
+		d.Detector.Remote, d.Detector.Local = &remoteVideoInfo, &localVideoInfo
+		d.Detector.Quality, d.Detector.Signals = mediaTechnicalEvidenceV90(remoteVideoInfo, localVideoInfo)
+		d.Detector.Signals = append(d.Detector.Signals, bestNote, "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente.")
 		return a.finalizeVideoMediaDecisionV85(ctx, target, d, remoteVideoInfo, localVideoInfo, secondScore, bestNote), true
 	}
 

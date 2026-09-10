@@ -15,8 +15,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"math"
-	"math/bits"
 	"net/http"
 	"net/url"
 	"os"
@@ -763,25 +761,15 @@ func fetchAllLimit(ctx context.Context, target string, max int64) ([]byte, error
 	return b, e
 }
 func imageVisualScore(ctx context.Context, target, local string, max int64) (int, error) {
-	rb, e := fetchAllLimit(ctx, target, max)
-	if e != nil {
-		return 0, e
+	remote, err := remoteImageSignatureV85(ctx, target, max)
+	if err != nil {
+		return 0, err
 	}
-	ri, _, e := image.Decode(bytes.NewReader(rb))
-	if e != nil {
-		return 0, fmt.Errorf("imagine remote: %w", e)
+	localSignature, err := readLocalImageSignatureV85(local)
+	if err != nil {
+		return 0, err
 	}
-	f, e := os.Open(local)
-	if e != nil {
-		return 0, e
-	}
-	defer f.Close()
-	li, _, e := image.Decode(f)
-	if e != nil {
-		return 0, fmt.Errorf("imagine locală: %w", e)
-	}
-	d := bits.OnesCount64(dhashImage(ri) ^ dhashImage(li))
-	return int(math.Round(float64(64-d) * 100 / 64)), nil
+	return imageSignatureSimilarityV85(remote, localSignature), nil
 }
 func frameHash(ctx context.Context, ff, target string, sec float64) (uint64, error) {
 	args := []string{"-v", "error", "-ss", fmt.Sprintf("%.3f", sec), "-i", target, "-frames:v", "1", "-vf", "scale=9:8:flags=fast_bilinear,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"}
@@ -807,44 +795,8 @@ func frameHash(ctx context.Context, ff, target string, sec float64) (uint64, err
 	return h, nil
 }
 func (a *App) visualVideoScore(ctx context.Context, target, local string) (int, string, error) {
-	ff := a.detectFFmpeg()
-	fp := a.detectFFprobe()
-	if ff == "" || fp == "" {
-		return 0, "", errors.New("ffmpeg + ffprobe sunt necesare pentru fingerprint video")
-	}
-	ri := probeMedia(ctx, fp, target, "REMOTE")
-	li := probeMedia(ctx, fp, local, "LOCAL")
-	if !ri.OK || !li.OK || ri.Duration <= 0 || li.Duration <= 0 {
-		return 0, "", errors.New("nu am putut citi durata ambelor videoclipuri")
-	}
-	minD := math.Min(ri.Duration, li.Duration)
-	points := []float64{.18, .5, .82}
-	sum := 0
-	ok := 0
-	for _, p := range points {
-		sec := minD * p
-		rh, e := frameHash(ctx, ff, target, sec)
-		if e != nil {
-			continue
-		}
-		lh, e := frameHash(ctx, ff, local, sec)
-		if e != nil {
-			continue
-		}
-		d := bits.OnesCount64(rh ^ lh)
-		sum += int(math.Round(float64(64-d) * 100 / 64))
-		ok++
-	}
-	if ok == 0 {
-		return 0, "", errors.New("nu am putut extrage cadre comparabile")
-	}
-	score := int(math.Round(float64(sum) / float64(ok)))
-	durDelta := math.Abs(ri.Duration - li.Duration)
-	note := fmt.Sprintf("%d cadre • durată Δ %.3fs", ok, durDelta)
-	if durDelta > math.Max(.5, minD*.01) {
-		score = int(float64(score) * .75)
-	}
-	return score, note, nil
+	score, note, _, _, err := a.visualVideoScoreV85(ctx, target, local)
+	return score, note, err
 }
 func (a *App) handleVisualVerify(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -888,10 +840,10 @@ func (a *App) handleVisualVerify(w http.ResponseWriter, r *http.Request) {
 			mb = 20
 		}
 		score, e = imageVisualScore(ctx, target, local, int64(mb)<<20)
-		method = "dHash imagine"
+		method = "dHash + pHash + structură imagine"
 	case "video":
 		score, note, e = a.visualVideoScore(ctx, target, local)
-		method = "3 cadre dHash + durată"
+		method = "7 cadre • dHash + pHash + structură + timp"
 	default:
 		e = errors.New("verificarea vizuală este disponibilă pentru imagini și video")
 	}
@@ -1043,10 +995,10 @@ func httptestLikeVisual(a *App, res Result, local string, parent context.Context
 			mb = 20
 		}
 		score, e = imageVisualScore(ctx, target, local, int64(mb)<<20)
-		method = "dHash imagine"
+		method = "dHash + pHash + structură imagine"
 	} else {
 		score, note, e = a.visualVideoScore(ctx, target, local)
-		method = "3 cadre dHash + durată"
+		method = "7 cadre • dHash + pHash + structură + timp"
 	}
 	if e != nil {
 		return visualOutcome{err: e}
