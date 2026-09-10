@@ -229,6 +229,7 @@ type Progress struct {
 type App struct {
 	mu                 sync.RWMutex
 	guardMu            sync.Mutex
+	duplicateScan      duplicateScanStateV90
 	persistMu          sync.Mutex
 	previewMu          sync.Mutex
 	preview            MegaPreviewState
@@ -297,6 +298,7 @@ func main() {
 	mux.HandleFunc("/api/update/install-online", a.handleUpdateInstallOnline)
 	mux.HandleFunc("/api/update/apply", a.handleUpdateApply)
 	mux.HandleFunc("/api/import", a.handleImport)
+	a.registerDuplicateRoutesV90(mux)
 	mux.HandleFunc("/api/results", a.handleResults)
 	mux.HandleFunc("/api/results/summary", a.handleResultsSummary)
 	mux.HandleFunc("/api/results/select", a.handleSmartSelect)
@@ -945,6 +947,7 @@ func (a *App) failOp(msg, detail string) {
 	a.mu.Unlock()
 }
 func (a *App) handleCancel(w http.ResponseWriter, r *http.Request) {
+	a.cancelDuplicateScanV90()
 	a.mu.Lock()
 	if a.cancel != nil {
 		a.cancel()
@@ -1843,6 +1846,12 @@ func enrichResult(r *Result, idx map[string]FileEntry) {
 			r.MatchScore = 0
 		}
 	}
+	if r.Detector != nil {
+		r.MatchScore = 0
+		if r.Detector.Score != nil {
+			r.MatchScore = *r.Detector.Score
+		}
+	}
 }
 
 func (a *App) enrichLoadedResults() {
@@ -1939,6 +1948,7 @@ func (a *App) candidatesFor(remote RemoteItem, limit int) []Candidate {
 }
 
 func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string) {
+	generation := a.cancelDuplicateScanV90()
 	a.mu.RLock()
 	liveRefresh := a.cfg.LiveRefreshCompare
 	a.mu.RUnlock()
@@ -1995,7 +2005,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 		if it.Hash != "" && (mode == "strict" || mode == "balanced") {
 			match := ""
 			for _, p := range candidates {
-				h, e := a.ensureHash(p, it.HashType)
+				h, e := a.ensureHashContextV90(ctx, p, it.HashType)
 				if e == nil && strings.EqualFold(h, it.Hash) {
 					match = p
 					break
@@ -2077,6 +2087,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			r.Reason += " Sursa nu oferă un hash comparabil, deci identitatea criptografică nu poate fi confirmată fără transfer."
 		}
 		normalizeInitialMediaResultV85(&r)
+		initialDetectorEvidenceV90(&r)
 		r.AutoStatus, r.AutoConfidence, r.AutoReason = r.Status, r.Confidence, r.Reason
 		a.mu.RLock()
 		d, hasDecision := a.decisions[decisionKey(it)]
@@ -2110,12 +2121,18 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 			})
 		}
 	}
+	a.duplicateScan.mu.Lock()
+	if a.duplicateScan.generation != generation {
+		a.duplicateScan.mu.Unlock()
+		return
+	}
 	a.mu.Lock()
 	a.results = res
 	for key := range staleDecisionKeys {
 		delete(a.decisions, key)
 	}
 	a.mu.Unlock()
+	a.duplicateScan.mu.Unlock()
 	a.revision.Add(1)
 	if len(staleDecisionKeys) > 0 {
 		if err := a.saveDecisions(); err != nil {
@@ -2125,6 +2142,7 @@ func (a *App) compareRemote(ctx context.Context, items []RemoteItem, mode string
 	if err := a.saveResults(); err != nil {
 		a.logf("Atenție: nu am putut salva ultima sesiune de rezultate: %v", err)
 	}
+	a.startDuplicateScanV90(generation, res)
 }
 func (a *App) ensureHash(path, kind string) (string, error) {
 	return a.ensureHashContextV90(context.Background(), path, kind)
@@ -3122,6 +3140,7 @@ func (a *App) handleOpenDataFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleClearResults(w http.ResponseWriter, r *http.Request) {
+	a.cancelDuplicateScanV90()
 	a.mu.Lock()
 	a.results = nil
 	a.mu.Unlock()

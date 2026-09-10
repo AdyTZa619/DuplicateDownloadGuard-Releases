@@ -467,8 +467,9 @@
         const value = `<span class="badge ${klass}">${esc(status)}</span> <b style="margin-left:6px">${esc(action)}</b> ` +
           `<span class="muted small">${esc(row.guardMethod || '')}${extra}${row.guardReason ? ' • ' + esc(row.guardReason) : ''}</span>`;
         detail.insertAdjacentHTML('beforeend', `<b>Smart Guard</b><span>${value}</span>`);
-        if (row.detector) detail.insertAdjacentHTML('beforeend', `<b>Dovezi detector</b><span>${window.DDGDuplicateEvidenceV90?.render(row.detector) || ''}</span>`);
+
       }
+if (row.detector) detail.insertAdjacentHTML('beforeend', `<b>Dovezi detector</b><span>${window.DDGDuplicateEvidenceV90?.render(row.detector) || ''}</span>`);
       if (isProvisionalDifferentMedia(row)) {
         detail.insertAdjacentHTML('beforeend', '<b>Verdict media inițial</b><span><span class="badge POSSIBLE">POSIBIL DUPLICAT</span> <span class="muted small">Același nume, dar mărime diferită poate însemna re-encode/resize. Verdictul final se dă de Smart Guard înainte de download.</span></span>');
       }

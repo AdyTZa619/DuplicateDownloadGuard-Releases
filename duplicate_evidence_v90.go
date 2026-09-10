@@ -25,6 +25,9 @@ func detectorClassificationV90(d DownloadGuardDecision) string {
 	if d.Exact {
 		return "EXACT"
 	}
+	if d.Detector != nil && d.Detector.Pending > 0 && (d.Method == "media-index-incomplete" || d.Method == "image-index-incomplete") {
+		return "NECUNOSCUT / DATE INSUFICIENTE"
+	}
 	if d.Similarity >= 95 {
 		return "FOARTE PROBABIL ACELAȘI CONȚINUT"
 	}
@@ -87,4 +90,11 @@ func mediaTechnicalEvidenceV90(remote, local MediaInfo) (string, []string) {
 		quality = "ECHIVALENTE TEHNIC"
 	}
 	return quality, signals
+}
+
+func incompleteMediaDecisionV90(res Result, score, pending int, method, reason string, candidates int, localPath string) (DownloadGuardDecision, bool) {
+	d, _ := mediaReviewDecisionV85(res, method, reason, candidates, localPath)
+	d.Similarity = max(0, score)
+	d.Detector = &DuplicateEvidenceV90{Pending: pending}
+	return decorateDetectorEvidenceV90(d), true
 }

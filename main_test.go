@@ -28,7 +28,7 @@ func TestCompareBasic(t *testing.T) {
 	p := filepath.Join("C:\\", "media", "a.jpg")
 	a := &App{appDir: t.TempDir(), index: map[string]FileEntry{p: {Path: p, Name: "a.jpg", Size: 100}}, bySize: map[int64][]string{100: {p}}, byName: map[string][]string{"a.jpg": {p}}, cfg: Config{Mode: "balanced"}}
 	a.compareRemote(context.Background(), []RemoteItem{{Path: "/x/a.jpg", Name: "a.jpg", Size: 100, Source: "MEGA"}}, "balanced")
-	if len(a.results) != 1 || a.results[0].Status != "HAVE" {
+	if len(a.results) != 1 || a.results[0].Status != "POSSIBLE" {
 		t.Fatalf("unexpected: %#v", a.results)
 	}
 }

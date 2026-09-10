@@ -24,7 +24,7 @@ func testResultTruthAppV85130(t *testing.T, entries []FileEntry) *App {
 	return a
 }
 
-func TestMegaExampleManifestExactFilesAreAllLocalV85130(t *testing.T) {
+func TestMegaExampleManifestMetadataCandidatesAreAllLocalV85130(t *testing.T) {
 	// Representative entries from the user's 149-file MEGA folder
 	// dIBTRCIT#nh95yntp5ABeMBcS83O0eg (145 JPG + 4 MP4).
 	manifest := []RemoteItem{
@@ -42,8 +42,8 @@ func TestMegaExampleManifestExactFilesAreAllLocalV85130(t *testing.T) {
 	a := testResultTruthAppV85130(t, entries)
 	a.compareRemote(context.Background(), manifest, "balanced")
 	for _, result := range a.results {
-		if result.Status != "HAVE" || result.LocalPath == "" {
-			t.Fatalf("exact local file %q classified as %#v", result.Remote.Path, result)
+		if result.Status != "POSSIBLE" || result.LocalPath == "" {
+			t.Fatalf("metadata candidate %q classified as %#v", result.Remote.Path, result)
 		}
 	}
 }
@@ -78,7 +78,7 @@ func TestStaleManualMissingCannotOverrideNewExactLocalEvidenceV85130(t *testing.
 	a.decisions[key] = Decision{Status: "MISSING", UpdatedAt: 1}
 	a.compareRemote(context.Background(), []RemoteItem{remote}, "balanced")
 	got := a.results[0]
-	if got.Status != "HAVE" || got.Manual {
+	if got.Status != "POSSIBLE" || got.Manual {
 		t.Fatalf("stale MISSING overruled exact current evidence: %#v", got)
 	}
 	if _, exists := a.decisions[key]; exists {

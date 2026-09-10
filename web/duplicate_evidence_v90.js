@@ -28,3 +28,35 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else globalThis.DDGDuplicateEvidenceV90 = api;
 })();
+
+// Own DOM listeners and status endpoint; no replacement of shared UI functions.
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
+  const panel = document.querySelector('#results .sectionBody');
+  if (!panel) return;
+  const card = document.createElement('div');
+  card.className = 'row muted small';
+  const label = document.createElement('span');
+  const cancel = document.createElement('button'); cancel.className = 'btn'; cancel.textContent = 'Oprește analiza';
+  const retry = document.createElement('button'); retry.className = 'btn'; retry.textContent = 'Reverifică duplicatele';
+  card.append(label, cancel, retry); panel.prepend(card);
+  let busy = false;
+  async function refresh() {
+    if (busy || document.hidden) return;
+    busy = true;
+    try {
+      const response = await fetch('/api/duplicates/status');
+      if (!response.ok) return;
+      const status = await response.json();
+      label.textContent = `Detector: ${status.completed}/${status.total} · ${status.message || 'Așteaptă scanarea sursei.'}`;
+      cancel.hidden = !status.active; retry.disabled = status.active || !status.total;
+    } catch (_) { label.textContent = 'Starea detectorului nu este disponibilă.'; }
+    finally { busy = false; }
+  }
+  for (const [button, action] of [[cancel, 'cancel'], [retry, 'start']]) button.addEventListener('click', async () => {
+    button.disabled = true;
+    try { await fetch('/api/duplicates/' + action, {method: 'POST'}); await refresh(); }
+    catch (_) { label.textContent = 'Nu am putut modifica analiza.'; }
+    finally { button.disabled = false; }
+  });
+  refresh(); setInterval(refresh, 1500);
+});
