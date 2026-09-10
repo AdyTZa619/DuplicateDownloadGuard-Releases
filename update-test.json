@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.135",
+  "version": "9.0.1-test.136",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "a61cafab45e34d82824b2c184feafbb224f1e50992f0109060523a4235434d95",
-  "notes": "TEST: TEST 9.0: corectează hash-ul după rescrieri rapide pe Windows (#93)",
-  "publishedAt": "2026-09-10T08:12:31.6455288Z",
+  "sha256": "74e879988e927d16aba78c1e1ed73cdd9c790db7a559ea9aeee6cbbda4e8904e",
+  "notes": "TEST: Fix primary source duplicate analysis and evidence for TEST",
+  "publishedAt": "2026-09-10T18:07:07.1922551Z",
   "channel": "test"
 }
