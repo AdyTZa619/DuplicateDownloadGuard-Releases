@@ -13,6 +13,10 @@ import (
 )
 
 type imageSignatureV85 struct {
+	Version int     `json:"version,omitempty"`
+	PHash   uint64  `json:"pHash,omitempty"`
+	Grid    []byte  `json:"grid,omitempty"`
+	Center  []byte  `json:"center,omitempty"`
 	Hash    uint64  `json:"hash"`
 	AvgR    uint8   `json:"avgR"`
 	AvgG    uint8   `json:"avgG"`
@@ -61,6 +65,10 @@ func makeImageSignatureV85(img image.Image) imageSignatureV85 {
 	}
 	variance /= n
 	return imageSignatureV85{
+		Version: signatureVersionV90,
+		PHash:   perceptualHashV90(signatureGridV90(img, 0)),
+		Grid:    signatureGridV90(img, 0),
+		Center:  signatureGridV90(img, .025),
 		Hash:    dhashImage(img),
 		AvgR:    uint8(math.Round(sumR / n)),
 		AvgG:    uint8(math.Round(sumG / n)),
@@ -70,6 +78,9 @@ func makeImageSignatureV85(img image.Image) imageSignatureV85 {
 }
 
 func imageSignatureSimilarityV85(a, b imageSignatureV85) int {
+	if a.Version == signatureVersionV90 && b.Version == signatureVersionV90 {
+		return richSignatureSimilarityV90(a, b)
+	}
 	hashScore := imageHashSimilarityV85(a.Hash, b.Hash)
 	dr := float64(int(a.AvgR) - int(b.AvgR))
 	dg := float64(int(a.AvgG) - int(b.AvgG))
@@ -115,7 +126,7 @@ var localImageSignatureCacheState = struct {
 }{}
 
 func localImageSignatureCacheFile(a *App) string {
-	return filepath.Join(a.appDir, "image_signature_cache.json")
+	return filepath.Join(a.appDir, "image_signature_cache_v90.json")
 }
 
 func ensureLocalImageSignatureCacheLoaded(a *App) {
@@ -145,7 +156,7 @@ func cachedLocalImageSignatureV85(a *App, e FileEntry) (imageSignatureV85, bool)
 	localImageSignatureCacheState.Lock()
 	defer localImageSignatureCacheState.Unlock()
 	row, ok := localImageSignatureCacheState.Entries[pathKey(e.Path)]
-	if !ok || row.Size != e.Size || row.MTime != e.MTime || row.Unusable {
+	if !ok || row.Size != e.Size || row.MTime != e.MTime || row.Unusable || row.Signature.Version != signatureVersionV90 {
 		return imageSignatureV85{}, false
 	}
 	return row.Signature, true
@@ -323,7 +334,14 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 		limit = 7
 	}
 	result := imageCandidateSearchV85{Candidates: append([]FileEntry(nil), existing...), BestScore: -1, SecondScore: -1}
-	cacheChanged := pruneLocalImageSignatureCacheV85(a, entries)
+	cacheChanged := false
+	if indexed, ok := ctx.Value(detectorCandidateKeyV90{}).(*detectorCandidatesV90); ok {
+		var pending int
+		entries, pending = indexed.imagePool(remoteSig, existing)
+		result.Pending = pending
+	} else {
+		cacheChanged = pruneLocalImageSignatureCacheV85(a, entries)
+	}
 	seen := map[string]bool{}
 	for _, e := range existing {
 		seen[pathKey(e.Path)] = true

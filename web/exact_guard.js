@@ -33,6 +33,7 @@
     // Same stable provider/source but a different size/format is history
     // evidence, not proof that this exact quality was already downloaded.
     if (method === 'download-history-source') return 'DESCĂRCAT ÎNAINTE';
+    if (item.detector?.classification && !method.startsWith('download-history')) return item.detector.classification;
     if (item.userStatus) return item.userStatus;
     if (method === 'download-history') return 'DESCĂRCAT DEJA';
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
@@ -44,6 +45,7 @@
 
   function inferAction(item) {
     if (!item) return '';
+    if (item.detector && (item.verdict || item.guardVerdict) === 'REVIEW') return 'VERIFICĂ MANUAL';
     if (item.action) return item.action;
     const reason = String(item.reason || item.guardReason || '').toLowerCase();
     if (reason.includes('versiunea remote pare mai bună')) return 'REMOTE E MAI BUN';
@@ -237,6 +239,7 @@
       <div style="margin-top:6px"><b>${esc(decision.name || 'fișier')}</b></div>
       ${meta.length ? `<div class="guardMeta">${meta.join('')}</div>` : ''}
       <div class="muted small guardReason">${esc(decision.reason || '')}</div>${local}
+      ${window.DDGDuplicateEvidenceV90?.render(decision.detector) || ''}
       <div class="muted small" style="margin-top:5px">Metodă: ${esc(decision.method || '—')}</div>
     </div>`;
   }
@@ -464,6 +467,7 @@
         const value = `<span class="badge ${klass}">${esc(status)}</span> <b style="margin-left:6px">${esc(action)}</b> ` +
           `<span class="muted small">${esc(row.guardMethod || '')}${extra}${row.guardReason ? ' • ' + esc(row.guardReason) : ''}</span>`;
         detail.insertAdjacentHTML('beforeend', `<b>Smart Guard</b><span>${value}</span>`);
+        if (row.detector) detail.insertAdjacentHTML('beforeend', `<b>Dovezi detector</b><span>${window.DDGDuplicateEvidenceV90?.render(row.detector) || ''}</span>`);
       }
       if (isProvisionalDifferentMedia(row)) {
         detail.insertAdjacentHTML('beforeend', '<b>Verdict media inițial</b><span><span class="badge POSSIBLE">POSIBIL DUPLICAT</span> <span class="muted small">Același nume, dar mărime diferită poate însemna re-encode/resize. Verdictul final se dă de Smart Guard înainte de download.</span></span>');

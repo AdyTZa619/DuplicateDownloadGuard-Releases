@@ -1,0 +1,748 @@
+[
+  {
+    "case": "A identical",
+    "expected": "exact",
+    "passed": true,
+    "index_ms": 6.662,
+    "cold_ms": 48.934,
+    "warm_ms": 14.183,
+    "cold_bytes": 521611,
+    "warm_bytes": 521611,
+    "method": "full-sha256",
+    "exact": true,
+    "similarity": null,
+    "detector": {
+      "classification": "EXACT",
+      "score": 100,
+      "basis": "Hash criptografic complet; numele și folderul nu sunt criterii de confirmare.",
+      "signals": [
+        "Conținut identic confirmat prin SHA-256 după citirea integrală a 509.39 KB remote."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 0,
+      "pending": 0
+    }
+  },
+  {
+    "case": "B renamed",
+    "expected": "exact",
+    "passed": true,
+    "index_ms": 40.517,
+    "cold_ms": 9.435,
+    "warm_ms": 9.904,
+    "cold_bytes": 521611,
+    "warm_bytes": 521611,
+    "method": "full-sha256",
+    "exact": true,
+    "similarity": null,
+    "detector": {
+      "classification": "EXACT",
+      "score": 100,
+      "basis": "Hash criptografic complet; numele și folderul nu sunt criterii de confirmare.",
+      "signals": [
+        "Conținut identic confirmat prin SHA-256 după citirea integrală a 509.39 KB remote."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 0,
+      "pending": 0
+    }
+  },
+  {
+    "case": "C moved",
+    "expected": "exact",
+    "passed": true,
+    "index_ms": 0.68,
+    "cold_ms": 10.401,
+    "warm_ms": 7.845,
+    "cold_bytes": 521611,
+    "warm_bytes": 521611,
+    "method": "full-sha256",
+    "exact": true,
+    "similarity": null,
+    "detector": {
+      "classification": "EXACT",
+      "score": 100,
+      "basis": "Hash criptografic complet; numele și folderul nu sunt criterii de confirmare.",
+      "signals": [
+        "Conținut identic confirmat prin SHA-256 după citirea integrală a 509.39 KB remote."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 0,
+      "pending": 0
+    }
+  },
+  {
+    "case": "D remux",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 5.001,
+    "cold_ms": 9229.335,
+    "warm_ms": 10.568,
+    "cold_bytes": 520997,
+    "warm_bytes": 0,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 100,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 347331 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "matroska,webm",
+        "bitRate": 347331,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "ECHIVALENTE TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "E H264-H265",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 9.231,
+    "cold_ms": 10616.563,
+    "warm_ms": 5.298,
+    "cold_bytes": 335232,
+    "warm_bytes": 0,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 100,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online hevc / local h264; bitrate: 223488 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 223488,
+        "videoCodec": "hevc",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "CALITATE NEDETERMINATĂ",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "F 1080-720",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 10.892,
+    "cold_ms": 7918.193,
+    "warm_ms": 4.895,
+    "cold_bytes": 273921,
+    "warm_bytes": 0,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 100,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1280×720 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 182614 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 182614,
+        "videoCodec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "LOCAL MAI BUN TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "G bitrate",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 5.802,
+    "cold_ms": 9519.014,
+    "warm_ms": 8.47,
+    "cold_bytes": 267688,
+    "warm_bytes": 0,
+    "method": "media-version",
+    "exact": false,
+    "similarity": 99,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 178458 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 178458,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "LOCAL MAI BUN TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "H metadata",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 0.479,
+    "cold_ms": 9590.351,
+    "warm_ms": 11.253,
+    "cold_bytes": 521552,
+    "warm_bytes": 0,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 100,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 347701 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347701,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "ECHIVALENTE TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "I trim-2s",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 8.397,
+    "cold_ms": 26807.248,
+    "warm_ms": 13.723,
+    "cold_bytes": 411823,
+    "warm_bytes": 0,
+    "method": "media-looks-same",
+    "exact": false,
+    "similarity": 93,
+    "detector": {
+      "classification": "PROBABIL",
+      "score": 93,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 10.000s / local 12.000s; diferență 2.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 329458 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 1 foarte apropiate • durată Δ 2.00s • aliniere temporală +2.00s • 7 cadre • 7 foarte apropiate",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 10,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 329458,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "CALITATE NEDETERMINATĂ",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "J watermark",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 15.707,
+    "cold_ms": 15253.861,
+    "warm_ms": 48.377,
+    "cold_bytes": 492005,
+    "warm_bytes": 0,
+    "method": "media-version",
+    "exact": false,
+    "similarity": 99,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 328003 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 328003,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "ECHIVALENTE TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "K similar but different",
+    "expected": "different",
+    "passed": true,
+    "index_ms": 117.218,
+    "cold_ms": 9985.021,
+    "warm_ms": 6.786,
+    "cold_bytes": 567137,
+    "warm_bytes": 0,
+    "method": "live-size-index",
+    "exact": false,
+    "similarity": null,
+    "detector": {
+      "classification": "DIFERIT",
+      "score": null,
+      "basis": "Nu există suficiente semnale pentru un scor de similaritate.",
+      "signals": [
+        "Scanarea live și verificarea candidaților media nu au găsit un corespondent relevant în colecția locală."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "L JPEG recompression",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 0.299,
+    "cold_ms": 124.959,
+    "warm_ms": 75.001,
+    "cold_bytes": 55004,
+    "warm_bytes": 55004,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 99,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "semnătură perceptuală imagine • cache 1 • analizate 0"
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "M image resize",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 2.89,
+    "cold_ms": 45.811,
+    "warm_ms": 10.835,
+    "cold_bytes": 36758,
+    "warm_bytes": 36758,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 99,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "semnătură perceptuală imagine • cache 1 • analizate 0"
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "N different same duration",
+    "expected": "different",
+    "passed": true,
+    "index_ms": 5.428,
+    "cold_ms": 9362.092,
+    "warm_ms": 8.44,
+    "cold_bytes": 1000984,
+    "warm_bytes": 0,
+    "method": "live-size-index",
+    "exact": false,
+    "similarity": null,
+    "detector": {
+      "classification": "DIFERIT",
+      "score": null,
+      "basis": "Nu există suficiente semnale pentru un scor de similaritate.",
+      "signals": [
+        "Scanarea live și verificarea candidaților media nu au găsit un corespondent relevant în colecția locală."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "O same name different content",
+    "expected": "different",
+    "passed": true,
+    "index_ms": 1.795,
+    "cold_ms": 9238.671,
+    "warm_ms": 10.192,
+    "cold_bytes": 1000984,
+    "warm_bytes": 0,
+    "method": "live-size-index",
+    "exact": false,
+    "similarity": null,
+    "detector": {
+      "classification": "DIFERIT",
+      "score": null,
+      "basis": "Nu există suficiente semnale pentru un scor de similaritate.",
+      "signals": [
+        "Scanarea live și verificarea candidaților media nu au găsit un corespondent relevant în colecția locală."
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "P minor crop",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 1.421,
+    "cold_ms": 9896.542,
+    "warm_ms": 8.331,
+    "cold_bytes": 572950,
+    "warm_bytes": 0,
+    "method": "media-looks-same",
+    "exact": false,
+    "similarity": 93,
+    "detector": {
+      "classification": "PROBABIL",
+      "score": 93,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 381966 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 381966,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "ECHIVALENTE TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "Q brightness",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 5.118,
+    "cold_ms": 9792.442,
+    "warm_ms": 6.863,
+    "cold_bytes": 493628,
+    "warm_bytes": 0,
+    "method": "media-version",
+    "exact": false,
+    "similarity": 99,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 99,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "Durată: online 12.000s / local 12.000s; diferență 0.000s",
+        "Rezoluție: online 1920×1080 / local 1920×1080",
+        "Codec: online h264 / local h264; bitrate: 329085 / 347740 bit/s",
+        "Cadre/s: online 12/1 / local 12/1; audio:  / ",
+        "7/7 cadre informative • 7 foarte apropiate • durată Δ 0.00s",
+        "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente."
+      ],
+      "remote": {
+        "ok": true,
+        "source": "REMOTE",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 329085,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "local": {
+        "ok": true,
+        "source": "LOCAL",
+        "duration": 12,
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "bitRate": 347740,
+        "videoCodec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps": "12/1"
+      },
+      "quality": "ECHIVALENTE TEHNIC",
+      "remoteBytes": 0,
+      "remoteCacheHit": true,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "R WebP conversion",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 0.748,
+    "cold_ms": 697.313,
+    "warm_ms": 635.798,
+    "cold_bytes": 11308,
+    "warm_bytes": 11308,
+    "method": "media-same-content",
+    "exact": false,
+    "similarity": 98,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 98,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "semnătură perceptuală imagine • cache 1 • analizate 0"
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 1,
+      "pending": 0
+    }
+  },
+  {
+    "case": "S image crop",
+    "expected": "related",
+    "passed": true,
+    "index_ms": 3.529,
+    "cold_ms": 77.158,
+    "warm_ms": 25.169,
+    "cold_bytes": 179180,
+    "warm_bytes": 179180,
+    "method": "media-version",
+    "exact": false,
+    "similarity": 95,
+    "detector": {
+      "classification": "FOARTE PROBABIL ACELAȘI CONȚINUT",
+      "score": 95,
+      "basis": "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte.",
+      "signals": [
+        "semnătură perceptuală imagine • cache 0 • analizate 0"
+      ],
+      "remoteBytes": 0,
+      "remoteCacheHit": false,
+      "deepAnalyzed": 0,
+      "localCacheHits": 0,
+      "pending": 0
+    }
+  }
+]

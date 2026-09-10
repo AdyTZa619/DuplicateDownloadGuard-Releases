@@ -29,18 +29,19 @@ const (
 )
 
 type DownloadGuardDecision struct {
-	ResultID    int    `json:"resultId"`
-	Name        string `json:"name"`
-	Verdict     string `json:"verdict"`
-	Reason      string `json:"reason"`
-	LocalPath   string `json:"localPath,omitempty"`
-	Method      string `json:"method"`
-	Candidates  int    `json:"candidates"`
-	Exact       bool   `json:"exact"`
-	UserStatus  string `json:"userStatus,omitempty"`
-	Action      string `json:"action,omitempty"`
-	Similarity  int    `json:"similarity,omitempty"`
-	QualityHint string `json:"qualityHint,omitempty"`
+	Detector    *DuplicateEvidenceV90 `json:"detector,omitempty"`
+	ResultID    int                   `json:"resultId"`
+	Name        string                `json:"name"`
+	Verdict     string                `json:"verdict"`
+	Reason      string                `json:"reason"`
+	LocalPath   string                `json:"localPath,omitempty"`
+	Method      string                `json:"method"`
+	Candidates  int                   `json:"candidates"`
+	Exact       bool                  `json:"exact"`
+	UserStatus  string                `json:"userStatus,omitempty"`
+	Action      string                `json:"action,omitempty"`
+	Similarity  int                   `json:"similarity,omitempty"`
+	QualityHint string                `json:"qualityHint,omitempty"`
 }
 
 type DownloadGuardReport struct {
@@ -185,6 +186,7 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 		e := FileEntry{Path: path, Name: filepath.Base(path), Size: info.Size(), MTime: mtimeNano}
 		if prev, ok := old[path]; ok && prev.Size == e.Size && (prev.MTime == mtimeNano || prev.MTime == info.ModTime().Unix()) {
 			e.SHA256, e.MD5 = prev.SHA256, prev.MD5
+			e.HashIdentity = prev.HashIdentity
 		}
 		updated[path] = e
 		entries[pathKey(path)] = e
@@ -293,21 +295,23 @@ func rankGuardCandidates(remote RemoteItem, entries []FileEntry) []FileEntry {
 	return out
 }
 
-func (a *App) exactLocalHashMatch(remote RemoteItem, candidates []FileEntry) (string, bool, error) {
+func (a *App) exactLocalHashMatch(ctx context.Context, remote RemoteItem, candidates []FileEntry) (string, bool, error) {
 	kind := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(remote.HashType), "-", ""))
 	if kind != "sha256" && kind != "md5" {
 		return "", false, errors.New("tipul hash-ului remote nu este suportat")
 	}
+	var readError error
 	for _, candidate := range rankGuardCandidates(remote, candidates) {
-		h, err := a.ensureHash(candidate.Path, kind)
+		h, err := a.ensureHashContextV90(ctx, candidate.Path, kind)
 		if err != nil {
+			readError = err
 			continue
 		}
 		if strings.EqualFold(h, strings.TrimSpace(remote.Hash)) {
 			return candidate.Path, true, nil
 		}
 	}
-	return "", false, nil
+	return "", false, readError
 }
 
 func sampleGuardCandidates(ctx context.Context, target string, size int64, candidates []FileEntry, blocks, blockKB int) ([]FileEntry, int64, error) {
@@ -402,7 +406,7 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 	}
 
 	if res.Remote.Hash != "" && res.Remote.HashType != "" {
-		path, same, err := a.exactLocalHashMatch(res.Remote, candidates)
+		path, same, err := a.exactLocalHashMatch(ctx, res.Remote, candidates)
 		if err == nil && same {
 			return DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDuplicate, Reason: "Hash-ul remote coincide cu hash-ul fișierului local, indiferent de nume.", LocalPath: path, Method: "remote-hash", Candidates: len(candidates), Exact: true}
 		}
@@ -414,6 +418,7 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 			base.Reason = fmt.Sprintf("Toți cei %d candidați de aceeași mărime au hash diferit de hash-ul remote.", len(candidates))
 			return base
 		}
+		return guardReviewDecision(res, "local-hash-unavailable", "Necesită verificare suplimentară: hash-ul local nu a putut fi validat. "+err.Error(), len(candidates), candidates[0].Path)
 	}
 
 	if strings.EqualFold(res.Remote.Source, "MEGA") && !megaRemoteAvailable {
@@ -442,11 +447,18 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 		if err != nil {
 			return guardReviewDecision(res, "full-sha256-error", "Verificarea integrală nu s-a putut încheia: "+err.Error(), len(candidates), candidates[0].Path)
 		}
+		var localHashErr error
 		for _, candidate := range candidates {
-			localHash, hashErr := a.ensureHash(candidate.Path, "sha256")
+			localHash, hashErr := a.ensureHashContextV90(ctx, candidate.Path, "sha256")
+			if hashErr != nil {
+				localHashErr = hashErr
+			}
 			if hashErr == nil && strings.EqualFold(localHash, remoteHash) {
 				return DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardDuplicate, Reason: fmt.Sprintf("Conținut identic confirmat prin SHA-256 după citirea integrală a %s remote.", human(transferred)), LocalPath: candidate.Path, Method: "full-sha256", Candidates: len(candidates), Exact: true}
 			}
+		}
+		if localHashErr != nil {
+			return guardReviewDecision(res, "local-hash-unavailable", "Necesită verificare suplimentară: un candidat local nu a putut fi citit.", len(candidates), candidates[0].Path)
 		}
 		if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
 			return mediaDecision
@@ -515,6 +527,7 @@ func (a *App) applyGuardDecisions(decisions []DownloadGuardDecision) {
 			continue
 		}
 		x := &a.results[i]
+		x.Detector = decorateDetectorEvidenceV90(decision).Detector
 		x.GuardVerdict, x.GuardMethod, x.GuardReason, x.GuardAt = decision.Verdict, decision.Method, decision.Reason, now
 		x.Candidates = decision.Candidates
 		if decision.LocalPath != "" {
@@ -587,6 +600,7 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 	for _, entry := range entries {
 		bySize[entry.Size] = append(bySize[entry.Size], entry)
 	}
+	ctx = detectorCandidateContextV90(ctx, a, entries)
 
 	hasMega := false
 	for _, row := range rows {
@@ -614,7 +628,9 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 		if ctx.Err() != nil {
 			return report, ctx.Err()
 		}
-		decision := a.evaluateDownloadGuard(ctx, row, entries, bySize, mode, megaReady)
+		metrics := &detectorMetricsV90{}
+		rowContext := context.WithValue(ctx, detectorMetricsKeyV90{}, metrics)
+		decision := a.evaluateDownloadGuard(rowContext, row, entries, bySize, mode, megaReady)
 		if mode == guardModeAI && decision.Verdict == guardDownload && (!strings.EqualFold(row.Remote.Source, "MEGA") || megaReady) {
 			decision = a.applyAIAdvisory(ctx, row, entries, decision)
 		}
@@ -622,6 +638,10 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 			decision = guardReviewDecision(row, "manual-have", "Fișierul este marcat manual «Ai deja». Download Guard nu suprascrie această decizie fără confirmare explicită. "+decision.Reason, decision.Candidates, row.LocalPath)
 		}
 		decision = decorateGuardDecision(decision)
+		decision.Detector.DeepAnalyzed = int(metrics.Deep.Load())
+		decision.Detector.LocalCacheHits = int(metrics.LocalHits.Load())
+		decision.Detector.RemoteBytes = metrics.RemoteBytes.Load()
+		decision.Detector.RemoteCacheHit = metrics.RemoteHit.Load()
 		report.Decisions = append(report.Decisions, decision)
 		report.Counts[decision.Verdict]++
 	}
