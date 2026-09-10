@@ -1,8 +1,8 @@
 {
-  "version": "8.5.49-test.133",
+  "version": "9.0.1-test.135",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "131146be37b13f95508f2e0a075795f611587317f4ec6e66567d26990fe349b0",
-  "notes": "TEST: Merge PR #90: fix TEST132 shutdown and HLS regressions",
-  "publishedAt": "2026-09-09T16:29:58.2959488Z",
+  "sha256": "a61cafab45e34d82824b2c184feafbb224f1e50992f0109060523a4235434d95",
+  "notes": "TEST: TEST 9.0: corectează hash-ul după rescrieri rapide pe Windows (#93)",
+  "publishedAt": "2026-09-10T08:12:31.6455288Z",
   "channel": "test"
 }
