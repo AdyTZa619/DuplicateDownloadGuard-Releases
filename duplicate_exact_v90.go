@@ -41,8 +41,8 @@ func (a *App) ensureHashContextV90(ctx context.Context, path, kind string) (stri
 	if !before.Mode().IsRegular() {
 		return "", errors.New("not a regular file")
 	}
-	identity := hashFileIdentityV90(f, before)
-	if before.Size() == e.Size && before.ModTime().UnixNano() == e.MTime && identity != "" && identity == e.HashIdentity {
+	identity, cacheable := hashFileIdentityV90(f, before)
+	if before.Size() == e.Size && before.ModTime().UnixNano() == e.MTime && cacheable && identity != "" && identity == e.HashIdentity {
 		if kind == "sha256" && e.SHA256 != "" {
 			return e.SHA256, nil
 		}
@@ -77,12 +77,16 @@ func (a *App) ensureHashContextV90(ctx context.Context, path, kind string) (stri
 		return "", err
 	}
 	current, err := os.Stat(path)
+	afterIdentity, _ := hashFileIdentityV90(f, after)
 	if err != nil || !os.SameFile(before, current) || after.Size() != before.Size() ||
-		after.ModTime() != before.ModTime() || hashFileIdentityV90(f, after) != identity {
+		after.ModTime() != before.ModTime() || afterIdentity != identity {
 		return "", errors.New("file changed while computing digest; retry verification")
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
 	e.Size, e.MTime, e.HashIdentity = after.Size(), after.ModTime().UnixNano(), identity
+	if !cacheable {
+		e.HashIdentity = ""
+	}
 	if kind == "sha256" {
 		e.SHA256 = digest
 	} else {
