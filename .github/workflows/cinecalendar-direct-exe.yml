@@ -11,15 +11,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Extract CineCalendar source
-        shell: pwsh
-        run: |
-          if (!(Test-Path 'cinecalendar-source.zip')) { throw 'cinecalendar-source.zip missing' }
-          Expand-Archive -Path cinecalendar-source.zip -DestinationPath . -Force
-          if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source invalid' }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Validate and extract CineCalendar source
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'cinecalendar-source.zip')) { throw 'cinecalendar-source.zip missing' }
+          python -c "import zipfile,sys; p='cinecalendar-source.zip'; z=zipfile.ZipFile(p); bad=z.testzip(); print('ZIP entries:',len(z.namelist())); print('ZIP bad entry:',bad); sys.exit(2 if bad else 0)"
+          if ($LASTEXITCODE -ne 0) { throw 'CineCalendar ZIP failed validation' }
+          python -m zipfile -e cinecalendar-source.zip .
+          if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source invalid after extraction' }
       - name: Install dependencies
         working-directory: CineCalendar
         run: python -m pip install -r requirements-dev.txt
@@ -36,6 +38,7 @@ jobs:
           if (!(Test-Path 'dist\CineCalendar.exe')) { throw 'EXE was not created' }
           $b=[IO.File]::ReadAllBytes('dist\CineCalendar.exe')
           if ($b.Length -lt 2 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw 'Not a Windows PE executable' }
+          Get-Item 'dist\CineCalendar.exe' | Format-List Name,Length
           Get-FileHash 'dist\CineCalendar.exe' -Algorithm SHA256
       - name: Smoke launch
         working-directory: CineCalendar
