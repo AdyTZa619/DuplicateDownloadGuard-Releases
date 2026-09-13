@@ -1,0 +1,63 @@
+name: CineCalendar Windows EXE
+
+on:
+  push:
+    branches: ["cinecalendar-direct-exe"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract CineCalendar source
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'cinecalendar-source.zip')) { throw 'cinecalendar-source.zip missing' }
+          Expand-Archive -Path cinecalendar-source.zip -DestinationPath . -Force
+          if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source invalid' }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        working-directory: CineCalendar
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        working-directory: CineCalendar
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q
+      - name: Build portable EXE
+        working-directory: CineCalendar
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name CineCalendar --collect-all PySide6 --hidden-import=sqlite3 launcher.py
+          if (!(Test-Path 'dist\CineCalendar.exe')) { throw 'EXE was not created' }
+          $b=[IO.File]::ReadAllBytes('dist\CineCalendar.exe')
+          if ($b.Length -lt 2 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw 'Not a Windows PE executable' }
+          Get-FileHash 'dist\CineCalendar.exe' -Algorithm SHA256
+      - name: Smoke launch
+        working-directory: CineCalendar
+        shell: pwsh
+        run: |
+          $p=Start-Process -FilePath '.\dist\CineCalendar.exe' -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { if ($p.ExitCode -ne 0) { throw "App exited with $($p.ExitCode)" } }
+          else { Stop-Process -Id $p.Id -Force }
+      - name: Package
+        working-directory: CineCalendar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item dist\CineCalendar.exe portable\CineCalendar.exe
+          'Pornire: dublu-click CineCalendar.exe. Nu este necesar Python. Pastreaza CineCalendarData la update.' | Set-Content -Encoding UTF8 portable\README.txt
+          Compress-Archive -Path portable\* -DestinationPath CineCalendar-Windows-x64-portable.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CineCalendar-Windows-x64
+          path: |
+            CineCalendar/dist/CineCalendar.exe
+            CineCalendar/CineCalendar-Windows-x64-portable.zip
+          if-no-files-found: error
+          retention-days: 30
