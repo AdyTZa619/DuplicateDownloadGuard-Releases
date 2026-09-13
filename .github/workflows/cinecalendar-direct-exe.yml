@@ -20,7 +20,7 @@ jobs:
         shell: pwsh
         run: |
           $parts = Get-ChildItem 'source_chunks\chunk_*' | Sort-Object Name
-          if ($parts.Count -ne 12) { throw "Expected 12 source chunks, got $($parts.Count)" }
+          if ($parts.Count -ne 14) { throw "Expected 14 source chunks, got $($parts.Count)" }
           $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
           if ($b64.Length -ne 109728) { throw "Unexpected base64 length: $($b64.Length)" }
           [IO.File]::WriteAllBytes('cinecalendar-source.zip', [Convert]::FromBase64String($b64))
