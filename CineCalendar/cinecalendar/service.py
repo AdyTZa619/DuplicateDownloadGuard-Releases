@@ -6,7 +6,6 @@ from .calendar_engine_v2 import RichCalendarEngine
 from .db import Database
 from .logging_setup import setup_logging
 from .recommender_v6 import FastRecommendationEngineV6
-from .updater_v3 import cleanup_update_residue
 from .util import AppPaths
 
 
@@ -14,8 +13,6 @@ class CineCalendarService:
     def __init__(self, paths: AppPaths | None = None):
         self.paths = paths or AppPaths.portable()
         self.log = setup_logging(self.paths.logs)
-        # Clean only transient updater files. Database/cache/settings remain untouched.
-        cleanup_update_residue(self.paths.root / "updates")
         self.db = Database(self.paths.data / "cinecalendar.db")
         self._defaults()
         self.initial_ratings_state = ensure_initial_ratings(self.db, self.paths.root.parent, self.log)
