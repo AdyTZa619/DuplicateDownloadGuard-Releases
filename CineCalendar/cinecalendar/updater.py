@@ -12,16 +12,17 @@ import subprocess
 import sys
 import time
 from typing import Callable
+import zipfile
 
 import requests
 
 
+# v2 manifest is ZIP/folder aware. The legacy update.json remains a bridge manifest
+# so CineCalendar 2.1 can safely migrate from the old single-EXE updater.
 MANIFEST_URL = (
     "https://raw.githubusercontent.com/AdyTZa619/"
-    "DuplicateDownloadGuard-Releases/cinecalendar-direct-exe/CineCalendar/update.json"
+    "DuplicateDownloadGuard-Releases/cinecalendar-direct-exe/CineCalendar/update-v2.json"
 )
-UPDATER_MODE = "--cinecalendar-native-updater"
-CLEANUP_MODE = "--cinecalendar-updater-cleanup"
 POST_UPDATE_MODE = "--cinecalendar-post-update"
 
 
@@ -38,15 +39,17 @@ class UpdateInfo:
 @dataclass
 class NativeUpdateRequest:
     parent_pid: int
-    current: str
-    pending: str
-    backup: str
+    app_root: str
+    data_root: str
+    staged_dir: str
+    backup_dir: str
+    pending_zip: str
     health: str
     log: str
     expected_version: str
     expected_sha256: str
     updates_dir: str
-    helper: str
+    helper_script: str
     request_path: str
 
 
@@ -128,7 +131,7 @@ def _download_to(url: str, destination: Path, progress: Callable[[str], None] | 
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp = destination.with_suffix(destination.suffix + ".download")
     tmp.unlink(missing_ok=True)
-    with requests.get(url, stream=True, timeout=(10, 180), headers={"User-Agent": "CineCalendar-Updater/2"}) as r:
+    with requests.get(url, stream=True, timeout=(10, 240), headers={"User-Agent": "CineCalendar-Updater/2.2"}) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -151,15 +154,24 @@ def _download_to(url: str, destination: Path, progress: Callable[[str], None] | 
     os.replace(tmp, destination)
 
 
-def _durable_copy(src: str | Path, dst: str | Path) -> None:
-    src = Path(src); dst = Path(dst)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dst.with_suffix(dst.suffix + ".copying")
-    tmp.unlink(missing_ok=True)
-    with src.open("rb") as inp, tmp.open("wb") as out:
-        shutil.copyfileobj(inp, out, 1024 * 1024)
-        out.flush(); os.fsync(out.fileno())
-    os.replace(tmp, dst)
+def _safe_extract_zip(archive: Path, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination, ignore_errors=True)
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    with zipfile.ZipFile(archive, "r") as zf:
+        for member in zf.infolist():
+            target = (root / member.filename).resolve()
+            if target != root and root not in target.parents:
+                raise RuntimeError(f"Update ZIP invalid: cale nesigură {member.filename!r}.")
+        zf.extractall(root)
+    exe = root / "CineCalendar.exe"
+    internal = root / "_internal"
+    if not exe.is_file() or not internal.is_dir():
+        raise RuntimeError("Pachetul Premium nu conține CineCalendar.exe și folderul _internal.")
+    with exe.open("rb") as fh:
+        if fh.read(2) != b"MZ":
+            raise RuntimeError("CineCalendar.exe din pachet nu este un executabil Windows valid.")
 
 
 def _popen(args: list[str]) -> subprocess.Popen:
@@ -169,86 +181,185 @@ def _popen(args: list[str]) -> subprocess.Popen:
     return subprocess.Popen(args, **kwargs)
 
 
+def _powershell_helper() -> str:
+    # Runs outside the app process, so the whole onedir payload can be replaced safely.
+    return r'''param([Parameter(Mandatory=$true)][string]$RequestPath)
+$ErrorActionPreference = 'Stop'
+$req = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+
+function Write-UpdateLog([string]$Message) {
+  try {
+    $stamp = [DateTime]::UtcNow.ToString('o')
+    Add-Content -LiteralPath $req.log -Value "$stamp $Message" -Encoding UTF8
+  } catch {}
+}
+
+function Wait-ParentExit([int]$Pid, [int]$Seconds) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  while ((Get-Date) -lt $deadline) {
+    if (-not (Get-Process -Id $Pid -ErrorAction SilentlyContinue)) { return $true }
+    Start-Sleep -Milliseconds 250
+  }
+  return -not (Get-Process -Id $Pid -ErrorAction SilentlyContinue)
+}
+
+function Norm([string]$PathValue) {
+  return [IO.Path]::GetFullPath($PathValue).TrimEnd('\\')
+}
+
+function Is-ProtectedData([string]$Candidate) {
+  return (Norm $Candidate) -ieq (Norm $req.data_root)
+}
+
+function Remove-AppPayload([string]$Root) {
+  Get-ChildItem -LiteralPath $Root -Force | ForEach-Object {
+    if (-not (Is-ProtectedData $_.FullName)) {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+    }
+  }
+}
+
+function Copy-Tree([string]$From, [string]$To) {
+  New-Item -ItemType Directory -Force -Path $To | Out-Null
+  Get-ChildItem -LiteralPath $From -Force | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $To -Recurse -Force -ErrorAction Stop
+  }
+}
+
+Write-UpdateLog "Updater folder pornit pentru $($req.expected_version)."
+if (-not (Wait-ParentExit ([int]$req.parent_pid) 45)) {
+  Write-UpdateLog 'Procesul principal nu s-a închis; update anulat fără modificări.'
+  exit 7
+}
+
+$appRoot = Norm $req.app_root
+$staged = Norm $req.staged_dir
+$backup = Norm $req.backup_dir
+$health = $req.health
+$current = Join-Path $appRoot 'CineCalendar.exe'
+
+try {
+  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $backup | Out-Null
+  Get-ChildItem -LiteralPath $appRoot -Force | ForEach-Object {
+    if (-not (Is-ProtectedData $_.FullName)) {
+      Copy-Item -LiteralPath $_.FullName -Destination $backup -Recurse -Force -ErrorAction Stop
+    }
+  }
+
+  Remove-AppPayload $appRoot
+  Copy-Tree $staged $appRoot
+  if (-not (Test-Path -LiteralPath $current)) { throw 'CineCalendar.exe lipsește după copiere.' }
+} catch {
+  Write-UpdateLog "Instalare eșuată înainte de pornire: $($_.Exception.Message). Rollback."
+  try {
+    Remove-AppPayload $appRoot
+    Copy-Tree $backup $appRoot
+    Start-Process -FilePath $current | Out-Null
+  } catch {
+    Write-UpdateLog "ROLLBACK EȘUAT: $($_.Exception.Message)"
+    exit 6
+  }
+  exit 3
+}
+
+try { Remove-Item -LiteralPath $health -Force -ErrorAction SilentlyContinue } catch {}
+$argLine = '--cinecalendar-post-update "{0}" "{1}"' -f $health, $req.expected_version
+try {
+  $child = Start-Process -FilePath $current -ArgumentList $argLine -PassThru
+} catch {
+  Write-UpdateLog "Noua versiune nu pornește: $($_.Exception.Message). Rollback."
+  Remove-AppPayload $appRoot
+  Copy-Tree $backup $appRoot
+  Start-Process -FilePath $current | Out-Null
+  exit 4
+}
+
+$ok = $false
+$deadline = (Get-Date).AddSeconds(45)
+while ((Get-Date) -lt $deadline) {
+  if (Test-Path -LiteralPath $health) {
+    try {
+      $first = (Get-Content -LiteralPath $health -TotalCount 1).Trim()
+      if ($first -eq [string]$req.expected_version) { $ok = $true; break }
+    } catch {}
+  }
+  if ($child.HasExited) { break }
+  Start-Sleep -Milliseconds 400
+}
+
+if ($ok) {
+  Write-UpdateLog 'Health-check reușit; update folder confirmat.'
+  try { Remove-Item -LiteralPath $staged -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -LiteralPath $req.pending_zip -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -LiteralPath $health -Force -ErrorAction SilentlyContinue } catch {}
+  exit 0
+}
+
+Write-UpdateLog 'Health-check eșuat; execut rollback automat.'
+try { if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue } } catch {}
+try {
+  Remove-AppPayload $appRoot
+  Copy-Tree $backup $appRoot
+  Start-Process -FilePath $current | Out-Null
+  Write-UpdateLog 'Rollback terminat; versiunea anterioară a fost repornită.'
+  exit 5
+} catch {
+  Write-UpdateLog "ROLLBACK EȘUAT: $($_.Exception.Message)"
+  exit 6
+}
+'''
+
+
 def stage_and_start_update(info: UpdateInfo, data_root: str | Path,
                            progress: Callable[[str], None] | None = None) -> NativeUpdateRequest:
     if not update_supported():
         raise RuntimeError("Updaterul automat funcționează numai în CineCalendar.exe pentru Windows.")
     progress = progress or (lambda _m: None)
     current = Path(sys.executable).resolve()
-    updates = Path(data_root).resolve() / "updates"
-    backup_dir = updates / "backup"
-    updates.mkdir(parents=True, exist_ok=True); backup_dir.mkdir(parents=True, exist_ok=True)
+    app_root = current.parent
+    data_root = Path(data_root).resolve()
+    updates = data_root / "updates"
+    updates.mkdir(parents=True, exist_ok=True)
 
-    pending = updates / "CineCalendar.pending.exe"
-    progress("Pregătesc actualizarea…")
-    _download_to(info.url, pending, progress)
-    got = sha256_path(pending)
-    if got.lower() != info.sha256.lower():
-        pending.unlink(missing_ok=True)
-        raise RuntimeError(f"SHA-256 diferit. Așteptat {info.sha256}, primit {got}.")
-    progress("SHA-256 verificat. Pregătesc updaterul sigur…")
-
-    # The helper is a copy of the currently running, trusted EXE. It performs the
-    # replacement only after the parent process has exited, just like DDG.
-    helper = updates / f"CineCalendar.updater_{os.getpid()}.exe"
-    _durable_copy(current, helper)
-    backup = backup_dir / f"CineCalendar_{info.version}_previous.exe"
+    pending_zip = updates / f"CineCalendar-{info.version}.pending.zip"
+    staged = updates / f"staged-{info.version}"
+    backup = updates / "backup" / "previous"
     health = updates / "health.ok"
     log = updates / "updater.log"
+    helper = updates / "apply_update.ps1"
     request_path = updates / "apply_update.json"
 
+    progress("Descarc pachetul Premium…")
+    _download_to(info.url, pending_zip, progress)
+    got = sha256_path(pending_zip)
+    if got.lower() != info.sha256.lower():
+        pending_zip.unlink(missing_ok=True)
+        raise RuntimeError(f"SHA-256 diferit. Așteptat {info.sha256}, primit {got}.")
+
+    progress("SHA-256 verificat. Pregătesc fișierele…")
+    _safe_extract_zip(pending_zip, staged)
+    helper.write_text(_powershell_helper(), encoding="utf-8-sig")
+
     req = NativeUpdateRequest(
-        parent_pid=os.getpid(), current=str(current), pending=str(pending), backup=str(backup),
+        parent_pid=os.getpid(), app_root=str(app_root), data_root=str(data_root),
+        staged_dir=str(staged), backup_dir=str(backup), pending_zip=str(pending_zip),
         health=str(health), log=str(log), expected_version=info.version,
-        expected_sha256=info.sha256, updates_dir=str(updates), helper=str(helper),
+        expected_sha256=info.sha256, updates_dir=str(updates), helper_script=str(helper),
         request_path=str(request_path),
     )
     request_path.write_text(json.dumps(asdict(req), ensure_ascii=False, indent=2), encoding="utf-8")
-    _log(log, f"Update {info.version} staged; handoff către helper.")
-    _popen([str(helper), UPDATER_MODE, str(request_path)])
-    progress("Update pregătit. CineCalendar se va închide și va reporni automat.")
+    _log(log, f"Update folder {info.version} staged; handoff către PowerShell helper.")
+
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if not powershell:
+        raise RuntimeError("Windows PowerShell nu a fost găsit; update-ul nu a fost aplicat.")
+    _popen([
+        powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", str(helper), str(request_path),
+    ])
+    progress("Update pregătit. CineCalendar se închide și se va reporni automat.")
     return req
-
-
-def _process_alive_windows(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if os.name != "nt":
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-    import ctypes
-    SYNCHRONIZE = 0x00100000
-    WAIT_TIMEOUT = 0x00000102
-    kernel32 = ctypes.windll.kernel32
-    handle = kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
-    if not handle:
-        return False
-    try:
-        return kernel32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def _wait_process_exit(pid: int, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not _process_alive_windows(pid):
-            return True
-        time.sleep(.25)
-    return not _process_alive_windows(pid)
-
-
-def _validate_request(req: NativeUpdateRequest) -> None:
-    for value in (req.current, req.pending, req.backup, req.health, req.log, req.updates_dir, req.helper, req.request_path):
-        if not Path(value).is_absolute():
-            raise ValueError("Updaterul a primit o cale care nu este absolută.")
-    if not req.current.lower().endswith(".exe") or not req.pending.lower().endswith(".exe"):
-        raise ValueError("Fișierele de update trebuie să fie EXE.")
-    if not re.fullmatch(r"[0-9a-fA-F]{64}", req.expected_sha256):
-        raise ValueError("SHA-256 invalid în cererea updaterului.")
 
 
 def write_health_marker(path: str | Path, version: str) -> None:
@@ -267,123 +378,8 @@ def health_matches(path: str | Path, version: str) -> bool:
         return False
 
 
-def _wait_health(path: str | Path, version: str, timeout: float = 35.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if health_matches(path, version):
-            return True
-        time.sleep(.4)
-    return False
-
-
-def _cleanup_old(updates: Path, keep_backup: Path | None = None, keep_helper: Path | None = None) -> None:
-    backup_dir = updates / "backup"
-    if backup_dir.exists():
-        for p in backup_dir.glob("*.exe"):
-            if keep_backup and p.resolve() == keep_backup.resolve():
-                continue
-            p.unlink(missing_ok=True)
-    for p in updates.iterdir() if updates.exists() else []:
-        if p.is_dir():
-            continue
-        if keep_helper and p.resolve() == keep_helper.resolve():
-            continue
-        low = p.name.lower()
-        if low.startswith("cinecalendar.updater_") or low.endswith((".download", ".copying", ".replacing")):
-            p.unlink(missing_ok=True)
-
-
-def run_native_updater(request_path: str) -> int:
-    if os.name != "nt":
-        return 70
-    try:
-        payload = json.loads(Path(request_path).read_text(encoding="utf-8"))
-        req = NativeUpdateRequest(**payload)
-        _validate_request(req)
-    except Exception:
-        return 65
-    log = Path(req.log)
-    _log(log, f"Updater nativ pornit pentru {req.expected_version}.")
-    if not _wait_process_exit(req.parent_pid, 30):
-        _log(log, "Procesul principal nu s-a închis în 30s; nu modific EXE-ul.")
-        return 7
-
-    current = Path(req.current); pending = Path(req.pending); backup = Path(req.backup)
-    updates = Path(req.updates_dir); helper = Path(req.helper); health = Path(req.health)
-    try:
-        _cleanup_old(updates, keep_helper=helper)
-        _durable_copy(current, backup)
-        _durable_copy(pending, current)
-        got = sha256_path(current)
-        if got.lower() != req.expected_sha256.lower():
-            raise RuntimeError("SHA-256 diferit după înlocuirea EXE-ului.")
-    except Exception as exc:
-        _log(log, f"Înlocuire eșuată: {exc}; încerc rollback.")
-        try:
-            if backup.exists(): _durable_copy(backup, current)
-            _popen([str(current)])
-        except Exception as rex:
-            _log(log, f"ROLLBACK EȘUAT: {rex}")
-            return 6
-        return 3
-
-    health.unlink(missing_ok=True)
-    try:
-        child = _popen([str(current), POST_UPDATE_MODE, str(health), req.expected_version])
-    except Exception as exc:
-        _log(log, f"Versiunea nouă nu pornește: {exc}; rollback.")
-        _durable_copy(backup, current); _popen([str(current)])
-        return 4
-
-    if _wait_health(health, req.expected_version, 35):
-        _log(log, "Health-check reușit; update confirmat.")
-        try:
-            _popen([str(current), CLEANUP_MODE, str(os.getpid()), str(updates), str(backup), str(helper)])
-        except Exception as exc:
-            _log(log, f"Cleanup amânat: {exc}")
-        return 0
-
-    _log(log, "Health-check eșuat; rollback automat.")
-    try:
-        child.terminate()
-        try: child.wait(timeout=8)
-        except Exception: child.kill()
-    except Exception:
-        pass
-    try:
-        _durable_copy(backup, current)
-        _popen([str(current)])
-        _log(log, "Rollback terminat; versiunea anterioară a fost repornită.")
-        return 5
-    except Exception as exc:
-        _log(log, f"ROLLBACK EȘUAT: {exc}")
-        return 6
-
-
-def run_cleanup(parent_pid: int, updates_dir: str, keep_backup: str, helper: str) -> int:
-    try:
-        updates = Path(updates_dir).resolve(); backup = Path(keep_backup).resolve(); helper_path = Path(helper).resolve()
-        if not updates.is_absolute() or not backup.is_absolute() or not helper_path.is_absolute():
-            return 65
-        _wait_process_exit(parent_pid, 30)
-        _cleanup_old(updates, keep_backup=backup)
-        for name in ("CineCalendar.pending.exe", "apply_update.json", "health.ok"):
-            (updates / name).unlink(missing_ok=True)
-        helper_path.unlink(missing_ok=True)
-        return 0
-    except Exception:
-        return 65
-
-
 def parse_special_startup(argv: list[str]) -> tuple[int | None, tuple[str, str] | None]:
     """Return (exit_code, post_update_health). exit_code=None means continue normal UI."""
-    if len(argv) >= 3 and argv[1] == UPDATER_MODE:
-        return run_native_updater(argv[2]), None
-    if len(argv) >= 6 and argv[1] == CLEANUP_MODE:
-        try:
-            return run_cleanup(int(argv[2]), argv[3], argv[4], argv[5]), None
-        except Exception:
-            return 65, None
     if len(argv) >= 4 and argv[1] == POST_UPDATE_MODE:
         return None, (argv[2], argv[3])
     return None, None
