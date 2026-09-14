@@ -3,10 +3,13 @@ name: CineCalendar Windows EXE
 on:
   push:
     branches: ["cinecalendar-direct-exe"]
+    paths-ignore:
+      - "CineCalendar/releases/**"
+      - "CineCalendar/update.json"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -14,6 +17,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -24,6 +30,8 @@ jobs:
           if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source missing' }
           if (!(Test-Path 'CineCalendar\cinecalendar\recommendation.py')) { throw 'Recommendation engine missing' }
           if (!(Test-Path 'CineCalendar\cinecalendar\qt_ui_v2.py')) { throw 'Decision UI missing' }
+          if (!(Test-Path 'CineCalendar\cinecalendar\updater.py')) { throw 'Updater missing' }
+          if (!(Test-Path 'CineCalendar\UPDATE_NOTES.txt')) { throw 'Updater release notes missing' }
 
       - name: Install dependencies
         working-directory: CineCalendar
@@ -64,7 +72,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force portable | Out-Null
           Copy-Item 'dist\CineCalendar.exe' 'portable\CineCalendar.exe'
-          'Pornire: dublu-click CineCalendar.exe. Nu este necesar Python. La update pastreaza folderul CineCalendarData.' | Set-Content -Encoding UTF8 'portable\README.txt'
+          'Pornire: dublu-click CineCalendar.exe. Nu este necesar Python. Updaterul Stable este inclus. La update se pastreaza folderul CineCalendarData.' | Set-Content -Encoding utf8NoBOM 'portable\README.txt'
           Compress-Archive -Path 'portable\*' -DestinationPath 'CineCalendar-Windows-x64-portable.zip' -Force
           Get-FileHash 'CineCalendar-Windows-x64-portable.zip' -Algorithm SHA256
 
@@ -76,3 +84,56 @@ jobs:
             CineCalendar/CineCalendar-Windows-x64-portable.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish verified Stable updater payload
+        working-directory: CineCalendar
+        shell: pwsh
+        run: |
+          # Never let an older CI run overwrite a newer branch build.
+          git fetch origin cinecalendar-direct-exe
+          $current = (git rev-parse HEAD).Trim()
+          $remote = (git rev-parse origin/cinecalendar-direct-exe).Trim()
+          if ($current -ne $remote) {
+            Write-Host "A newer branch commit exists ($remote); skip updater publication from $current."
+            exit 0
+          }
+
+          $version = (python -c "from cinecalendar import __version__; print(__version__)").Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version missing' }
+          $exe = Resolve-Path 'dist\CineCalendar.exe'
+          $size = (Get-Item $exe).Length
+          if ($size -ge 100MB) { throw "CineCalendar.exe is too large for raw GitHub updater publication: $size bytes" }
+          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $notes = (Get-Content 'UPDATE_NOTES.txt' -Raw).Trim()
+
+          New-Item -ItemType Directory -Force 'releases' | Out-Null
+          Copy-Item $exe 'releases\CineCalendar_LATEST.exe' -Force
+
+          $manifest = [ordered]@{
+            version = $version
+            url = 'https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/cinecalendar-direct-exe/CineCalendar/releases/CineCalendar_LATEST.exe'
+            sha256 = $sha
+            notes = $notes
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'stable'
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8NoBOM 'update.json'
+
+          # Cross-check the just-generated manifest against the actual payload.
+          $verify = Get-Content 'update.json' -Raw | ConvertFrom-Json
+          if ($verify.version -ne $version) { throw 'Manifest version mismatch' }
+          if ($verify.sha256 -ne $sha) { throw 'Manifest SHA mismatch' }
+          if ((Get-FileHash 'releases\CineCalendar_LATEST.exe' -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha) {
+            throw 'Published payload SHA mismatch'
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/CineCalendar_LATEST.exe update.json
+          if (git diff --cached --quiet) {
+            Write-Host 'Updater payload already current.'
+            exit 0
+          }
+          git commit -m "Publish CineCalendar $version Stable updater payload [skip ci]"
+          git push origin HEAD:cinecalendar-direct-exe
+          Write-Host "Published CineCalendar $version Stable updater payload, SHA-256 $sha"
