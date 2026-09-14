@@ -18,19 +18,21 @@ def main():
     from . import qt_ui as base_ui
     base_ui.APP_VERSION = __version__
     from . import qt_ui_v2 as decision_ui
-    # Premium is distributed as a fast portable folder. The legacy updater replaces only
-    # one standalone EXE, so it must stay disabled until bundle-aware rollback is complete.
-    decision_ui.update_supported = lambda: False
-    from .premium_ui import run_premium
+    from . import premium_ui
+
+    # Premium now uses the verified bundle-aware updater from qt_ui_v2/updater.py.
+    # Reuse that page instead of the obsolete placeholder page in premium_ui.py.
+    premium_ui.PremiumDecisionWindow.page_updates = decision_ui.DecisionWindow.page_updates
 
     on_ready = None
     if post_update:
         health_path, expected_version = post_update
+
         def on_ready():
             write_health_marker(health_path, expected_version)
             service.log.info("Post-update health marker written for %s", expected_version)
 
-    return run_premium(service, on_ready=on_ready)
+    return premium_ui.run_premium(service, on_ready=on_ready)
 
 
 if __name__ == "__main__":
