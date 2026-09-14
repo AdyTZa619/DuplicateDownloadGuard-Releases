@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -19,44 +19,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Rebuild and validate CineCalendar source
+      - name: Validate source tree
         shell: pwsh
         run: |
-          $parts = Get-ChildItem 'source_chunks\chunk_*' | Sort-Object Name
-          if ($parts.Count -ne 14) { throw "Expected 14 source chunks, got $($parts.Count)" }
-          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          if ($b64.Length -ne 109728) { throw "Unexpected base64 length: $($b64.Length)" }
-          [IO.File]::WriteAllBytes('cinecalendar-source.zip', [Convert]::FromBase64String($b64))
-          $item = Get-Item 'cinecalendar-source.zip'
-          if ($item.Length -ne 82294) { throw "Unexpected ZIP size: $($item.Length)" }
-          $hash = (Get-FileHash 'cinecalendar-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "Source SHA256: $hash"
-          if ($hash -ne 'd6b3473adb7d609cec39cb87a9d3f03814935406e5b0881dba812fe6c4b1646a') { throw "Source SHA mismatch: $hash" }
-          python -c "import zipfile,sys; z=zipfile.ZipFile('cinecalendar-source.zip'); bad=z.testzip(); print('ZIP entries:',len(z.namelist())); print('ZIP bad entry:',bad); sys.exit(2 if bad else 0)"
-          if ($LASTEXITCODE -ne 0) { throw 'CineCalendar ZIP failed validation' }
-          python -m zipfile -e cinecalendar-source.zip .
-          if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source invalid after extraction' }
-
-      - name: Materialize source on branch
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CineCalendar
-          if (git diff --cached --quiet) {
-            Write-Host 'Source already materialized.'
-          } else {
-            git commit -m "Materialize CineCalendar source [skip ci]"
-            git push origin HEAD:cinecalendar-direct-exe
-          }
-
-      - name: Export source snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: CineCalendar-Source
-          path: CineCalendar
-          if-no-files-found: error
-          retention-days: 7
+          if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source missing' }
+          if (!(Test-Path 'CineCalendar\cinecalendar\recommendation.py')) { throw 'Recommendation engine missing' }
+          if (!(Test-Path 'CineCalendar\cinecalendar\qt_ui.py')) { throw 'Qt UI missing' }
 
       - name: Install dependencies
         working-directory: CineCalendar
