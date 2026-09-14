@@ -79,7 +79,7 @@ def add_candidates(db: Database) -> None:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="cinecalendar-v3-bench-") as td:
+    with tempfile.TemporaryDirectory(prefix="cinecalendar-v3-bench-", ignore_cleanup_errors=True) as td:
         db = Database(Path(td) / "benchmark.db")
         t0 = time.perf_counter()
         add_ratings(db)
@@ -107,12 +107,11 @@ def main() -> int:
 
         print(f"seed_seconds={seed_seconds:.3f}")
         print(f"index_seconds={index_seconds:.3f}")
+        print(f"candidate_query_seconds={engine.last_candidate_query_seconds:.3f}")
         print(f"first_decision_seconds={first_seconds:.3f}")
         print(f"cached_alt_seconds={cached_seconds:.4f}")
         print(f"fully_scored_candidates={engine.last_candidate_count}")
 
-        # Generous CI gates: they catch regressions back to 45k/100k full scoring while
-        # leaving headroom for variable GitHub-hosted Windows runners.
         if first_seconds > 10.0:
             raise SystemExit(f"benchmark: first decision too slow ({first_seconds:.2f}s > 10s)")
         if cached_seconds > 0.40:
