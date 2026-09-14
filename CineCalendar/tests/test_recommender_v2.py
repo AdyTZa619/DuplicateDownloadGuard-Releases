@@ -84,12 +84,12 @@ def test_predicted_rating_favors_patterns_user_rates_highly(tmp_path):
     )
     import_catalog_csv(db, cat)
     recs = RecommendationEngine(db).recommend(date(2026,9,14), 2, candidate_limit=1000)
-    by_title = {r.movie.title: r for r in recs}
-    assert 'Great History' in by_title
-    assert 'Generic Comedy' in by_title
-    assert by_title['Great History'].score.predicted_rating > by_title['Generic Comedy'].score.predicted_rating
-    assert by_title['Great History'].score.final > by_title['Generic Comedy'].score.final
+    assert recs
     assert recs[0].movie.title == 'Great History'
+    assert recs[0].score.predicted_rating > 6.5
+    # A high-public-score title built from patterns repeatedly rated 2–4 should not
+    # survive merely because IMDb likes it. High-confidence bad fits are suppressed.
+    assert all(r.movie.title != 'Generic Comedy' for r in recs)
 
 
 def test_decision_pick_returns_one_primary_and_backups_and_never_seen(tmp_path):
