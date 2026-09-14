@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -24,7 +23,7 @@ jobs:
         run: |
           if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source missing' }
           if (!(Test-Path 'CineCalendar\cinecalendar\recommendation.py')) { throw 'Recommendation engine missing' }
-          if (!(Test-Path 'CineCalendar\cinecalendar\qt_ui.py')) { throw 'Qt UI missing' }
+          if (!(Test-Path 'CineCalendar\cinecalendar\qt_ui_v2.py')) { throw 'Decision UI missing' }
 
       - name: Install dependencies
         working-directory: CineCalendar
@@ -40,7 +39,7 @@ jobs:
         working-directory: CineCalendar
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name CineCalendar --manifest CineCalendar.manifest --collect-all PySide6 --hidden-import=sqlite3 launcher.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name CineCalendar --manifest CineCalendar.manifest --hidden-import=sqlite3 launcher.py
           if (!(Test-Path 'dist\CineCalendar.exe')) { throw 'EXE was not created' }
           $b = [IO.File]::ReadAllBytes('dist\CineCalendar.exe')
           if ($b.Length -lt 2 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw 'Not a Windows PE executable' }
