@@ -79,7 +79,7 @@ False positive în corpus: **0/3 cazuri negative**. False negative în corpus: *
 
 | Mediu | Stare |
 |---|---|
-| Windows desktop real, foldere/HDD reale | **NEVERIFICAT** — doar cross-build local; CI Windows este raportat separat după publicarea candidatului TEST. |
+| Windows desktop real, foldere/HDD reale | **NEVERIFICAT** — CI `windows-latest` pentru PR #95 a trecut `go test`, `go vet`, build x64 și uploadul artefactului de validare, dar nu reprezintă utilizare într-o sesiune desktop cu HDD-uri reale. |
 | MEGA real | **NEVERIFICAT** — nu există link/sesiune MEGA reală disponibilă în acest mediu. |
 | Bunkr real | **NEVERIFICAT** — integrarea Bunkr a fost testată prin provider/HTTP controlat, nu pe CDN/gallery-dl Bunkr live. |
 | JDownloader real | **NEVERIFICAT** — protocolul FlashGot a fost verificat cu server local controlat, nu cu o instanță JDownloader pornită. |
@@ -89,4 +89,4 @@ Prin urmare, candidatul nu este declarat „validat” pe MEGA+Bunkr reale. El p
 
 ## Publicare TEST
 
-Se completează după CI și generarea artefactului TEST. Stable rămâne nemodificat.
+PR #95 a trecut `DDG validation` și `DDG stability boundary` și a fost integrat în `testing` la commitul `8ecbaaae624b48ce7be9fcb456c9a8959167e502`. Versiunea și SHA-256 ale updaterului se citesc din `update-test.json` după terminarea workflow-ului de publicare. Stable rămâne nemodificat.
