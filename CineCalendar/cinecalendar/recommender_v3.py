@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import math
+import time
 
 from .profile import get_profile
 from .recommendation import FEATURE_KIND_WEIGHT, RecommendationEngine
@@ -9,17 +10,18 @@ from .semantic import feature_vector
 from .util import clamp, identity_key
 
 
-ENGINE_VERSION = "3.1.0"
+ENGINE_VERSION = "3.2.0"
 
 
 class FastRecommendationEngine(RecommendationEngine):
-    """Fast, defensive engine for the large local IMDb catalog.
+    """Fast, defensive engine for a large local IMDb catalog.
 
-    Correctness barriers and performance are intentionally separate:
-    * SQL cheaply removes exact rated/blocked rows.
-    * a small in-memory identity set removes catalog duplicates by IMDb Const and identity_key.
-    * only a bounded, diverse shortlist receives the expensive personal/calendar scoring.
-    * the top decision pool is cached, so "Alt film" is effectively instant.
+    Correctness and performance are deliberately separated:
+    - SQL only builds small, index-friendly candidate pools.
+    - rated/seen/rejected titles are removed in memory by movie_id, IMDb Const and identity_key.
+    - the same blocked-identity barrier is asserted again before results can reach the UI.
+    - only a bounded shortlist receives the expensive personal/calendar scoring.
+    - the top decision pool is cached, so "Alt film" does not rerun the engine.
     """
 
     NORMAL_POOL = 1800
@@ -34,6 +36,7 @@ class FastRecommendationEngine(RecommendationEngine):
         self._blocked_cache_token = None
         self._blocked_cache = (set(), set(), set())
         self.last_candidate_count = 0
+        self.last_candidate_query_seconds = 0.0
         self._ensure_performance_indexes()
 
     def _ensure_performance_indexes(self) -> None:
@@ -60,13 +63,17 @@ class FastRecommendationEngine(RecommendationEngine):
             return self._blocked_cache
         marks = ",".join("?" for _ in self.BLOCKING_FEEDBACK)
         with self.db.connect() as con:
-            rows = con.execute(
+            rated = con.execute(
+                """SELECT m.id,m.imdb_id,m.identity_key
+                   FROM ratings r JOIN movies m ON m.id=r.movie_id"""
+            ).fetchall()
+            blocked_feedback = con.execute(
                 f"""SELECT DISTINCT m.id,m.imdb_id,m.identity_key
-                    FROM movies m
-                    WHERE EXISTS (SELECT 1 FROM ratings r WHERE r.movie_id=m.id)
-                       OR EXISTS (SELECT 1 FROM feedback f WHERE f.movie_id=m.id AND f.kind IN ({marks}))""",
+                    FROM feedback f JOIN movies m ON m.id=f.movie_id
+                    WHERE f.kind IN ({marks})""",
                 self.BLOCKING_FEEDBACK,
             ).fetchall()
+        rows = list(rated) + list(blocked_feedback)
         ids = {int(r["id"]) for r in rows}
         imdb = {str(r["imdb_id"]) for r in rows if r["imdb_id"]}
         ident = {str(r["identity_key"]) for r in rows if r["identity_key"]}
@@ -75,16 +82,11 @@ class FastRecommendationEngine(RecommendationEngine):
         return self._blocked_cache
 
     def _eligible_sql(self) -> str:
-        # Keep this SQL index-friendly. Duplicate IMDb/identity blocking happens on the
-        # already-small result batches in Python, then is asserted again before returning.
+        # No joins or correlated subqueries here. They dominated latency on 260k titles.
+        # Seen/rated/rejected identities are removed from the small query results in Python
+        # and asserted once again before returning recommendations.
         return """ FROM movies m
-            LEFT JOIN ratings rr ON rr.movie_id=m.id
-            WHERE rr.movie_id IS NULL
-              AND m.title_type IN ('movie','short','tvMovie','video','Movie','TV Movie','tv movie')
-              AND NOT EXISTS (
-                    SELECT 1 FROM feedback f
-                    WHERE f.movie_id=m.id AND f.kind IN ('not_interested','seen','never_similar')
-              ) """
+            WHERE m.title_type IN ('movie','short','tvMovie','video','Movie','TV Movie','tv movie') """
 
     @staticmethod
     def _is_blocked(row, blocked: tuple[set[int], set[str], set[str]]) -> bool:
@@ -123,20 +125,18 @@ class FastRecommendationEngine(RecommendationEngine):
         return max(400, min(int(requested or ceiling), ceiling))
 
     def _candidate_rows(self, when: date, limit: int = 100000):
-        # Base class does not pass mode into this method; the caller already clamps the
-        # requested limit, so never clamp a second time here.
+        t0 = time.perf_counter()
         limit = max(400, min(int(limit or self.NORMAL_POOL), self.EXPLORE_POOL))
         base = self._eligible_sql()
         blocked = self._blocked_identities()
-        # We deliberately fetch overlapping pools, then round-robin them. The expensive
-        # personal scorer sees only `limit` rows, but mainstream, recent and hidden titles
-        # all remain represented.
-        group_fetch = max(700, int(limit * .72))
+        # Fetch a little more than needed because pools overlap and blocked identities are
+        # discarded in memory. These ORDER BY clauses are backed by the v3 indexes.
+        group_fetch = max(600, int(limit * .58))
         cutoff = when.year - 10
         with self.db.connect() as con:
             watch = con.execute(
                 "SELECT m.*" + base +
-                " AND m.id IN (SELECT movie_id FROM watchlist) ORDER BY m.num_votes DESC LIMIT 300"
+                " AND m.id IN (SELECT movie_id FROM watchlist) ORDER BY m.num_votes DESC LIMIT 250"
             ).fetchall()
             popular = con.execute(
                 "SELECT m.*" + base + " ORDER BY m.num_votes DESC LIMIT ?", (group_fetch,)
@@ -158,6 +158,7 @@ class FastRecommendationEngine(RecommendationEngine):
             [list(watch), list(popular), list(hidden), list(recent), list(quality)], limit, blocked
         )
         self.last_candidate_count = len(rows)
+        self.last_candidate_query_seconds = time.perf_counter() - t0
         return rows
 
     def _predict_user_rating(self, movie, profile: dict):
@@ -198,7 +199,7 @@ class FastRecommendationEngine(RecommendationEngine):
         if movie.semantic or movie.overview or movie.keywords: metadata += .25
         if movie.year: metadata += .15
 
-        # Personal confidence, not "metadata completeness" disguised as confidence.
+        # Confidence measures personal evidence. Metadata can add only a small amount.
         confidence = .04 + .88 * (1.0 - math.exp(-evidence / 2.45)) + .05 * metadata
         confidence = clamp(confidence)
         details.sort(key=lambda x: abs(x["support"]), reverse=True)
