@@ -6,7 +6,7 @@ from datetime import date
 from cinecalendar.db import Database
 from cinecalendar.imdb_import import import_imdb_csv
 from cinecalendar.catalog import import_catalog_csv
-from cinecalendar.profile import build_profile, get_profile
+from cinecalendar.profile import build_profile
 from cinecalendar.recommendation import RecommendationEngine, WEIGHTS
 
 
@@ -37,9 +37,11 @@ def write_ratings(path, rows):
 
 
 def test_normal_mode_is_rating_first_not_calendar_first():
-    assert WEIGHTS['taste'] + WEIGHTS['semantic'] + WEIGHTS['director_cinema'] == .80
-    assert WEIGHTS['calendar'] + WEIGHTS['season'] == .06
-    assert WEIGHTS['taste'] > (WEIGHTS['calendar'] + WEIGHTS['season']) * 8
+    personal = WEIGHTS['taste'] + WEIGHTS['semantic'] + WEIGHTS['director_cinema']
+    context = WEIGHTS['calendar'] + WEIGHTS['season']
+    assert abs(personal - .80) < 1e-12
+    assert abs(context - .06) < 1e-12
+    assert WEIGHTS['taste'] > context * 8
 
 
 def test_profile_v2_contains_positive_elite_negative_vectors(tmp_path):
@@ -87,8 +89,6 @@ def test_predicted_rating_favors_patterns_user_rates_highly(tmp_path):
     assert 'Generic Comedy' in by_title
     assert by_title['Great History'].score.predicted_rating > by_title['Generic Comedy'].score.predicted_rating
     assert by_title['Great History'].score.final > by_title['Generic Comedy'].score.final
-    # Even though the comedy has a much higher public vote count and IMDb score,
-    # the user's own explicit history must win.
     assert recs[0].movie.title == 'Great History'
 
 
