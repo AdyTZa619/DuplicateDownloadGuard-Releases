@@ -18,6 +18,13 @@ def main():
     from . import qt_ui as base_ui
     base_ui.APP_VERSION = __version__
 
+    # The 2.3.x graceful Qt quit could leave the frozen parent PID alive after the
+    # window disappeared. Patch the inherited update action before loading Premium UI
+    # so the external updater always receives a clean process handoff.
+    from . import qt_ui_v2 as decision_ui
+    from .update_exit_guard import install_update_exit_guard
+    install_update_exit_guard(decision_ui.DecisionWindow)
+
     from .premium_calendar_ui import run_premium_calendar
 
     on_ready = None
