@@ -7,7 +7,7 @@ import time
 
 from cinecalendar.db import Database
 from cinecalendar.profile import build_profile
-from cinecalendar.recommender_v4 import FastRecommendationEngineV4
+from cinecalendar.recommender_v5 import FastRecommendationEngineV5
 from cinecalendar.semantic import extract_semantic
 from cinecalendar.models import Movie
 from cinecalendar.util import identity_key, json_dumps, normalize_text, utcnow_iso
@@ -79,7 +79,7 @@ def add_candidates(db: Database) -> None:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="cinecalendar-v4-bench-", ignore_cleanup_errors=True) as td:
+    with tempfile.TemporaryDirectory(prefix="cinecalendar-v5-bench-", ignore_cleanup_errors=True) as td:
         db = Database(Path(td) / "benchmark.db")
         t0 = time.perf_counter()
         add_ratings(db)
@@ -87,7 +87,7 @@ def main() -> int:
         seed_seconds = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        engine = FastRecommendationEngineV4(db)
+        engine = FastRecommendationEngineV5(db)
         index_seconds = time.perf_counter() - t1
 
         t2 = time.perf_counter()
@@ -95,8 +95,10 @@ def main() -> int:
         first_seconds = time.perf_counter() - t2
         if primary is None or len(backups) < 2:
             raise SystemExit("benchmark: no recommendation result")
-        if engine.last_candidate_count > FastRecommendationEngineV4.NORMAL_POOL:
-            raise SystemExit(f"benchmark: scored too many candidates: {engine.last_candidate_count}")
+        if engine.last_candidate_count > FastRecommendationEngineV5.NORMAL_POOL:
+            raise SystemExit(f"benchmark: pre-ranked too many candidates: {engine.last_candidate_count}")
+        if engine.last_full_score_count > FastRecommendationEngineV5.FINALISTS_NORMAL:
+            raise SystemExit(f"benchmark: fully scored too many finalists: {engine.last_full_score_count}")
 
         excluded = {int(primary.movie.id)}
         t3 = time.perf_counter()
@@ -110,7 +112,8 @@ def main() -> int:
         print(f"candidate_query_seconds={engine.last_candidate_query_seconds:.3f}")
         print(f"first_decision_seconds={first_seconds:.3f}")
         print(f"cached_alt_seconds={cached_seconds:.4f}")
-        print(f"fully_scored_candidates={engine.last_candidate_count}")
+        print(f"pre_ranked_candidates={engine.last_pre_rank_count}")
+        print(f"fully_scored_finalists={engine.last_full_score_count}")
 
         if first_seconds > 10.0:
             raise SystemExit(f"benchmark: first decision too slow ({first_seconds:.2f}s > 10s)")
