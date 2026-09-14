@@ -2,28 +2,22 @@ from __future__ import annotations
 
 import sys
 from datetime import date
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QFrame, QSizePolicy, QMessageBox
+    QFrame, QSizePolicy, QMessageBox, QCheckBox
 )
 
+from . import __version__ as APP_VERSION
 from .feedback import apply_feedback
-from .qt_ui import CineCalendarWindow, ScoreDialog
+from .qt_ui import CineCalendarWindow, ScoreDialog, WorkerThread
 from .recommendation import Recommendation
-
-
-APP_VERSION = "2.0.0"
+from .updater import UpdateInfo, check_for_update, stage_and_start_update, update_supported
 
 
 class DecisionWindow(CineCalendarWindow):
-    """Decision-first UI.
-
-    The default screen deliberately shows one primary answer instead of making the
-    user compare a wall of titles. A separate Recommendations page is available for
-    browsing, while Calendar remains a secondary contextual tool.
-    """
+    """Decision-first UI with a safe, DDG-style self updater."""
 
     NAV = [
         ("today", "Ce văd acum?"),
@@ -34,14 +28,19 @@ class DecisionWindow(CineCalendarWindow):
         ("calendar", "Calendar"),
         ("month", "Program calendar"),
         ("history", "Istoric"),
+        ("updates", "Actualizări"),
         ("settings", "Setări"),
     ]
 
     def __init__(self, service):
         self.session_skips: set[int] = set()
         self.decision_mode = str(service.db.get_setting("decision_mode", "decide") or "decide")
+        self.available_update: UpdateInfo | None = None
+        self.update_worker: WorkerThread | None = None
         super().__init__(service)
         self.setWindowTitle(f"CineCalendar {APP_VERSION} — Decision Engine")
+        if bool(self.db.get_setting("auto_update_check", True)):
+            QTimer.singleShot(2800, lambda: self.check_updates(False))
 
     def _confidence_label(self, confidence: float) -> str:
         if confidence >= .82: return "încredere foarte mare"
@@ -222,12 +221,95 @@ class DecisionWindow(CineCalendarWindow):
         row.addStretch(1); l.addLayout(row)
         return box
 
+    def page_updates(self):
+        page, content = self.page_shell(
+            "Actualizări",
+            "Updater Stable cu SHA-256, backup, health-check și rollback automat.",
+        )
+        box = self.card(); l = QVBoxLayout(box); l.setContentsMargins(18,18,18,18); l.setSpacing(10)
+        title = QLabel(f"CineCalendar {APP_VERSION}"); title.setObjectName("CardTitle"); l.addWidget(title)
+        state = QLabel("Canal: Stable • " + ("updater automat disponibil" if update_supported() else "rulezi sursa Python; update automat doar în EXE"))
+        state.setObjectName("Muted"); state.setWordWrap(True); l.addWidget(state)
+        auto = QCheckBox("Verifică automat actualizările la pornire")
+        auto.setChecked(bool(self.db.get_setting("auto_update_check", True)))
+        auto.toggled.connect(lambda v:self.db.set_setting("auto_update_check", bool(v))); l.addWidget(auto)
+        row = QHBoxLayout(); check = QPushButton("Caută actualizări"); check.clicked.connect(lambda:self.check_updates(True)); row.addWidget(check)
+        if self.available_update:
+            install = QPushButton(f"Actualizează la {self.available_update.version}"); install.setProperty("accent", True)
+            install.clicked.connect(lambda:self.start_update(self.available_update, True)); row.addWidget(install)
+        row.addStretch(1); l.addLayout(row); content.addWidget(box)
+        if self.available_update:
+            notes = self.card(); nl = QVBoxLayout(notes); nh = QLabel(f"Versiune nouă: {self.available_update.version}"); nh.setObjectName("CardTitle"); nl.addWidget(nh)
+            txt = QLabel(self.available_update.notes or "Actualizare disponibilă."); txt.setWordWrap(True); nl.addWidget(txt); content.addWidget(notes)
+        safety = self.card(); sl = QVBoxLayout(safety); sh = QLabel("Cum se aplică"); sh.setObjectName("CardTitle"); sl.addWidget(sh)
+        st = QLabel("1. Descarcă EXE-ul nou. 2. Verifică SHA-256. 3. Creează backup al EXE-ului curent. 4. Închide aplicația și înlocuiește EXE-ul prin helper separat. 5. Pornește versiunea nouă și așteaptă health-check. 6. Dacă pornirea nu este confirmată, restaurează automat versiunea anterioară. Folderul CineCalendarData nu este înlocuit.")
+        st.setObjectName("Muted"); st.setWordWrap(True); sl.addWidget(st); content.addWidget(safety); content.addStretch(1)
+        return page
 
-def run_qt(service):
+    def check_updates(self, manual: bool = False):
+        if self.update_worker and self.update_worker.isRunning():
+            if manual: self.set_status("Verificarea update-ului este deja în curs.")
+            return
+        if not update_supported():
+            if manual: QMessageBox.information(self, "Actualizări", "Updaterul automat este activ în versiunea CineCalendar.exe pentru Windows.")
+            return
+        self.set_status("Verific actualizările…", True)
+        worker = WorkerThread(lambda progress: check_for_update(APP_VERSION), self)
+        self.update_worker = worker
+        def success(info):
+            self.update_worker = None; self.set_status("Pregătit", False)
+            self.available_update = info
+            if info is None:
+                if manual: QMessageBox.information(self, "Actualizări", f"Ai deja cea mai nouă versiune: {APP_VERSION}.")
+                if self.current_page == "updates": self.show_page("updates")
+                return
+            self.set_status(f"Actualizare {info.version} disponibilă.")
+            if self.current_page == "updates": self.show_page("updates")
+            already = str(self.db.get_setting("update_prompted_version", "") or "")
+            if manual or already != info.version:
+                self.db.set_setting("update_prompted_version", info.version)
+                msg = f"CineCalendar {info.version} este disponibil.\n\n{info.notes or 'Actualizare nouă disponibilă.'}\n\nVrei să actualizezi acum?"
+                if QMessageBox.question(self, "Actualizare disponibilă", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+                    self.start_update(info, False)
+        def failure(message):
+            self.update_worker = None; self.set_status("Verificarea update-ului a eșuat.", False)
+            if manual: QMessageBox.warning(self, "Actualizări", f"Nu am putut verifica actualizările:\n{message}")
+        worker.success.connect(success); worker.failure.connect(failure); worker.start()
+
+    def start_update(self, info: UpdateInfo, confirm: bool = True):
+        if not update_supported():
+            QMessageBox.information(self, "Actualizări", "Updaterul automat funcționează numai din CineCalendar.exe pe Windows.")
+            return
+        if confirm:
+            text = f"Instalez CineCalendar {info.version}?\n\nEXE-ul curent va fi păstrat ca backup până când noua versiune pornește corect."
+            if QMessageBox.question(self, "Confirmă actualizarea", text, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+                return
+        if self.update_worker and self.update_worker.isRunning():
+            return
+        self.set_status(f"Descarc CineCalendar {info.version}…", True)
+        worker = WorkerThread(lambda progress: stage_and_start_update(info, self.s.paths.root, progress), self)
+        self.update_worker = worker
+        worker.message.connect(lambda m:self.set_status(m, True))
+        def success(_req):
+            self.set_status("Update verificat. Închid aplicația pentru instalare…", True)
+            QTimer.singleShot(300, QApplication.instance().quit)
+        def failure(message):
+            self.update_worker = None; self.set_status("Actualizarea a eșuat; versiunea curentă nu a fost înlocuită.", False)
+            QMessageBox.critical(self, "Actualizare eșuată", message)
+        worker.success.connect(success); worker.failure.connect(failure); worker.start()
+
+
+def run_qt(service, on_ready=None):
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("CineCalendar"); app.setOrganizationName("CineCalendar")
     try:
         app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     except Exception:
         pass
-    w = DecisionWindow(service); w.show(); return app.exec()
+    w = DecisionWindow(service); w.show()
+    if on_ready is not None:
+        def ready():
+            try: on_ready()
+            except Exception as exc: service.log.exception("Post-update health marker failed: %s", exc)
+        QTimer.singleShot(350, ready)
+    return app.exec()
