@@ -1,9 +1,9 @@
 {
-  "version": "2.3.0",
-  "url": "https://github.com/AdyTZa619/DuplicateDownloadGuard-Releases/releases/download/cinecalendar-v2.3.0/CineCalendar-2.3.0-Premium-Windows-x64.zip",
-  "sha256": "fc0fab067f7e6265ca79893716f69c5d3ff0f8c86e9dfca2509983424c84845c",
-  "notes": "CineCalendar 2.3.0 repară motorul de recomandare și performanța. Filmele evaluate/văzute sunt excluse prin bariere independente după movie_id, IMDb Const și identitatea normalizată a filmului, astfel încât o dublură de catalog nu poate reapărea ca recomandare. Dacă baza nu conține suficiente ratinguri personale, aplicația nu mai afișează un scor fals «pentru tine»; încearcă automat să găsească ultimul export IMDb valid în Downloads, Desktop, Documents sau folderul portabil și îl importă. Confidence-ul reflectă acum dovezile personale reale, iar metadatele singure nu mai produc artificial 38% încredere. Motorul nu mai evaluează până la 100.000 de titluri la fiecare click: folosește un shortlist mixt de maximum 6.000 de candidați în mod normal și 9.000 în mod exploratoriu. «Alt film» folosește un pool de decizii cache-uit și nu recalculează motorul complet. Buildul rulează teste de regresie pentru titluri deja evaluate, inclusiv Schindler's List, plus un benchmark Windows pe catalog sintetic de 260.000 de candidați. Updaterul bundle-aware este reactivat și păstrează CineCalendarData, cu SHA-256, staging, backup, health-check și rollback automat.",
-  "publishedAt": "2026-09-14T20:18:44.5540864Z",
+  "version": "2.3.1",
+  "url": "https://github.com/AdyTZa619/DuplicateDownloadGuard-Releases/releases/download/cinecalendar-v2.3.1/CineCalendar-2.3.1-Premium-Windows-x64.zip",
+  "sha256": "1ac5c60ec7840286deea756d46133b8cd4d775a42d476ad9ad195b53322c19f8",
+  "notes": "CineCalendar 2.3.1 reconstruiește Program calendar. Pagina nu mai execută mai multe recomandări complete pentru câteva intervale și nu mai afișează doar câteva repere izolate. Calendarul este extins cu repere ortodoxe majore, perioade de post, tradiții românești, date civice și istorice, plus contexte sezoniere. Programul lunii este afișat zi cu zi; pentru orice dată poate fi deschis un program de filme calculat expres pentru acea zi, separat pe legătură directă, spirituală, istorică, atmosferică și sezonieră. Recomandările calendaristice păstrează filtrul anti-văzut și profilul personal, dar legătura reală cu ziua este criteriul principal în această pagină. Motorul calendaristic folosește un singur pool limitat, scor complet pentru maximum 380 de finaliști și cache per zi, în loc să recalculeze motorul de mai multe ori pentru aceeași lună. Pagina apare imediat, iar calculul filmelor rulează în fundal. Updaterul bundle-aware rămâne activ și păstrează CineCalendarData.",
+  "publishedAt": "2026-09-14T21:14:54.7070000Z",
   "channel": "stable",
   "package": "onedir-zip"
 }
