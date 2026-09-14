@@ -4,22 +4,21 @@ on:
   push:
     branches: ["cinecalendar-direct-exe"]
     paths-ignore:
-      - "CineCalendar/releases/**"
-      - "CineCalendar/update.json"
+      - "CineCalendar/update-v2.json"
       - "working_source/**"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -34,6 +33,7 @@ jobs:
             'CineCalendar\cinecalendar\qt_ui_v2.py',
             'CineCalendar\cinecalendar\premium_ui.py',
             'CineCalendar\cinecalendar\open_metadata.py',
+            'CineCalendar\cinecalendar\updater.py',
             'CineCalendar\UPDATE_NOTES.txt'
           )
           foreach ($p in $required) { if (!(Test-Path $p)) { throw "Missing Premium source: $p" } }
@@ -57,6 +57,7 @@ jobs:
           if (!(Test-Path $exe)) { throw 'Premium EXE was not created' }
           $b = [IO.File]::ReadAllBytes($exe)
           if ($b.Length -lt 2 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw 'Not a Windows PE executable' }
+          if (!(Test-Path 'dist\CineCalendar\_internal')) { throw 'PyInstaller _internal folder missing' }
           Write-Host "Launcher EXE bytes: $($b.Length)"
           Write-Host "Portable folder bytes: $((Get-ChildItem 'dist\CineCalendar' -Recurse -File | Measure-Object Length -Sum).Sum)"
           Get-FileHash $exe -Algorithm SHA256
@@ -65,6 +66,7 @@ jobs:
         working-directory: CineCalendar
         shell: pwsh
         run: |
+          $env:CINECALENDAR_DATA_DIR = Join-Path $env:RUNNER_TEMP 'cinecalendar-smoke-data'
           $p = Start-Process -FilePath '.\dist\CineCalendar\CineCalendar.exe' -PassThru
           Start-Sleep -Seconds 8
           if ($p.HasExited) {
@@ -74,27 +76,92 @@ jobs:
           }
 
       - name: Package Premium portable build
+        id: package
         working-directory: CineCalendar
         shell: pwsh
         run: |
-          $readme = @'
-          CineCalendar 2.1 Premium
+          $version = (python -c "from cinecalendar import __version__; print(__version__)").Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version missing' }
+          $readme = @"
+          CineCalendar $version Premium
 
           PORNIRE: dublu-click CineCalendar.exe.
           Nu este necesar Python și nu se instalează nimic.
           IMPORTANT: păstrează CineCalendar.exe împreună cu folderul _internal și restul fișierelor din acest director.
-          Datele personale sunt păstrate separat în CineCalendarData.
-          Acest build folosește formatul portabil onedir pentru pornire mult mai rapidă decât vechiul EXE onefile.
-          '@
+          Datele personale sunt păstrate separat în CineCalendarData și NU sunt șterse la update.
+          Actualizările ulterioare se fac direct din aplicație: ZIP verificat SHA-256, staging, backup, health-check și rollback automat.
+          "@
           $readme | Set-Content -Encoding utf8NoBOM 'dist\CineCalendar\README.txt'
-          Compress-Archive -Path 'dist\CineCalendar\*' -DestinationPath 'CineCalendar-2.1-Premium-Windows-x64.zip' -Force
-          Get-FileHash 'CineCalendar-2.1-Premium-Windows-x64.zip' -Algorithm SHA256
+          $zipName = "CineCalendar-$version-Premium-Windows-x64.zip"
+          Compress-Archive -Path 'dist\CineCalendar\*' -DestinationPath $zipName -Force
+          $sha = (Get-FileHash $zipName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $zipName).Length
+          Write-Host "ZIP: $zipName"
+          Write-Host "ZIP bytes: $size"
+          Write-Host "ZIP SHA-256: $sha"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "zip_sha=$sha" >> $env:GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CineCalendar-2.1-Premium-Windows-x64
+          name: CineCalendar-${{ steps.package.outputs.version }}-Premium-Windows-x64
           path: |
             CineCalendar/dist/CineCalendar/**
-            CineCalendar/CineCalendar-2.1-Premium-Windows-x64.zip
+            CineCalendar/${{ steps.package.outputs.zip_name }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish Stable bundle and updater manifest
+        working-directory: CineCalendar
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin cinecalendar-direct-exe
+          $current = (git rev-parse HEAD).Trim()
+          $remote = (git rev-parse origin/cinecalendar-direct-exe).Trim()
+          if ($current -ne $remote) {
+            Write-Host "A newer branch commit exists ($remote); skip Stable publication from $current."
+            exit 0
+          }
+
+          $version = '${{ steps.package.outputs.version }}'
+          $zipName = '${{ steps.package.outputs.zip_name }}'
+          $sha = '${{ steps.package.outputs.zip_sha }}'
+          $tag = "cinecalendar-v$version"
+          $notes = (Get-Content 'UPDATE_NOTES.txt' -Raw).Trim()
+
+          if (gh release view $tag --repo '${{ github.repository }}' 2>$null) {
+            gh release upload $tag $zipName --clobber --repo '${{ github.repository }}'
+          } else {
+            gh release create $tag $zipName --target $current --title "CineCalendar $version Premium" --notes $notes --repo '${{ github.repository }}'
+          }
+
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$zipName"
+          $manifest = [ordered]@{
+            version = $version
+            url = $url
+            sha256 = $sha
+            notes = $notes
+            publishedAt = (Get-Date).ToUniversalTime().ToString('o')
+            channel = 'stable'
+            package = 'onedir-zip'
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8NoBOM 'update-v2.json'
+
+          $verify = Get-Content 'update-v2.json' -Raw | ConvertFrom-Json
+          if ($verify.version -ne $version) { throw 'Manifest version mismatch' }
+          if ($verify.sha256 -ne $sha) { throw 'Manifest SHA mismatch' }
+          if ($verify.url -ne $url) { throw 'Manifest URL mismatch' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add update-v2.json
+          if (git diff --cached --quiet) {
+            Write-Host 'Bundle updater manifest already current.'
+            exit 0
+          }
+          git commit -m "Publish CineCalendar $version bundle updater manifest [skip ci]"
+          git push origin HEAD:cinecalendar-direct-exe
+          Write-Host "Published CineCalendar $version bundle update, SHA-256 $sha"
