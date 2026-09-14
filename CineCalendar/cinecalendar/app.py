@@ -17,6 +17,10 @@ def main():
     # Keep one authoritative package version in all inherited/base widgets.
     from . import qt_ui as base_ui
     base_ui.APP_VERSION = __version__
+    from . import qt_ui_v2 as decision_ui
+    # Premium is distributed as a fast portable folder. The legacy updater replaces only
+    # one standalone EXE, so it must stay disabled until bundle-aware rollback is complete.
+    decision_ui.update_supported = lambda: False
     from .premium_ui import run_premium
 
     on_ready = None
