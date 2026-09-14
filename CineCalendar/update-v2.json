@@ -2,7 +2,7 @@
   "version": "2.2.1",
   "url": "https://github.com/AdyTZa619/DuplicateDownloadGuard-Releases/releases/download/cinecalendar-v2.2.1/CineCalendar-2.2.1-Premium-Windows-x64.zip",
   "sha256": "5ce107f27d969e1d5eb909a0a5e165038ad526a5419574ddb168a3b4113ff339",
-  "notes": "CineCalendar 2.2.1 Premium: repară actualizarea direct din aplicație pentru distribuția portabilă onedir. Update-ul descarcă ZIP-ul Premium, verifică SHA-256, îl extrage în staging, păstrează CineCalendarData, face backup al aplicației curente, înlocuiește întregul bundle CineCalendar.exe + _internal, pornește versiunea nouă și confirmă health-check-ul; la eșec face rollback automat. Pentru utilizatorii 2.1 există o migrare compatibilă printr-un bridge single-EXE, după care actualizările folosesc permanent noul updater de bundle. Include în continuare interfața Premium, recomandări asincrone, Taste Hub și metadata automată.",
+  "notes": "CineCalendar 2.2.1 Premium repară updaterul pentru distribuția portabilă onedir: descarcă ZIP-ul complet, verifică SHA-256, face staging și backup, păstrează CineCalendarData, înlocuiește CineCalendar.exe + _internal, verifică pornirea noii versiuni și face rollback automat la eșec. Important: versiunea 2.1 are updaterul onedir defect în executabilul deja instalat, deci trecerea 2.1 -> 2.2.1 necesită o singură actualizare manuală. După instalarea 2.2.1, actualizările ulterioare se fac direct din aplicație.",
   "publishedAt": "2026-09-14T19:22:16.2641755Z",
   "channel": "stable",
   "package": "onedir-zip"
