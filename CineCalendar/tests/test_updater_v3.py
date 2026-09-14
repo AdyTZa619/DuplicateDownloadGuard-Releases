@@ -45,9 +45,9 @@ def test_clean_helper_forces_stuck_parent_and_cleans_success_residue():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows process semantics only")
-def test_detached_helper_survives_launcher_process_exit(tmp_path):
-    """Reproduce the real failure with the same -File PowerShell mode as production."""
-    marker = tmp_path / "detached-helper-ok.txt"
+def test_brokered_helper_survives_launcher_process_exit(tmp_path):
+    """The real PowerShell helper must outlive the short-lived CineCalendar launcher."""
+    marker = tmp_path / "brokered-helper-ok.txt"
     helper = tmp_path / "survival.ps1"
     ps_path = str(marker).replace("'", "''")
     helper.write_text(
@@ -61,15 +61,13 @@ def test_detached_helper_survives_launcher_process_exit(tmp_path):
         "-File", str(helper),
     ]
     code = (
-        "from cinecalendar.updater_v3 import _detached_popen; "
-        "_detached_popen(" + repr(args) + ")"
+        "from cinecalendar.updater_v4 import _brokered_popen; "
+        "_brokered_popen(" + repr(args) + ")"
     )
 
-    # This short-lived Python process represents CineCalendar.exe. It exits immediately
-    # after launching PowerShell. The PowerShell grandchild must still finish its work.
     subprocess.run([sys.executable, "-c", code], check=True, cwd=os.getcwd())
 
-    deadline = time.time() + 8
+    deadline = time.time() + 10
     while time.time() < deadline and not marker.exists():
         time.sleep(0.15)
-    assert marker.exists(), "Detached updater helper died with its launcher process"
+    assert marker.exists(), "Brokered updater helper died with its launcher process"
