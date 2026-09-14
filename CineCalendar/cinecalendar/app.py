@@ -1,6 +1,7 @@
 from __future__ import annotations
 import sys
 
+from . import __version__
 from .service import CineCalendarService
 from .updater import parse_special_startup, write_health_marker
 
@@ -12,6 +13,11 @@ def main():
 
     service = CineCalendarService()
     service.log.info("CineCalendar start")
+
+    # The v2 window inherits shell widgets from qt_ui.py; keep the single package
+    # version authoritative there as well, instead of the old legacy constant.
+    from . import qt_ui as base_ui
+    base_ui.APP_VERSION = __version__
     from .qt_ui_v2 import run_qt
 
     on_ready = None
