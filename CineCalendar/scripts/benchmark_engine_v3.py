@@ -5,9 +5,10 @@ from pathlib import Path
 import tempfile
 import time
 
+from cinecalendar.calendar_engine_v2 import RichCalendarEngine
 from cinecalendar.db import Database
 from cinecalendar.profile import build_profile
-from cinecalendar.recommender_v5 import FastRecommendationEngineV5
+from cinecalendar.recommender_v6 import FastRecommendationEngineV6
 from cinecalendar.semantic import extract_semantic
 from cinecalendar.models import Movie
 from cinecalendar.util import identity_key, json_dumps, normalize_text, utcnow_iso
@@ -57,12 +58,23 @@ def add_candidates(db: Database) -> None:
     with db.tx() as con:
         batch = []
         for i in range(1, CANDIDATES + 1):
-            title = f"Candidate Benchmark {i}"
+            # Sprinkle real calendar semantics through the synthetic catalog so the day
+            # program must actually build direct/spiritual/history lanes, not just season.
+            if i % 997 == 0:
+                title = f"Holy Cross Chronicle {i}"
+                genre = "History"
+                semantic = {"cross_veneration": .92, "christianity": .86, "history": .72}
+            elif i % 613 == 0:
+                title = f"Faith Chronicle {i}"
+                genre = "Biography"
+                semantic = {"christianity": .82, "faith": .78, "history": .45}
+            else:
+                title = f"Candidate Benchmark {i}"
+                genre = genres[i % len(genres)]
+                semantic = {normalize_text(genre).replace(" ", "_"): 0.85}
             year = 1940 + (i % 87)
-            genre = genres[i % len(genres)]
             director = f"Director {i % 160}"
             imdb_id = f"tt8{i:06d}"
-            semantic = {normalize_text(genre).replace(" ", "_"): 0.85}
             votes = 50 + ((i * 7919) % 1_500_000)
             rating = 5.5 + ((i * 37) % 35) / 10.0
             batch.append((
@@ -79,7 +91,7 @@ def add_candidates(db: Database) -> None:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="cinecalendar-v5-bench-", ignore_cleanup_errors=True) as td:
+    with tempfile.TemporaryDirectory(prefix="cinecalendar-v6-bench-", ignore_cleanup_errors=True) as td:
         db = Database(Path(td) / "benchmark.db")
         t0 = time.perf_counter()
         add_ratings(db)
@@ -87,7 +99,7 @@ def main() -> int:
         seed_seconds = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        engine = FastRecommendationEngineV5(db)
+        engine = FastRecommendationEngineV6(db, RichCalendarEngine())
         index_seconds = time.perf_counter() - t1
 
         t2 = time.perf_counter()
@@ -95,10 +107,12 @@ def main() -> int:
         first_seconds = time.perf_counter() - t2
         if primary is None or len(backups) < 2:
             raise SystemExit("benchmark: no recommendation result")
-        if engine.last_candidate_count > FastRecommendationEngineV5.NORMAL_POOL:
+        normal_pre_rank = engine.last_pre_rank_count
+        normal_full_score = engine.last_full_score_count
+        if engine.last_candidate_count > FastRecommendationEngineV6.NORMAL_POOL:
             raise SystemExit(f"benchmark: pre-ranked too many candidates: {engine.last_candidate_count}")
-        if engine.last_full_score_count > FastRecommendationEngineV5.FINALISTS_NORMAL:
-            raise SystemExit(f"benchmark: fully scored too many finalists: {engine.last_full_score_count}")
+        if normal_full_score > FastRecommendationEngineV6.FINALISTS_NORMAL:
+            raise SystemExit(f"benchmark: fully scored too many finalists: {normal_full_score}")
 
         excluded = {int(primary.movie.id)}
         t3 = time.perf_counter()
@@ -107,18 +121,42 @@ def main() -> int:
         if next_primary is None or next_primary.movie.id == primary.movie.id:
             raise SystemExit("benchmark: cached Alt film failed")
 
+        t4 = time.perf_counter()
+        calendar_result = engine.calendar_day_program(date(2026, 9, 14), 6)
+        calendar_seconds = time.perf_counter() - t4
+        if not calendar_result.get("sections"):
+            raise SystemExit("benchmark: calendar day returned no sections")
+        if engine.last_calendar_pre_rank_count > FastRecommendationEngineV6.CALENDAR_POOL:
+            raise SystemExit("benchmark: calendar pre-rank exceeded hard pool")
+        if engine.last_calendar_full_score_count > FastRecommendationEngineV6.CALENDAR_FINALISTS:
+            raise SystemExit("benchmark: calendar full-score set exceeded hard bound")
+
+        t5 = time.perf_counter()
+        cached_calendar = engine.calendar_day_program(date(2026, 9, 14), 6)
+        calendar_cached_seconds = time.perf_counter() - t5
+        if cached_calendar is not calendar_result:
+            raise SystemExit("benchmark: calendar day cache did not reuse result")
+
         print(f"seed_seconds={seed_seconds:.3f}")
         print(f"index_seconds={index_seconds:.3f}")
         print(f"candidate_query_seconds={engine.last_candidate_query_seconds:.3f}")
         print(f"first_decision_seconds={first_seconds:.3f}")
         print(f"cached_alt_seconds={cached_seconds:.4f}")
-        print(f"pre_ranked_candidates={engine.last_pre_rank_count}")
-        print(f"fully_scored_finalists={engine.last_full_score_count}")
+        print(f"pre_ranked_candidates={normal_pre_rank}")
+        print(f"fully_scored_finalists={normal_full_score}")
+        print(f"calendar_day_seconds={calendar_seconds:.3f}")
+        print(f"calendar_day_cached_seconds={calendar_cached_seconds:.4f}")
+        print(f"calendar_pre_ranked={engine.last_calendar_pre_rank_count}")
+        print(f"calendar_fully_scored={engine.last_calendar_full_score_count}")
 
         if first_seconds > 10.0:
             raise SystemExit(f"benchmark: first decision too slow ({first_seconds:.2f}s > 10s)")
         if cached_seconds > 0.40:
             raise SystemExit(f"benchmark: cached Alt film too slow ({cached_seconds:.3f}s > 0.40s)")
+        if calendar_seconds > 10.0:
+            raise SystemExit(f"benchmark: calendar day too slow ({calendar_seconds:.2f}s > 10s)")
+        if calendar_cached_seconds > 0.25:
+            raise SystemExit(f"benchmark: cached calendar day too slow ({calendar_cached_seconds:.3f}s > 0.25s)")
         if index_seconds > 12.0:
             raise SystemExit(f"benchmark: one-time index setup too slow ({index_seconds:.2f}s > 12s)")
     return 0
