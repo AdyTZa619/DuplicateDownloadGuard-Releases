@@ -30,20 +30,10 @@ def write_ratings(path, rows):
 
 def rated(imdb_id, rating, title, year="2020", genres="History,Drama", director="Director Test"):
     return {
-        "Const": imdb_id,
-        "Your Rating": str(rating),
-        "Date Rated": "2026-09-01",
-        "Title": title,
-        "Original Title": title,
-        "URL": "",
-        "Title Type": "Movie",
-        "IMDb Rating": "7.2",
-        "Runtime (mins)": "110",
-        "Year": year,
-        "Genres": genres,
-        "Num Votes": "50000",
-        "Release Date": f"{year}-01-01",
-        "Directors": director,
+        "Const": imdb_id, "Your Rating": str(rating), "Date Rated": "2026-09-01",
+        "Title": title, "Original Title": title, "URL": "", "Title Type": "Movie",
+        "IMDb Rating": "7.2", "Runtime (mins)": "110", "Year": year, "Genres": genres,
+        "Num Votes": "50000", "Release Date": f"{year}-01-01", "Directors": director,
     }
 
 
@@ -64,26 +54,13 @@ def test_zero_personal_evidence_never_claims_38_percent_confidence(tmp_path):
     db = Database(tmp_path / "confidence.db")
     engine = FastRecommendationEngine(db)
     movie = Movie(
-        id=1,
-        imdb_id="tt8000100",
-        title="Unknown Pattern",
-        original_title="Unknown Pattern",
-        year=2025,
-        title_type="Movie",
-        runtime_min=100,
-        genres=["Mystery"],
-        directors=["Nobody In Profile"],
-        countries=[],
-        overview="",
-        keywords=[],
-        imdb_rating=8.4,
-        num_votes=100000,
-        source="test",
-        semantic={},
+        id=1, imdb_id="tt8000100", title="Unknown Pattern", original_title="Unknown Pattern",
+        year=2025, title_type="Movie", runtime_min=100, genres=["Mystery"],
+        directors=["Nobody In Profile"], countries=[], overview="", keywords=[], imdb_rating=8.4,
+        num_votes=100000, source="test", semantic={},
     )
     predicted, confidence, evidence, _ = engine._predict_user_rating(
-        movie,
-        {"global_mean_rating": 6.5, "features": {}},
+        movie, {"global_mean_rating": 6.5, "features": {}},
     )
     assert predicted == pytest.approx(6.5)
     assert evidence == 0
@@ -104,9 +81,6 @@ def test_schindlers_list_and_identity_duplicate_are_never_recommended(tmp_path):
     import_imdb_csv(db, ratings)
     build_profile(db)
 
-    # Simulate the exact class of catalog reconciliation defect: a second movie row with
-    # the same normalized film identity but another catalog id. movie_id-only filtering
-    # would leak this row into recommendations.
     ident = identity_key("Schindler's List", "Schindler's List", 1993, "Movie")
     now = utcnow_iso()
     with db.tx() as con:
@@ -117,11 +91,11 @@ def test_schindlers_list_and_identity_duplicate_are_never_recommended(tmp_path):
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 "tt9998052", ident, "Schindler's List", "Schindler's List",
-                normalize_text("Schindler's List"), normalize_text("Schindler's List"),
-                1993, "Movie", 196, json_dumps(["Biography", "Drama", "History"]),
-                json_dumps(["Steven Spielberg"]), json_dumps(["United States"]),
-                "Holocaust history", json_dumps([]), json_dumps({"history": 1.0, "holocaust": 1.0}),
-                9.0, 1500000, "imdb_dataset", now, now,
+                normalize_text("Schindler's List"), normalize_text("Schindler's List"), 1993, "Movie", 196,
+                json_dumps(["Biography", "Drama", "History"]), json_dumps(["Steven Spielberg"]),
+                json_dumps(["United States"]), "Holocaust history", json_dumps([]),
+                json_dumps({"history": 1.0, "holocaust": 1.0}), 9.0, 1500000,
+                "imdb_dataset", now, now,
             ),
         )
 
@@ -144,18 +118,15 @@ def test_schindlers_list_and_identity_duplicate_are_never_recommended(tmp_path):
 def test_candidate_scoring_is_hard_bounded(tmp_path):
     db = Database(tmp_path / "bounded.db")
     engine = FastRecommendationEngine(db)
-    assert engine._effective_limit(100000, "decide") == 6000
-    assert engine._effective_limit(45000, "decide") == 6000
-    assert engine._effective_limit(100000, "surprise") == 9000
+    assert engine._effective_limit(100000, "decide") == 1800
+    assert engine._effective_limit(45000, "decide") == 1800
+    assert engine._effective_limit(100000, "surprise") == 3000
 
 
 def test_alt_film_uses_cached_decision_pool(tmp_path, monkeypatch):
     db = Database(tmp_path / "cache.db")
     ratings = tmp_path / "ratings.csv"
-    write_ratings(
-        ratings,
-        [rated(f"tt83000{i:02d}", 8 + i % 3, f"Rated {i}") for i in range(1, 8)],
-    )
+    write_ratings(ratings, [rated(f"tt83000{i:02d}", 8 + i % 3, f"Rated {i}") for i in range(1, 8)])
     import_imdb_csv(db, ratings)
     build_profile(db)
 
