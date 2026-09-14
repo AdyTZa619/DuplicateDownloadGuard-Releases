@@ -6,7 +6,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from .qt_ui import WorkerThread
-from .updater import stage_and_start_update, update_supported
+from .updater_v3 import stage_and_start_update, update_supported
 
 
 def install_update_exit_guard(decision_cls) -> None:
@@ -14,9 +14,8 @@ def install_update_exit_guard(decision_cls) -> None:
 
     QApplication.quit() only stops the Qt event loop. A lingering QThread can keep the
     frozen Python process alive, while the external updater waits for that PID to vanish.
-    The bundle is already downloaded, SHA-verified, extracted and the helper process is
-    already running when the success callback fires, so a short delayed hard exit is the
-    safest handoff point.
+    The bundle is already downloaded, SHA-verified, extracted and the detached helper is
+    already running when the success callback fires, so a short delayed hard exit is safe.
     """
 
     def start_update(self, info, confirm: bool = True):
@@ -30,8 +29,8 @@ def install_update_exit_guard(decision_cls) -> None:
         if confirm:
             text = (
                 f"Instalez CineCalendar {info.version}?\n\n"
-                "Versiunea curentă este păstrată ca backup până când noua versiune "
-                "pornește și confirmă health-check-ul."
+                "Versiunea curentă este păstrată ca backup numai până când noua versiune "
+                "pornește și confirmă health-check-ul. După succes, fișierele temporare sunt șterse."
             )
             if QMessageBox.question(
                 self,
@@ -53,11 +52,8 @@ def install_update_exit_guard(decision_cls) -> None:
         worker.message.connect(lambda m: self.set_status(m, True))
 
         def success(_req):
-            self.set_status("Update verificat. Predau instalarea updaterului și închid procesul…", True)
-            # Do not call QApplication.quit() here. It can leave the frozen process alive
-            # while worker/QThread objects are still winding down. The external helper is
-            # already launched; force the parent PID to disappear so replacement can start.
-            QTimer.singleShot(350, lambda: os._exit(0))
+            self.set_status("Update verificat. Predau instalarea updaterului independent…", True)
+            QTimer.singleShot(500, lambda: os._exit(0))
 
         def failure(message):
             self.update_worker = None
