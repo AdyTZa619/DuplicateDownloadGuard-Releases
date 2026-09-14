@@ -3,9 +3,9 @@ from .service import CineCalendarService
 
 
 def main():
-    service=CineCalendarService()
+    service = CineCalendarService()
     service.log.info("CineCalendar start")
-    from .qt_ui import run_qt
+    from .qt_ui_v2 import run_qt
     return run_qt(service)
 
 
