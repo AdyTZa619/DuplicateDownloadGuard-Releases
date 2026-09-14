@@ -1,5 +1,4 @@
 from __future__ import annotations
-import re
 from collections import defaultdict
 from .models import Movie
 from .util import normalize_text
@@ -64,13 +63,10 @@ def extract_semantic(movie: Movie) -> dict[str, float]:
     for genre in movie.genres:
         for tag, w in GENRE_THEME.get(genre, {}).items():
             scores[tag] = max(scores[tag], w)
-    # Search both original and normalized text; phrases with accents remain useful in original.
-    corpus = text + " " + normalized
     for tag, patterns in THEME_PATTERNS.items():
         hits = sum(1 for p in patterns if normalize_text(p) in normalized or p.lower() in text)
         if hits:
             scores[tag] = max(scores[tag], min(1.0, 0.48 + 0.18 * hits))
-    # Type-specific signals.
     if movie.title_type and "documentary" in movie.title_type.lower():
         scores["documentary"] = 1.0
     return dict(scores)
@@ -93,18 +89,37 @@ def popularity_bucket(votes: int | None) -> str:
 
 
 def feature_vector(movie: Movie) -> dict[str, float]:
+    """Sparse representation used by both profile learning and candidate scoring.
+
+    Besides single attributes, a small set of interaction features captures taste such
+    as History+War or Crime+Thriller. With thousands of explicit ratings these are much
+    more informative than treating every genre independently.
+    """
     sem = movie.semantic or extract_semantic(movie)
     vec: dict[str, float] = {}
-    for g in movie.genres:
-        vec[f"genre:{normalize_text(g)}"] = 1.0
+    genres = sorted({normalize_text(g) for g in movie.genres if normalize_text(g)})
+    for g in genres:
+        vec[f"genre:{g}"] = 1.0
+    # Pairwise genre interactions: bounded because IMDb movies normally have few genres.
+    for i, a in enumerate(genres):
+        for b in genres[i+1:]:
+            vec[f"combo:genre:{a}|genre:{b}"] = .90
     for tag, weight in sem.items():
         vec[f"theme:{tag}"] = float(weight)
-    for d in movie.directors:
-        vec[f"director:{normalize_text(d)}"] = 0.75
+    directors = [normalize_text(d) for d in movie.directors if normalize_text(d)]
+    for d in directors:
+        vec[f"director:{d}"] = .75
+        # Director+genre captures cases where the user likes a director especially in a certain lane.
+        for g in genres[:4]:
+            vec[f"combo:director:{d}|genre:{g}"] = .72
     for c in movie.countries:
-        vec[f"country:{normalize_text(c)}"] = 0.7
+        nc = normalize_text(c)
+        if nc: vec[f"country:{nc}"] = .7
     if movie.year:
-        vec[f"decade:{movie.year//10*10}s"] = 0.6
-    vec[f"runtime:{runtime_bucket(movie.runtime_min)}"] = 0.55
-    vec[f"popularity:{popularity_bucket(movie.num_votes)}"] = 0.4
+        decade = f"{movie.year//10*10}s"
+        vec[f"decade:{decade}"] = .6
+        for g in genres[:4]:
+            vec[f"combo:genre:{g}|decade:{decade}"] = .52
+    vec[f"runtime:{runtime_bucket(movie.runtime_min)}"] = .55
+    vec[f"popularity:{popularity_bucket(movie.num_votes)}"] = .4
     return vec
