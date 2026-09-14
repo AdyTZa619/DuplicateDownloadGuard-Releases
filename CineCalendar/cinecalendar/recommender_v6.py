@@ -10,7 +10,7 @@ from .semantic import extract_semantic
 from .util import clamp
 
 
-ENGINE_VERSION = "6.0.0"
+ENGINE_VERSION = "6.0.1"
 
 
 class FastRecommendationEngineV6(FastRecommendationEngineV5):
@@ -40,6 +40,34 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             .07 * float(s.confidence) +
             .05 * float(s.season)
         )
+
+    def _calendar_score_cached(self, movie, when: date):
+        """v5 relation score plus a few explicit feast aliases.
+
+        A Passion/Calvary film is genuinely direct for the Exaltation of the Cross even if
+        its metadata says `passion_of_christ` rather than the narrower `cross_veneration`.
+        These aliases improve recall without turning every generic Christian film into a
+        direct match.
+        """
+        score, kind, reason = super()._calendar_score_cached(movie, when)
+        sem = movie.semantic or extract_semantic(movie)
+        events, _season_label, _season_tags = self._date_context(when)
+        aliases = {
+            "exaltation_cross": ("passion_of_christ",),
+            "good_friday": ("cross_veneration",),
+            "holy_thursday": ("cross_veneration",),
+            "holy_saturday": ("passion_of_christ",),
+        }
+        best = (score, kind, reason)
+        for ev, proximity in events:
+            tags = aliases.get(ev.key, ())
+            if not tags:
+                continue
+            strength = max((float(sem.get(t, 0) or 0) for t in tags), default=0.0)
+            alias_score = clamp(strength * .92 * ev.importance * proximity)
+            if alias_score > best[0]:
+                best = (alias_score, "directă", f"{ev.name}: relevanță directă.")
+        return best
 
     def calendar_day_program(self, when: date | None = None, count_per_section: int = 6) -> dict:
         when = when or date.today()
@@ -73,8 +101,6 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             affinity, evidence = self._cheap_personal_affinity(movie, profile)
             quality = self._quality(movie)
             novelty = self._novelty(movie, context)
-            # Calendar dominates this pre-rank, but personal taste and quality still stop
-            # weak contextual matches from flooding the finalist set.
             value = (
                 .46 * calendar_score + .25 * affinity + .11 * quality +
                 .07 * season_score + .06 * evidence + .05 * novelty
@@ -84,8 +110,6 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
         rough.sort(key=lambda item: item[0], reverse=True)
         self.last_calendar_pre_rank_count = len(rough)
 
-        # Build one bounded finalist union.  Preserve the strongest films for every relation
-        # type so a general high-quality title cannot wipe out direct/spiritual/history lanes.
         chosen: list = []
         chosen_ids: set[int] = set()
 
@@ -102,11 +126,11 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
 
         add_many(rough, 220)
         for relation in ("directă", "spirituală", "istorică", "atmosferică"):
-            lane = sorted(
+            relation_items = sorted(
                 (item for item in rough if item[3] == relation and item[2] >= .10),
                 key=lambda item: (item[2], item[0]), reverse=True,
             )
-            add_many(lane, 34)
+            add_many(relation_items, 34)
         seasonal = sorted(
             (item for item in rough if item[4] > .34),
             key=lambda item: (item[4], item[0]), reverse=True,
@@ -118,7 +142,6 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             score = self._score_one(movie, when, profile, context, exclude_romance, mode="calendar")
             if score is None:
                 continue
-            # Do not promote weak personal predictions merely because a title matches a date.
             if score.confidence >= .55 and score.predicted_rating < 5.8:
                 continue
             scored.append(Recommendation(movie, score))
@@ -146,12 +169,9 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
                 out.sort(key=lambda r: (r.score.calendar, self._calendar_rank(r)), reverse=True)
             return out
 
-        # First section is explicitly the answer to "what fits this exact day?".
         exact = [r for r in scored if r.score.calendar >= .10]
         exact.sort(key=self._calendar_rank, reverse=True)
         if not exact:
-            # Some ordinary days have no strong named observance.  In that case keep the
-            # section useful via seasonal/contextual matches rather than fabricating a link.
             exact = [r for r in scored if r.score.season > .34]
             exact.sort(key=lambda r: (r.score.season, r.score.final), reverse=True)
 
@@ -165,17 +185,20 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
         ]
 
         sections = []
-        used: set[int] = set()
+        used_specialized: set[int] = set()
         for key, title, subtitle, recs in specs:
             picked = []
             for rec in recs:
                 mid = int(rec.movie.id)
-                # The first section is authoritative. Later lanes avoid repeating it so the
-                # page gives the user more genuinely different options.
-                if key != "exact" and mid in used:
+                # `Pentru ziua asta` is the summary and may intentionally overlap a more
+                # explicit lane.  The specialized lanes de-duplicate only among themselves,
+                # so categories like `Legătură directă` never disappear just because their
+                # strongest film was also in the summary.
+                if key != "exact" and mid in used_specialized:
                     continue
                 picked.append(rec)
-                used.add(mid)
+                if key != "exact":
+                    used_specialized.add(mid)
                 if len(picked) >= count_per_section:
                     break
             if picked:
