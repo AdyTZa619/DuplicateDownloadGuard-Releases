@@ -5,7 +5,7 @@ from .autoseed import ensure_initial_ratings
 from .calendar_engine import CalendarEngine
 from .db import Database
 from .logging_setup import setup_logging
-from .recommender_v4 import FastRecommendationEngineV4
+from .recommender_v5 import FastRecommendationEngineV5
 from .util import AppPaths
 
 
@@ -17,7 +17,7 @@ class CineCalendarService:
         self._defaults()
         self.initial_ratings_state = ensure_initial_ratings(self.db, self.paths.root.parent, self.log)
         self.calendar = CalendarEngine()
-        self.recommender = FastRecommendationEngineV4(self.db, self.calendar)
+        self.recommender = FastRecommendationEngineV5(self.db, self.calendar)
 
     def _defaults(self):
         if self.db.get_setting("exclude_romance", None) is None:
@@ -25,8 +25,7 @@ class CineCalendarService:
         if self.db.get_setting("auto_watch_enabled", None) is None:
             self.db.set_setting("auto_watch_enabled", True)
         if self.db.get_setting("ratings_folder", None) is None:
-            downloads = Path.home() / "Downloads"
-            self.db.set_setting("ratings_folder", str(downloads))
+            self.db.set_setting("ratings_folder", str(Path.home() / "Downloads"))
         if self.db.get_setting("theme", None) is None:
             self.db.set_setting("theme", "dark")
         self.db.set_setting("catalog_bootstrap_running", False)
