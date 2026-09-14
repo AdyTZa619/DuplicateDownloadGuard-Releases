@@ -1,6 +1,5 @@
 from __future__ import annotations
-import csv, gzip, sqlite3, time
-from dataclasses import dataclass
+import csv, gzip, time
 from pathlib import Path
 from typing import Callable
 import requests
@@ -13,7 +12,10 @@ from .util import identity_key, json_dumps, normalize_text, split_csvish, to_flo
 IMDB_DATASET_URLS = {
     "basics": "https://datasets.imdbws.com/title.basics.tsv.gz",
     "ratings": "https://datasets.imdbws.com/title.ratings.tsv.gz",
+    "crew": "https://datasets.imdbws.com/title.crew.tsv.gz",
+    "names": "https://datasets.imdbws.com/name.basics.tsv.gz",
 }
+
 
 def _valid_gzip_tsv(path: Path, required_columns: set[str]) -> bool:
     try:
@@ -25,6 +27,7 @@ def _valid_gzip_tsv(path: Path, required_columns: set[str]) -> bool:
     except Exception:
         return False
 
+
 def _download_stream(url: str, dest: Path, progress: Callable[[str],None], label: str, force: bool=False) -> Path:
     """Download one official IMDb dataset with a resumable .part file and atomic rename."""
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -33,10 +36,10 @@ def _download_stream(url: str, dest: Path, progress: Callable[[str],None], label
         return dest
     part = dest.with_suffix(dest.suffix + ".part")
     existing = part.stat().st_size if part.exists() else 0
-    headers = {"User-Agent": "CineCalendar/0.2 personal-noncommercial"}
+    headers = {"User-Agent": "CineCalendar/2.0 personal-noncommercial"}
     if existing:
         headers["Range"] = f"bytes={existing}-"
-    with requests.get(url, stream=True, timeout=(15, 120), headers=headers, allow_redirects=True) as r:
+    with requests.get(url, stream=True, timeout=(15, 180), headers=headers, allow_redirects=True) as r:
         r.raise_for_status()
         append = existing > 0 and r.status_code == 206
         if not append:
@@ -61,11 +64,9 @@ def _download_stream(url: str, dest: Path, progress: Callable[[str],None], label
     progress(f"{label}: descărcare completă ({dest.stat().st_size/1024/1024:.1f} MB).")
     return dest
 
-def download_official_imdb_datasets(cache_dir: str|Path, progress: Callable[[str],None]|None=None, force: bool=False) -> tuple[Path,Path]:
-    """Download the official IMDb non-commercial title basics + aggregate ratings datasets.
 
-    This does not scrape imdb.com. Files are cached locally and reused on later runs.
-    """
+def download_official_imdb_datasets(cache_dir: str|Path, progress: Callable[[str],None]|None=None, force: bool=False) -> tuple[Path,Path]:
+    """Compatibility/basic download: official IMDb title basics + aggregate ratings."""
     progress=progress or (lambda _ : None)
     root=Path(cache_dir); root.mkdir(parents=True,exist_ok=True)
     basics=root/'title.basics.tsv.gz'; ratings=root/'title.ratings.tsv.gz'
@@ -80,15 +81,40 @@ def download_official_imdb_datasets(cache_dir: str|Path, progress: Callable[[str
         ratings.unlink(missing_ok=True); raise ValueError('Fișierul title.ratings descărcat nu este un dataset IMDb valid.')
     return basics,ratings
 
+
+def download_official_imdb_recommender_datasets(cache_dir: str|Path, progress: Callable[[str],None]|None=None,
+                                                  force: bool=False) -> tuple[Path,Path,Path,Path]:
+    """Download the four official datasets used by the rating-first recommender.
+
+    crew + names let CineCalendar learn and apply director preferences automatically,
+    rather than requiring a TMDb token or manual metadata entry.
+    """
+    progress = progress or (lambda _ : None)
+    root = Path(cache_dir); root.mkdir(parents=True, exist_ok=True)
+    basics, ratings = download_official_imdb_datasets(root, progress, force)
+    crew = root/'title.crew.tsv.gz'; names = root/'name.basics.tsv.gz'
+    if force:
+        for p in (crew,names,crew.with_suffix(crew.suffix+'.part'),names.with_suffix(names.suffix+'.part')):
+            p.unlink(missing_ok=True)
+    _download_stream(IMDB_DATASET_URLS['crew'], crew, progress, 'IMDb title.crew', force=False)
+    if not _valid_gzip_tsv(crew, {'tconst','directors'}):
+        crew.unlink(missing_ok=True); raise ValueError('Fișierul title.crew descărcat nu este valid.')
+    _download_stream(IMDB_DATASET_URLS['names'], names, progress, 'IMDb name.basics', force=False)
+    if not _valid_gzip_tsv(names, {'nconst','primaryName'}):
+        names.unlink(missing_ok=True); raise ValueError('Fișierul name.basics descărcat nu este valid.')
+    return basics, ratings, crew, names
+
+
 def bootstrap_official_imdb_catalog(db: Database, cache_dir: str|Path, min_votes: int=50,
                                     progress: Callable[[str],None]|None=None, force_download: bool=False) -> dict:
-    """One-call catalog setup used by the UI: download, validate and import official IMDb datasets."""
+    """One-call setup: download, validate and import an IMDb catalog rich enough for recommendations."""
     progress=progress or (lambda _ : None)
-    basics,ratings=download_official_imdb_datasets(cache_dir,progress,force_download)
-    progress('Construiesc catalogul local de recomandări…')
-    result=import_imdb_datasets(db,basics,ratings,min_votes,progress)
-    result.update({'basics_path':str(basics),'ratings_path':str(ratings)})
+    basics,ratings,crew,names=download_official_imdb_recommender_datasets(cache_dir,progress,force_download)
+    progress('Construiesc catalogul local de recomandări și leg regizorii…')
+    result=import_imdb_datasets(db,basics,ratings,min_votes,progress,crew_gz=crew,names_gz=names)
+    result.update({'basics_path':str(basics),'ratings_path':str(ratings),'crew_path':str(crew),'names_path':str(names)})
     return result
+
 
 CATALOG_ALIASES = {
     "imdb_id": ["imdb_id","Const","tconst","IMDb ID"], "title":["title","Title","primaryTitle"],
@@ -99,6 +125,7 @@ CATALOG_ALIASES = {
     "imdb_rating":["imdb_rating","IMDb Rating","averageRating"], "num_votes":["num_votes","Num Votes","numVotes"],
     "release_date":["release_date","Release Date"], "poster_url":["poster_url","Poster URL","poster"],
 }
+
 
 def _headers(fieldnames):
     low={x.strip().lower():x for x in fieldnames or []}; out={}
@@ -143,14 +170,50 @@ def import_catalog_csv(db: Database, path: str|Path) -> dict:
     return {"added":added,"updated":updated}
 
 
-def import_imdb_datasets(db: Database, basics_gz: str|Path, ratings_gz: str|Path, min_votes: int=50,
-                         progress: Callable[[str],None]|None=None) -> dict:
-    """Import official IMDb non-commercial datasets efficiently.
+def _load_director_names_for_eligible(crew_gz: Path, names_gz: Path, eligible_ids: set[str],
+                                      progress: Callable[[str],None]) -> dict[str,list[str]]:
+    """Resolve only director names needed by eligible movies, keeping memory bounded."""
+    progress("Indexez regizorii IMDb pentru filmele eligibile…")
+    ids_by_title: dict[str,list[str]] = {}
+    needed: set[str] = set()
+    with gzip.open(crew_gz,"rt",encoding="utf-8",newline="") as fh:
+        r=csv.DictReader(fh,delimiter="\t")
+        for idx,row in enumerate(r,1):
+            tid=row.get("tconst") or ""
+            if tid not in eligible_ids: continue
+            raw=row.get("directors") or ""
+            if raw and raw != "\\N":
+                ids=[x for x in raw.split(",") if x and x != "\\N"][:6]
+                if ids:
+                    ids_by_title[tid]=ids; needed.update(ids)
+            if idx%2_000_000==0:
+                progress(f"Crew scanat: {idx:,} • regizori necesari: {len(needed):,}")
+    progress(f"Rezolv numele pentru {len(needed):,} regizori…")
+    name_map: dict[str,str] = {}
+    remaining=set(needed)
+    with gzip.open(names_gz,"rt",encoding="utf-8",newline="") as fh:
+        r=csv.DictReader(fh,delimiter="\t")
+        for idx,row in enumerate(r,1):
+            nid=row.get("nconst") or ""
+            if nid in remaining:
+                name=row.get("primaryName") or ""
+                if name and name != "\\N": name_map[nid]=name
+                remaining.discard(nid)
+                if not remaining: break
+            if idx%2_000_000==0:
+                progress(f"Nume scanate: {idx:,} • rămase: {len(remaining):,}")
+    result={}
+    for tid,ids in ids_by_title.items():
+        names=[name_map[x] for x in ids if x in name_map]
+        if names: result[tid]=names
+    progress(f"Regizori legați pentru {len(result):,} titluri eligibile.")
+    return result
 
-    The aggregate ratings file is first reduced in memory to titles above the vote
-    threshold. title.basics is then streamed once and IMDb IDs are batch-upserted.
-    Existing rich metadata (overview, directors, countries, posters) is preserved.
-    """
+
+def import_imdb_datasets(db: Database, basics_gz: str|Path, ratings_gz: str|Path, min_votes: int=50,
+                         progress: Callable[[str],None]|None=None, crew_gz: str|Path|None=None,
+                         names_gz: str|Path|None=None) -> dict:
+    """Import official IMDb datasets efficiently, optionally resolving directors."""
     basics_gz=Path(basics_gz); ratings_gz=Path(ratings_gz)
     if not basics_gz.exists() or not ratings_gz.exists():
         raise ValueError("Lipsesc fișierele IMDb dataset selectate.")
@@ -169,36 +232,42 @@ def import_imdb_datasets(db: Database, basics_gz: str|Path, ratings_gz: str|Path
                 ratings_map[row["tconst"]]=(to_float(row.get("averageRating")),votes)
             if idx%500000==0:
                 progress(f"Ratinguri scanate: {idx:,} • eligibile: {len(ratings_map):,}")
+
+    directors_map: dict[str,list[str]] = {}
+    if crew_gz and names_gz:
+        crew=Path(crew_gz); names=Path(names_gz)
+        if _valid_gzip_tsv(crew,{'tconst','directors'}) and _valid_gzip_tsv(names,{'nconst','primaryName'}):
+            directors_map=_load_director_names_for_eligible(crew,names,set(ratings_map),progress)
+
     progress(f"Ratinguri eligibile indexate: {len(ratings_map):,}. Construiesc catalogul…")
-    sql="""INSERT INTO movies(imdb_id,identity_key,title,original_title,title_norm,original_title_norm,year,title_type,runtime_min,genres_json,semantic_json,
+    sql="""INSERT INTO movies(imdb_id,identity_key,title,original_title,title_norm,original_title_norm,year,title_type,runtime_min,genres_json,directors_json,semantic_json,
              imdb_rating,num_votes,source,created_at,updated_at)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
              ON CONFLICT(imdb_id) DO UPDATE SET
                identity_key=excluded.identity_key,title=excluded.title,original_title=excluded.original_title,
                title_norm=excluded.title_norm,original_title_norm=excluded.original_title_norm,year=excluded.year,title_type=excluded.title_type,
-               runtime_min=COALESCE(excluded.runtime_min,movies.runtime_min),genres_json=excluded.genres_json,semantic_json=excluded.semantic_json,
-               imdb_rating=excluded.imdb_rating,num_votes=excluded.num_votes,source='imdb_dataset',updated_at=excluded.updated_at"""
+               runtime_min=COALESCE(excluded.runtime_min,movies.runtime_min),genres_json=excluded.genres_json,
+               directors_json=CASE WHEN excluded.directors_json!='[]' THEN excluded.directors_json ELSE movies.directors_json END,
+               semantic_json=excluded.semantic_json,imdb_rating=excluded.imdb_rating,num_votes=excluded.num_votes,
+               source='imdb_dataset',updated_at=excluded.updated_at"""
     batch=[]
     with db.tx() as con, gzip.open(basics_gz,"rt",encoding="utf-8",newline="") as fh:
         r=csv.DictReader(fh,delimiter="\t")
         for idx,row in enumerate(r,1):
             if row.get("isAdult") == "1" or row.get("titleType") not in {"movie","short","tvMovie","video"}:
                 continue
-            tconst=row.get("tconst") or ""
-            stage=ratings_map.get(tconst)
-            if not stage:
-                continue
+            tconst=row.get("tconst") or ""; stage=ratings_map.get(tconst)
+            if not stage: continue
             title=row.get("primaryTitle") or ""; original=row.get("originalTitle") or title
-            if not title:
-                continue
-            year=to_int(row.get("startYear")); typ=row.get("titleType") or "movie"
-            ident=identity_key(title,original,year,typ)
+            if not title: continue
+            year=to_int(row.get("startYear")); typ=row.get("titleType") or "movie"; ident=identity_key(title,original,year,typ)
             genres=[] if row.get("genres") in {None,"\\N"} else row.get("genres","").split(",")
+            directors=directors_map.get(tconst,[])
             m=Movie(imdb_id=tconst,title=title,original_title=original,year=year,title_type=typ,runtime_min=to_int(row.get("runtimeMinutes")),
-                    genres=genres,imdb_rating=stage[0],num_votes=stage[1],source="imdb_dataset")
+                    genres=genres,directors=directors,imdb_rating=stage[0],num_votes=stage[1],source="imdb_dataset")
             m.semantic=extract_semantic(m)
             batch.append((tconst,ident,title,original,normalize_text(title),normalize_text(original),year,typ,m.runtime_min,
-                          json_dumps(genres),json_dumps(m.semantic),m.imdb_rating,m.num_votes,"imdb_dataset",now,now))
+                          json_dumps(genres),json_dumps(directors),json_dumps(m.semantic),m.imdb_rating,m.num_votes,"imdb_dataset",now,now))
             movie_count+=1
             if len(batch)>=5000:
                 con.executemany(sql,batch);batch.clear()
@@ -206,5 +275,4 @@ def import_imdb_datasets(db: Database, basics_gz: str|Path, ratings_gz: str|Path
                 progress(f"Catalog local: {movie_count:,} titluri…")
         if batch: con.executemany(sql,batch)
     progress(f"Catalog IMDb finalizat: {movie_count:,} titluri eligibile.")
-    return {"ratings_stage":len(ratings_map),"movies":movie_count,"min_votes":min_votes}
-
+    return {"ratings_stage":len(ratings_map),"movies":movie_count,"directors":len(directors_map),"min_votes":min_votes}
