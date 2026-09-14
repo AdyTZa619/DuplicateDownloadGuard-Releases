@@ -6,16 +6,15 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from .qt_ui import WorkerThread
-from .updater_v3 import stage_and_start_update, update_supported
+from .updater_v4 import stage_and_start_update, update_supported
 
 
 def install_update_exit_guard(decision_cls) -> None:
     """Guarantee that the old frozen process really exits after updater handoff.
 
-    QApplication.quit() only stops the Qt event loop. A lingering QThread can keep the
-    frozen Python process alive, while the external updater waits for that PID to vanish.
-    The bundle is already downloaded, SHA-verified, extracted and the detached helper is
-    already running when the success callback fires, so a short delayed hard exit is safe.
+    The real updater helper is created through the Windows CIM/WMI service, so it is no
+    longer part of the CineCalendar process tree. Once download, SHA verification and
+    staging succeed, the GUI process can hard-exit without killing the helper.
     """
 
     def start_update(self, info, confirm: bool = True):
