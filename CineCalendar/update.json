@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/cinecalendar-direct-exe/CineCalendar/releases/CineCalendar_LATEST.exe",
+  "sha256": "e11606755c064445e4ca06d7c847480f0f9a6cbc42f94e8923e83c9e164f0f01",
+  "notes": "CineCalendar 2.0 Decision Engine: recomandări rating-first bazate în principal pe istoricul tău IMDb, ecranul „Ce văd acum?” cu o alegere principală și două rezerve, estimare personală 1–10 cu nivel de încredere, profil pozitiv/elite/negativ, combinații de genuri și regizor, catalog IMDb cu regizori, calendar păstrat ca funcție secundară și updater sigur cu SHA-256, backup, health-check și rollback automat.",
+  "publishedAt": "2026-09-14T15:38:37.4805905Z",
+  "channel": "stable"
+}
