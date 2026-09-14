@@ -4,11 +4,16 @@ on:
   push:
     branches: ["cinecalendar-direct-exe"]
 
+permissions:
+  contents: write
+
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Rebuild source archive
         shell: bash
         run: |
@@ -19,6 +24,23 @@ jobs:
           test "$(stat -c%s cinecalendar-source.zip)" -eq 82294
           echo "d6b3473adb7d609cec39cb87a9d3f03814935406e5b0881dba812fe6c4b1646a  cinecalendar-source.zip" | sha256sum -c -
           unzip -t cinecalendar-source.zip
+      - name: Publish editable source tree to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf working_source
+          mkdir -p working_source
+          unzip -q cinecalendar-source.zip -d working_source
+          test -f working_source/CineCalendar/launcher.py
+          git config user.name "CineCalendar Build Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add working_source
+          if git diff --cached --quiet; then
+            echo "Editable source tree already current"
+          else
+            git commit -m "Expose CineCalendar editable source tree [skip ci]"
+            git push origin HEAD:cinecalendar-direct-exe
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: CineCalendar-Source-Export
