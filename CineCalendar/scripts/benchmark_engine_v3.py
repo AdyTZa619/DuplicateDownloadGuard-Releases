@@ -7,7 +7,7 @@ import time
 
 from cinecalendar.db import Database
 from cinecalendar.profile import build_profile
-from cinecalendar.recommender_v3 import FastRecommendationEngine
+from cinecalendar.recommender_v4 import FastRecommendationEngineV4
 from cinecalendar.semantic import extract_semantic
 from cinecalendar.models import Movie
 from cinecalendar.util import identity_key, json_dumps, normalize_text, utcnow_iso
@@ -79,7 +79,7 @@ def add_candidates(db: Database) -> None:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="cinecalendar-v3-bench-", ignore_cleanup_errors=True) as td:
+    with tempfile.TemporaryDirectory(prefix="cinecalendar-v4-bench-", ignore_cleanup_errors=True) as td:
         db = Database(Path(td) / "benchmark.db")
         t0 = time.perf_counter()
         add_ratings(db)
@@ -87,7 +87,7 @@ def main() -> int:
         seed_seconds = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        engine = FastRecommendationEngine(db)
+        engine = FastRecommendationEngineV4(db)
         index_seconds = time.perf_counter() - t1
 
         t2 = time.perf_counter()
@@ -95,7 +95,7 @@ def main() -> int:
         first_seconds = time.perf_counter() - t2
         if primary is None or len(backups) < 2:
             raise SystemExit("benchmark: no recommendation result")
-        if engine.last_candidate_count > FastRecommendationEngine.NORMAL_POOL:
+        if engine.last_candidate_count > FastRecommendationEngineV4.NORMAL_POOL:
             raise SystemExit(f"benchmark: scored too many candidates: {engine.last_candidate_count}")
 
         excluded = {int(primary.movie.id)}
