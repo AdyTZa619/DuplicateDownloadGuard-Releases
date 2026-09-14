@@ -46,18 +46,23 @@ def test_clean_helper_forces_stuck_parent_and_cleans_success_residue():
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows process semantics only")
 def test_detached_helper_survives_launcher_process_exit(tmp_path):
-    """Reproduce the real failure: helper must stay alive after its launcher exits."""
+    """Reproduce the real failure with the same -File PowerShell mode as production."""
     marker = tmp_path / "detached-helper-ok.txt"
+    helper = tmp_path / "survival.ps1"
     ps_path = str(marker).replace("'", "''")
-    command = (
-        "Start-Sleep -Milliseconds 1200; "
-        f"Set-Content -LiteralPath '{ps_path}' -Value 'ok' -Encoding UTF8"
+    helper.write_text(
+        "Start-Sleep -Milliseconds 1200\n"
+        f"Set-Content -LiteralPath '{ps_path}' -Value 'ok' -Encoding UTF8\n",
+        encoding="utf-8-sig",
     )
+
+    args = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", str(helper),
+    ]
     code = (
         "from cinecalendar.updater_v3 import _detached_popen; "
-        "_detached_popen(['powershell.exe','-NoProfile','-NonInteractive','-Command',"
-        + repr(command)
-        + "])"
+        "_detached_popen(" + repr(args) + ")"
     )
 
     # This short-lived Python process represents CineCalendar.exe. It exits immediately
