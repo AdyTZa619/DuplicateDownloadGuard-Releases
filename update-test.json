@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.136",
+  "version": "9.0.1-test.137",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "74e879988e927d16aba78c1e1ed73cdd9c790db7a559ea9aeee6cbbda4e8904e",
-  "notes": "TEST: Fix primary source duplicate analysis and evidence for TEST",
-  "publishedAt": "2026-09-10T18:07:07.1922551Z",
+  "sha256": "8bc39a681df11bd887f5287830a16a4d1d5c0810f2ef34bb077ba85d4c0c2c60",
+  "notes": "TEST: TEST 9.0: complete MEGA/Bunkr duplicate detector and guard JDownloader (#95)",
+  "publishedAt": "2026-09-14T10:35:20.1222423Z",
   "channel": "test"
 }
