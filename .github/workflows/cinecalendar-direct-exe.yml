@@ -5,6 +5,9 @@ on:
     branches: ["cinecalendar-direct-exe"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -33,6 +36,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CineCalendar ZIP failed validation' }
           python -m zipfile -e cinecalendar-source.zip .
           if (!(Test-Path 'CineCalendar\launcher.py')) { throw 'CineCalendar source invalid after extraction' }
+
+      - name: Materialize source on branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CineCalendar
+          if (git diff --cached --quiet) {
+            Write-Host 'Source already materialized.'
+          } else {
+            git commit -m "Materialize CineCalendar source [skip ci]"
+            git push origin HEAD:cinecalendar-direct-exe
+          }
 
       - name: Export source snapshot
         uses: actions/upload-artifact@v4
