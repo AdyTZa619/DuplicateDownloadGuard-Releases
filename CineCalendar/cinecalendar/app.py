@@ -12,13 +12,12 @@ def main():
         return exit_code
 
     service = CineCalendarService()
-    service.log.info("CineCalendar start")
+    service.log.info("CineCalendar Premium start")
 
-    # The v2 window inherits shell widgets from qt_ui.py; keep the single package
-    # version authoritative there as well, instead of the old legacy constant.
+    # Keep one authoritative package version in all inherited/base widgets.
     from . import qt_ui as base_ui
     base_ui.APP_VERSION = __version__
-    from .qt_ui_v2 import run_qt
+    from .premium_ui import run_premium
 
     on_ready = None
     if post_update:
@@ -27,7 +26,7 @@ def main():
             write_health_marker(health_path, expected_version)
             service.log.info("Post-update health marker written for %s", expected_version)
 
-    return run_qt(service, on_ready=on_ready)
+    return run_premium(service, on_ready=on_ready)
 
 
 if __name__ == "__main__":
