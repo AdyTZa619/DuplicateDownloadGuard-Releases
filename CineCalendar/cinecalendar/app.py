@@ -14,15 +14,11 @@ def main():
     service = CineCalendarService()
     service.log.info("CineCalendar Premium start")
 
-    # Keep one authoritative package version in all inherited/base widgets.
+    # Keep one authoritative package version in inherited/base widgets.
     from . import qt_ui as base_ui
     base_ui.APP_VERSION = __version__
-    from . import qt_ui_v2 as decision_ui
-    from . import premium_ui
 
-    # Premium now uses the verified bundle-aware updater from qt_ui_v2/updater.py.
-    # Reuse that page instead of the obsolete placeholder page in premium_ui.py.
-    premium_ui.PremiumDecisionWindow.page_updates = decision_ui.DecisionWindow.page_updates
+    from .premium_calendar_ui import run_premium_calendar
 
     on_ready = None
     if post_update:
@@ -32,7 +28,7 @@ def main():
             write_health_marker(health_path, expected_version)
             service.log.info("Post-update health marker written for %s", expected_version)
 
-    return premium_ui.run_premium(service, on_ready=on_ready)
+    return run_premium_calendar(service, on_ready=on_ready)
 
 
 if __name__ == "__main__":
