@@ -57,6 +57,12 @@ class ScoreBreakdown:
     calendar_reason: str = ""
     personal_reason: str = ""
     contributions: list[tuple[str, float, str]] = field(default_factory=list)
+    # Human-facing prediction derived from the user's explicit 1-10 ratings.
+    predicted_rating: float = 0.0
+    confidence: float = 0.0
+    uncertainty: float = 1.0
+    decision_mode: str = "decide"
+    evidence: float = 0.0
 
 @dataclass
 class Recommendation:
