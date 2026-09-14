@@ -22,9 +22,9 @@
   })[mode] || 'Smart Guard';
 
   const legacyVerdictLabel = verdict => ({
-    DOWNLOAD: 'NU ÎL AI',
-    DUPLICATE: 'AI DEJA',
-    REVIEW: 'POSIBIL DUPLICAT'
+    DOWNLOAD: 'LIPSĂ',
+    DUPLICATE: 'IDENTIC / PE PC',
+    REVIEW: 'DE VERIFICAT'
   })[verdict] || verdict;
 
   function inferUserStatus(item) {
@@ -37,7 +37,7 @@
     if (item.userStatus) return item.userStatus;
     if (method === 'download-history') return 'DESCĂRCAT DEJA';
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
-    if (method === 'media-version') return 'ALTĂ VERSIUNE';
+    if (method === 'media-version') return 'ACELAȘI CONȚINUT';
     if (method === 'media-looks-same' || method === 'deterministic-samples') return 'PARE ACELAȘI';
     if (['metadata-incomplete', 'mega-busy', 'remote-unavailable', 'full-sha256-error', 'sample-error', 'media-tools-missing', 'media-index-incomplete', 'image-index-incomplete', 'media-unverified'].includes(method)) return 'NU S-A PUTUT VERIFICA';
     return legacyVerdictLabel(item.verdict || item.guardVerdict || '');
@@ -45,21 +45,24 @@
 
   function inferAction(item) {
     if (!item) return '';
-    if (item.detector && (item.verdict || item.guardVerdict) === 'REVIEW') return 'VERIFICĂ MANUAL';
+    const detectorStatus = String(item.detector?.classification || '').toUpperCase();
+    if (detectorStatus === 'IDENTIC' || detectorStatus === 'ACELAȘI CONȚINUT') return 'NU DESCĂRCA';
+    if (detectorStatus === 'LIPSĂ') return 'DESCARCĂ';
+    if (detectorStatus === 'DE VERIFICAT') return 'BLOCAT PÂNĂ LA VERIFICARE';
     if (item.action) return item.action;
     const reason = String(item.reason || item.guardReason || '').toLowerCase();
     if (reason.includes('versiunea remote pare mai bună')) return 'REMOTE E MAI BUN';
     if (reason.includes('versiunea locală pare mai bună')) return 'AI DEJA VERSIUNEA MAI BUNĂ';
     const status = inferUserStatus(item);
-    if (['AI DEJA', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) return 'NU DESCĂRCA';
-    if (status === 'NU ÎL AI') return 'DESCARCĂ';
+    if (['AI DEJA', 'IDENTIC / PE PC', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) return 'NU DESCĂRCA';
+    if (status === 'NU ÎL AI' || status === 'LIPSĂ') return 'DESCARCĂ';
     if (status === 'NU S-A PUTUT VERIFICA') return 'REÎNCEARCĂ';
     return 'VERIFICĂ MANUAL';
   }
 
   function statusTone(status) {
-    if (['AI DEJA', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) return 'goodText';
-    if (status === 'NU ÎL AI') return 'dangerText';
+    if (['AI DEJA', 'IDENTIC / PE PC', 'DESCĂRCAT DEJA', 'ACELAȘI CONȚINUT'].includes(status)) return 'goodText';
+    if (status === 'NU ÎL AI' || status === 'LIPSĂ') return 'dangerText';
     if (status === 'DESCĂRCAT ÎNAINTE' || status === 'ALTĂ VERSIUNE' || status === 'PARE ACELAȘI' || status === 'POSIBIL DUPLICAT') return 'guardAmber';
     if (status === 'NU S-A PUTUT VERIFICA' || status === 'INDISPONIBIL' || status === 'LIMITĂ / COTĂ' || status === 'EROARE') return 'dangerText';
     return '';
@@ -266,7 +269,7 @@
       document.getElementById('guardDecisionList').insertAdjacentHTML('beforeend', `<div class="muted small">…și încă ${decisions.length - visible.length} rezultate.</div>`);
     }
     const reviewButton = document.getElementById('guardReviewOverride');
-    reviewButton.classList.toggle('hidden', !(counts.REVIEW > 0));
+    reviewButton.classList.add('hidden');
     document.getElementById('guardOpenQueue').classList.toggle('hidden', !(added > 0));
     document.getElementById('guardModal').classList.remove('hidden');
   }
@@ -279,26 +282,7 @@
   };
 
   window.downloadReviewOverride = async function () {
-    const ids = (lastReport?.decisions || []).filter(x => x.verdict === 'REVIEW').map(x => x.resultId);
-    if (!ids.length || !lastRequest) return;
-    if (!confirm(`Aceste ${ids.length} fișiere NU sunt confirmate ca lipsă. Le descarci totuși? Duplicatele certe și cele deja descărcate rămân blocate.`)) return;
-    const button = document.getElementById('guardReviewOverride');
-    button.disabled = true;
-    button.textContent = 'Se reverifică…';
-    try {
-      const request = { ...lastRequest, ids, allowReview: true };
-      const data = await api('/api/queue/add', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
-      });
-      await loadResults();
-      showGuardReport(data.guard, request, data.added);
-      toast(`${data.added || 0} fișiere neconfirmate adăugate explicit`);
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Descarcă oricum cele de verificat';
-    }
+    toast('Fișierele DE VERIFICAT sunt blocate. Numai verdictul final LIPSĂ poate porni un download.');
   };
 
   function installFunctionOverrides() {
@@ -306,12 +290,12 @@
       const originalLabel = label;
       label = function (status) {
         return ({
-          VERIFIED: 'AI DEJA',
-          SAMPLED: 'PARE ACELAȘI',
-          HAVE: 'AI DEJA',
-          POSSIBLE: 'POSIBIL DUPLICAT',
+          VERIFIED: 'IDENTIC / PE PC',
+          SAMPLED: 'DE VERIFICAT',
+          HAVE: 'DE VERIFICAT',
+          POSSIBLE: 'DE VERIFICAT',
           DIFFERENT: 'DIFERIT',
-          MISSING: 'NU ÎL AI'
+          MISSING: 'LIPSĂ'
         })[status] || originalLabel(status);
       };
     }

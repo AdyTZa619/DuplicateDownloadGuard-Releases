@@ -337,7 +337,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 	cacheChanged := false
 	if indexed, ok := ctx.Value(detectorCandidateKeyV90{}).(*detectorCandidatesV90); ok {
 		var pending int
-		entries, pending = indexed.imagePool(remoteSig, existing)
+		entries, pending = indexed.imagePool(a, remoteSig, existing)
 		result.Pending = pending
 	} else {
 		cacheChanged = pruneLocalImageSignatureCacheV85(a, entries)

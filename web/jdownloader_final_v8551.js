@@ -1,8 +1,8 @@
 // Final JDownloader router for TEST builds.
 // IMPORTANT: this file is injected directly into the compiled UI by build-test.yml,
 // so it must not contain a second/legacy preflight implementation. The actual JD
-// flow lives in jdownloader_batch_confirm_v8564.js: current results first, explicit
-// confirmation, optional full HDD recheck, one FlashGot request / one package.
+// flow is completed by the DDG backend. The browser never posts unchecked
+// current rows directly to JDownloader.
 (() => {
   'use strict';
 
@@ -43,28 +43,28 @@
     }
   }
 
-  async function ensureBatchModule() {
-    if (window.ddgJDownloaderBatchConfirmV8564?.sendBatchAware) {
-      return window.ddgJDownloaderBatchConfirmV8564;
-    }
+  function selectedIDs() {
+    return typeof window.idsForAction === 'function'
+      ? window.idsForAction().map(Number).filter(Number.isFinite)
+      : [];
+  }
 
-    let script = document.getElementById('ddgJDownloaderBatchConfirmV8564Script');
-    if (!script) {
-      script = document.createElement('script');
-      script.id = 'ddgJDownloaderBatchConfirmV8564Script';
-      script.src = '/jdownloader_batch_confirm_v8564.js';
-      script.async = false;
-      document.head.appendChild(script);
+  async function guardedBackendHandoff() {
+    const ids = selectedIDs();
+    if (!ids.length) throw new Error('Selectează fișiere');
+    const destination = String(document.getElementById('downloadDir')?.value || window.cfg?.downloadDir || '').trim();
+    const guardMode = document.getElementById('downloadGuardMode')?.value || window.cfg?.downloadGuardMode || 'smart';
+    const result = await window.api('/api/download/jdownloader-direct', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ids, destination, guardMode})
+    });
+    await window.loadResults?.();
+    if (result.guard && window.ddgShowGuardReportV8545) {
+      window.ddgShowGuardReportV8545(result.guard, {ids, destination, guardMode}, result.externalAdded || 0);
     }
-
-    const started = Date.now();
-    while (Date.now() - started < 4000) {
-      if (window.ddgJDownloaderBatchConfirmV8564?.sendBatchAware) {
-        return window.ddgJDownloaderBatchConfirmV8564;
-      }
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    throw new Error('Modulul de confirmare JDownloader nu s-a încărcat. Repornește DDG și încearcă din nou.');
+    window.toast?.(result.message || `JDownloader: ${result.externalAdded || 0} fișier(e) confirmate LIPSĂ`);
+    return result;
   }
 
   async function sendExclusiveToJDownloader() {
@@ -76,10 +76,7 @@
       button.textContent = '⏳ Pregătesc confirmarea JDownloader…';
     }
     try {
-      const batch = await ensureBatchModule();
-      // No /api/download/preflight here. The batch module uses current DDG
-      // results and offers an explicit full HDD recheck only if the user asks.
-      await batch.sendBatchAware();
+      await guardedBackendHandoff();
     } catch (error) {
       window.toast?.(error?.message || String(error));
     } finally {
@@ -133,7 +130,7 @@
 
   window.ddgJDownloaderFinalV8551 = {
     sendExclusiveToJDownloader,
-    ensureBatchModule,
+    guardedBackendHandoff,
     install
   };
 })();

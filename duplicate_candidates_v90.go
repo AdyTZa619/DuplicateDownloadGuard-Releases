@@ -82,7 +82,11 @@ func (a *App) videoCandidatesV90(ctx context.Context, fp videoFingerprintV85, re
 	for _, row := range x.Videos[lo:hi] {
 		pool = append(pool, row.Entry)
 	}
-	search := a.videoDurationCandidatesCached(context.WithValue(ctx, detectorCandidateViewV90{}, true), fp.Info, remote, pool, nil, 64)
+	// Return every duration-compatible cached row. Disk probing remains bounded
+	// inside videoDurationCandidatesCached, while later passes advance through
+	// the uncached tail. A fixed 64-row result window could otherwise starve a
+	// completely renamed duplicate forever.
+	search := a.videoDurationCandidatesCached(context.WithValue(ctx, detectorCandidateViewV90{}, true), fp.Info, remote, pool, nil, len(pool)+1)
 	votes := map[string]int{}
 	byPath := map[string]FileEntry{}
 	// Multi-probe 8-bit bands retain pHashes with up to 15 differing bits without
@@ -136,11 +140,7 @@ func (a *App) videoCandidatesV90(ctx context.Context, fp videoFingerprintV85, re
 	}
 	scored := []ranked{}
 	uncached := []FileEntry{}
-	for i, e := range all {
-		if i >= 512 {
-			search.Pending += len(all) - i
-			break
-		}
+	for _, e := range all {
 		if local, ok := cachedLocalVideoFingerprintV85(a, e); ok && richVideoFingerprintUsableV90(local) {
 			score, _, _, _ := scoreRichFrameSetV90(fp, local)
 			scored = append(scored, ranked{e, score})
@@ -151,10 +151,11 @@ func (a *App) videoCandidatesV90(ctx context.Context, fp videoFingerprintV85, re
 	sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
 	search.Candidates = nil
 	for _, row := range scored {
-		if len(search.Candidates) < 8 {
+		// Cached comparisons do not consume decoder or HDD I/O. Retain every
+		// measured similarity that can affect the final verdict and enough of
+		// the low scores to preserve a runner-up ambiguity check.
+		if len(search.Candidates) < 8 || row.score >= 60 {
 			search.Candidates = append(search.Candidates, row.e)
-		} else if row.score >= 85 {
-			search.Pending++
 		}
 	}
 	for i, e := range uncached {

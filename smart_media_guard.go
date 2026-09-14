@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	userHaveExact    = "AI DEJA"
+	userHaveExact    = "IDENTIC / PE PC"
 	userSameContent  = "ACELAȘI CONȚINUT"
 	userOtherVersion = "ALTĂ VERSIUNE"
 	userLooksSame    = "PARE ACELAȘI"
 	userPossible     = "POSIBIL DUPLICAT"
-	userMissing      = "NU ÎL AI"
+	userMissing      = "LIPSĂ"
 	userDownloaded   = "DESCĂRCAT DEJA"
 	userUnverified   = "NU S-A PUTUT VERIFICA"
 	userUnavailable  = "INDISPONIBIL"
@@ -37,6 +37,12 @@ const (
 var v85FramePoints = []float64{.08, .20, .35, .50, .65, .80, .92}
 
 func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
+	// These are final positive duplicate classifications, not advisory reviews.
+	// Keep the transport verdict aligned with the mandatory user-facing action so
+	// no downstream queue can interpret "ACELAȘI CONȚINUT" as downloadable.
+	if d.Method == "media-same-content" || d.Method == "media-version" {
+		d.Verdict = guardDuplicate
+	}
 	d = decorateDetectorEvidenceV90(d)
 	if d.UserStatus != "" {
 		return d
@@ -61,14 +67,8 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 		d.UserStatus = userSameContent
 		d.Action = actionDontDownload
 	case "media-version":
-		d.UserStatus = userOtherVersion
-		if d.QualityHint == "remote" {
-			d.Action = actionRemoteBetter
-		} else if d.QualityHint == "local" {
-			d.Action = actionLocalBetter
-		} else {
-			d.Action = actionReview
-		}
+		d.UserStatus = userSameContent
+		d.Action = actionDontDownload
 	case "media-looks-same", "deterministic-samples":
 		d.UserStatus = userLooksSame
 		d.Action = actionReview
@@ -526,6 +526,10 @@ func (a *App) scoreImageCandidatesV85(ctx context.Context, target string, remote
 	if err != nil {
 		return -1, "", "", 0, err
 	}
+	return a.scoreImageSignatureCandidatesV90(ctx, remoteSig, remote, entries, candidates)
+}
+
+func (a *App) scoreImageSignatureCandidatesV90(ctx context.Context, remoteSig imageSignatureV85, remote RemoteItem, entries, candidates []FileEntry) (int, string, string, int, error) {
 	search := a.imageCandidatesCachedV85(ctx, remoteSig, remote, entries, candidates, 7)
 	if m := detectorMetricsFromV90(ctx); m != nil {
 		m.LocalHits.Add(int64(search.Cached))
@@ -608,14 +612,31 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 	deepAnalyzed, localCacheHits := 0, 0
 
 	if kind == "image" {
-		bestScore, bestPath, bestNote, pending, err = a.scoreImageCandidatesV85(ctx, target, res.Remote, entries, candidates)
+		a.mu.RLock()
+		imageMB := a.cfg.VisualImageMaxMB
+		a.mu.RUnlock()
+		if imageMB <= 0 {
+			imageMB = 25
+		}
+		remoteSig, signatureErr := remoteImageSignatureV85(ctx, target, int64(imageMB)<<20)
+		if signatureErr != nil {
+			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+signatureErr.Error(), localCount, res.LocalPath)
+		}
+		previousPending := int(^uint(0) >> 1)
+		for {
+			bestScore, bestPath, bestNote, pending, err = a.scoreImageSignatureCandidatesV90(ctx, remoteSig, res.Remote, entries, candidates)
+			if err != nil || pending == 0 || ctx.Err() != nil || pending >= previousPending {
+				break
+			}
+			previousPending = pending
+		}
 		if err != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+err.Error(), localCount, res.LocalPath)
 		}
 		// Image-only collections must also keep filling the local cache after the
 		// foreground guard releases its lock; the warm worker is coalesced/bounded.
 		scheduleMediaCacheWarmV85(a, entries)
-		if bestScore < 94 && pending > 0 {
+		if pending > 0 {
 			return incompleteMediaDecisionV90(res, bestScore, pending, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
 		}
 	} else {
@@ -633,13 +654,21 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul video remote nu a putut fi calculat sigur: "+fpErr.Error(), localCount, res.LocalPath)
 		}
 		remoteVideoInfo = remoteFP.Info
-		search := a.videoCandidatesV90(ctx, remoteFP, res.Remote, entries)
-		candidates, pending = search.Candidates, search.Pending
-		analysis := a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
-		deepAnalyzed, localCacheHits = analysis.Analyzed, analysis.CacheHits
-		bestScore, secondScore = analysis.BestScore, analysis.SecondScore
-		bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
-		if bestScore < 85 && pending > 0 {
+		previousPending := int(^uint(0) >> 1)
+		for {
+			search := a.videoCandidatesV90(ctx, remoteFP, res.Remote, entries)
+			candidates, pending = search.Candidates, search.Pending
+			analysis := a.scoreVideoCandidatesDetailedV85(ctx, remoteFP, candidates)
+			deepAnalyzed += analysis.Analyzed
+			localCacheHits += analysis.CacheHits
+			bestScore, secondScore = analysis.BestScore, analysis.SecondScore
+			bestPath, bestNote, bestQuality, localVideoInfo = analysis.BestPath, analysis.BestNote, analysis.BestQuality, analysis.BestInfo
+			if pending == 0 || ctx.Err() != nil || pending >= previousPending {
+				break
+			}
+			previousPending = pending
+		}
+		if pending > 0 {
 			return incompleteMediaDecisionV90(res, bestScore, pending, "media-index-incomplete", fmt.Sprintf("Necesită verificare suplimentară: %d candidați locali încă neanalizați. Datele deja calculate sunt păstrate pentru următoarea verificare.", pending), len(candidates), bestPath)
 		}
 	}
@@ -662,6 +691,26 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		}
 	}
 	if kind == "video" {
+		refined := a.refineVideoEvidenceV901(ctx, target, bestPath, remoteVideoInfo, localVideoInfo, bestScore)
+		if refined.Total > 7 {
+			// Relative deep points can be shifted by an added intro/outro. The
+			// seven-frame stage already performs explicit temporal alignment, so a
+			// deep relative pass may refine same-duration matches but cannot erase
+			// a stronger aligned result when durations differ materially.
+			if math.Abs(remoteVideoInfo.Duration-localVideoInfo.Duration) < 1.5 || refined.Score > bestScore {
+				bestScore = refined.Score
+			}
+			bestNote += " • " + refined.Note
+		}
+		d.Similarity = bestScore
+		videoScore := bestScore
+		d.Detector.VideoScore = &videoScore
+		if refined.Matched == 0 {
+			_, _ = fmt.Sscanf(bestNote, "%d/7", &refined.Matched)
+		}
+		d.Detector.FramesMatched = refined.Matched
+		d.Detector.FramesTotal = refined.Total
+		d.Detector.DurationDelta = math.Abs(remoteVideoInfo.Duration - localVideoInfo.Duration)
 		d.Detector.Remote, d.Detector.Local = &remoteVideoInfo, &localVideoInfo
 		d.Detector.Quality, d.Detector.Signals = mediaTechnicalEvidenceV90(remoteVideoInfo, localVideoInfo)
 		d.Detector.Signals = append(d.Detector.Signals, bestNote, "Scor cadre: 20% dHash + 30% pHash DCT + 50% corelație structurală; media cadrelor în ordine temporală, cu limite pentru dovezi insuficiente.")
@@ -670,9 +719,11 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 
 	switch {
 	case bestScore >= 98:
+		d.Verdict = guardDuplicate
 		d.Method = "media-same-content"
 		d.Reason = fmt.Sprintf("Aceeași imagine este indicată foarte puternic de fingerprint-ul media: %d%% (%s). Fișierul poate fi redimensionat sau recomprimat.%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 94:
+		d.Verdict = guardDuplicate
 		d.Method = "media-version"
 		d.Reason = fmt.Sprintf("Pare o altă versiune a aceleiași imagini: %d%% similaritate (%s).%s", bestScore, bestNote, mediaQualityReason(bestQuality))
 	case bestScore >= 89:

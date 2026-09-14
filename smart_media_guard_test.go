@@ -12,8 +12,8 @@ func TestDecorateGuardDecisionUsesIntuitiveLabels(t *testing.T) {
 		{DownloadGuardDecision{Verdict: guardDownload}, userMissing, actionDownload},
 		{DownloadGuardDecision{Verdict: guardDuplicate, Method: "download-history"}, userDownloaded, actionDontDownload},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-same-content"}, userSameContent, actionDontDownload},
-		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "remote"}, userOtherVersion, actionRemoteBetter},
-		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "local"}, userOtherVersion, actionLocalBetter},
+		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "remote"}, userSameContent, actionDontDownload},
+		{DownloadGuardDecision{Verdict: guardReview, Method: "media-version", QualityHint: "local"}, userSameContent, actionDontDownload},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-looks-same"}, userLooksSame, actionReview},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "metadata-incomplete"}, userUnverified, actionRetry},
 		{DownloadGuardDecision{Verdict: guardReview, Method: "media-index-incomplete"}, userUnverified, actionRetry},
@@ -24,6 +24,9 @@ func TestDecorateGuardDecisionUsesIntuitiveLabels(t *testing.T) {
 		got := decorateGuardDecision(tc.in)
 		if got.UserStatus != tc.status || got.Action != tc.action {
 			t.Fatalf("decorate(%#v) => status=%q action=%q, want %q / %q", tc.in, got.UserStatus, got.Action, tc.status, tc.action)
+		}
+		if (tc.in.Method == "media-same-content" || tc.in.Method == "media-version") && got.Verdict != guardDuplicate {
+			t.Fatalf("final same-content method retained non-blocking verdict: %#v", got)
 		}
 	}
 }

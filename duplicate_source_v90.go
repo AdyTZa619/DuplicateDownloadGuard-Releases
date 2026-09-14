@@ -147,11 +147,9 @@ func (a *App) startDuplicateScanV90(generation uint64, rows []Result) {
 				ready = !a.opRunning.Load() && megaQueueMu.TryLock()
 				megaLocked = ready
 			}
-			rowCtx, rowCancel := context.WithTimeout(ctx, 90*time.Second)
 			metrics := &detectorMetricsV90{}
-			rowCtx = context.WithValue(rowCtx, detectorMetricsKeyV90{}, metrics)
+			rowCtx := context.WithValue(ctx, detectorMetricsKeyV90{}, metrics)
 			d := a.evaluateDownloadGuard(rowCtx, row, entries, bySize, guardModeSmart, ready)
-			rowCancel()
 			// Keep the existing preview session warm; only release our queue lease.
 			if megaLocked {
 				megaQueueMu.Unlock()

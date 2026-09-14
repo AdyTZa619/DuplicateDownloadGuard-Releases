@@ -90,11 +90,11 @@ func TestDuplicateCorpusV90(t *testing.T) {
 			passed := false
 			switch tc.Expected {
 			case "exact":
-				passed = d.Exact && d.LocalPath == local
+				passed = d.Exact && d.Verdict == guardDuplicate && d.LocalPath == local && d.Detector != nil && d.Detector.Classification == "IDENTIC"
 			case "related":
-				passed = !d.Exact && d.LocalPath == local && d.Similarity >= 85
+				passed = !d.Exact && d.Verdict == guardDuplicate && d.LocalPath == local && d.Similarity >= 85 && d.Detector != nil && d.Detector.Classification == "ACELAȘI CONȚINUT"
 			case "different":
-				passed = !d.Exact && d.Verdict != guardDuplicate && d.Similarity < 85
+				passed = !d.Exact && d.Verdict == guardDownload && d.Similarity < 85 && d.Detector != nil && d.Detector.Classification == "LIPSĂ"
 			}
 			row := map[string]any{"case": tc.Label, "expected": tc.Expected, "passed": passed,
 				"indexMS": indexMS, "coldMS": coldMS, "warmMS": warmMS, "coldBytes": coldBytes,

@@ -1353,7 +1353,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	wanted := map[int]bool{}
 	for _, decision := range report.Decisions {
-		if decision.Verdict == guardDownload || (decision.Verdict == guardReview && req.AllowReview) {
+		if decision.Verdict == guardDownload {
 			wanted[decision.ResultID] = true
 		}
 	}
@@ -1404,7 +1404,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 			if cancel := q.Cancels[job.ID]; cancel != nil {
 				cancel()
 			}
-		} else if decision.Verdict == guardReview && !req.AllowReview {
+		} else if decision.Verdict == guardReview {
 			job.Status = "paused"
 			job.Error = "ExactGuard REVIEW: " + decision.Reason
 			job.GuardVerdict, job.GuardMethod, job.GuardReason = decision.Verdict, decision.Method, decision.Reason
@@ -1432,7 +1432,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		jid := fmt.Sprintf("%d-%d", time.Now().UnixNano(), n)
 		decision := decisions[res.ID]
 		now := time.Now().Unix()
-		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Remote: res.Remote, RequestedEngine: requestedEngine, Destination: dest, Engine: engineByID[res.ID], Status: "queued", Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries, GuardMode: report.Mode, GuardVerdict: decision.Verdict, GuardReason: decision.Reason, GuardMethod: decision.Method, GuardVersion: downloadGuardVersion, GuardAt: now, GuardOverride: decision.Verdict == guardReview && req.AllowReview, AddedAt: now, UpdatedAt: now})
+		q.Jobs = append(q.Jobs, &DownloadJob{ID: jid, ResultID: res.ID, Name: res.Remote.Name, Source: res.Remote.Source, URL: resultDownloadURL(res), Remote: res.Remote, RequestedEngine: requestedEngine, Destination: dest, Engine: engineByID[res.ID], Status: "queued", Priority: 0, BytesTotal: res.Remote.Size, MaxRetries: retries, GuardMode: report.Mode, GuardVerdict: decision.Verdict, GuardReason: decision.Reason, GuardMethod: decision.Method, GuardVersion: downloadGuardVersion, GuardAt: now, GuardOverride: false, AddedAt: now, UpdatedAt: now})
 		added++
 	}
 	q.mu.Unlock()
@@ -1444,7 +1444,7 @@ func (a *App) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	if len(rejected) > 0 {
 		message += fmt.Sprintf(" • %d nu au pornit (configurație/sursă)", len(rejected))
 	}
-	jsonOut(w, map[string]any{"ok": true, "added": added, "rejected": rejected, "destination": dest, "guard": report, "reviewOverride": req.AllowReview, "message": message})
+	jsonOut(w, map[string]any{"ok": true, "added": added, "rejected": rejected, "destination": dest, "guard": report, "reviewOverride": false, "message": message})
 }
 func queueSummary(rows []DownloadJob) map[string]any {
 	m := map[string]int{"queued": 0, "running": 0, "paused": 0, "completed": 0, "failed": 0, "cancelled": 0, "blocked": 0}

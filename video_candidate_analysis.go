@@ -85,6 +85,13 @@ func resolveVideoEvidenceV85(visualScore, secondScore int, remoteInfo, localInfo
 	if visualScore < 98 {
 		if audio.Available {
 			extra = " • " + audio.Note
+			// A temporally aligned visual match can be capped at 93 when a short
+			// intro/outro/trim changes duration. Matching audio is the required
+			// independent signal that promotes this from review to another version
+			// of the same content.
+			if visualScore >= 93 && audio.Score >= 82 {
+				return "media-version", extra
+			}
 		}
 		return method, extra
 	}

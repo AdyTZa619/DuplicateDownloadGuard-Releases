@@ -19,28 +19,27 @@ type DuplicateEvidenceV90 struct {
 	DeepAnalyzed   int        `json:"deepAnalyzed"`
 	LocalCacheHits int        `json:"localCacheHits"`
 	Pending        int        `json:"pending"`
+	VideoScore     *int       `json:"videoScore,omitempty"`
+	AudioScore     *int       `json:"audioScore,omitempty"`
+	FramesMatched  int        `json:"framesMatched,omitempty"`
+	FramesTotal    int        `json:"framesTotal,omitempty"`
+	DurationDelta  float64    `json:"durationDeltaSeconds,omitempty"`
 }
 
 func detectorClassificationV90(d DownloadGuardDecision) string {
 	if d.Exact {
-		return "EXACT"
+		return "IDENTIC"
 	}
 	if d.Detector != nil && d.Detector.Pending > 0 && (d.Method == "media-index-incomplete" || d.Method == "image-index-incomplete") {
-		return "NECUNOSCUT / DATE INSUFICIENTE"
+		return "DE VERIFICAT"
 	}
-	if d.Similarity >= 95 {
-		return "FOARTE PROBABIL ACELAȘI CONȚINUT"
-	}
-	if d.Similarity >= 85 {
-		return "PROBABIL"
-	}
-	if d.Similarity >= 60 {
-		return "SIMILAR"
+	if d.Method == "media-same-content" || d.Method == "media-version" {
+		return "ACELAȘI CONȚINUT"
 	}
 	if d.Verdict == guardDownload {
-		return "DIFERIT"
+		return "LIPSĂ"
 	}
-	return "NECUNOSCUT / DATE INSUFICIENTE"
+	return "DE VERIFICAT"
 }
 
 func decorateDetectorEvidenceV90(d DownloadGuardDecision) DownloadGuardDecision {
@@ -56,7 +55,7 @@ func decorateDetectorEvidenceV90(d DownloadGuardDecision) DownloadGuardDecision 
 	} else if d.Similarity > 0 {
 		score := min(99, d.Similarity)
 		e.Score = &score
-		e.Basis = "Scor de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte."
+		e.Basis = "Scor intern de similaritate măsurat, nu probabilitate statistică; 100 este rezervat identității exacte."
 	} else {
 		e.Score = nil
 		e.Basis = "Nu există suficiente semnale pentru un scor de similaritate."

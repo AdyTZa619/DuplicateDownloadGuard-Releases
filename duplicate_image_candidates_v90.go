@@ -2,7 +2,7 @@ package main
 
 import "sort"
 
-func (x *detectorCandidatesV90) imagePool(sig imageSignatureV85, existing []FileEntry) ([]FileEntry, int) {
+func (x *detectorCandidatesV90) imagePool(a *App, sig imageSignatureV85, existing []FileEntry) ([]FileEntry, int) {
 	byPath := map[string]FileEntry{}
 	votes := map[string]int{}
 	for _, e := range existing {
@@ -28,6 +28,17 @@ func (x *detectorCandidatesV90) imagePool(sig imageSignatureV85, existing []File
 			}
 		}
 	}
+	// Entries that were uncached when the per-source index was built may have
+	// gained a signature during an earlier progressive pass. Compare them from
+	// memory now so the next uncached batch advances instead of repeating the
+	// same first 64 files.
+	for _, e := range x.UnknownImages {
+		if local, ok := cachedLocalImageSignatureV85(a, e); ok {
+			key := pathKey(e.Path)
+			byPath[key] = e
+			votes[key] += max(1, imageSignatureSimilarityV85(sig, local)/10)
+		}
+	}
 	out := make([]FileEntry, 0, len(byPath))
 	for _, e := range byPath {
 		out = append(out, e)
@@ -40,17 +51,18 @@ func (x *detectorCandidatesV90) imagePool(sig imageSignatureV85, existing []File
 		return out[i].Path < out[j].Path
 	})
 	pending := 0
-	if len(out) > 512 {
-		pending += len(out) - 512
-		out = out[:512]
-	}
-	for i, e := range x.UnknownImages {
-		if i >= 64 {
-			pending += len(x.UnknownImages) - i
-			break
+	uncachedAdded := 0
+	for _, e := range x.UnknownImages {
+		if _, ok := cachedLocalImageSignatureV85(a, e); ok || cachedLocalImageFailureV85(a, e) {
+			continue
+		}
+		if uncachedAdded >= 64 {
+			pending++
+			continue
 		}
 		if !hasEntryPath(out, e.Path) {
 			out = append(out, e)
+			uncachedAdded++
 		}
 	}
 	return out, pending
