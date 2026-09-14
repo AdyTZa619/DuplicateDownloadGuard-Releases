@@ -30,10 +30,13 @@ jobs:
           $required = @(
             'CineCalendar\launcher.py',
             'CineCalendar\cinecalendar\recommendation.py',
+            'CineCalendar\cinecalendar\recommender_v3.py',
+            'CineCalendar\cinecalendar\autoseed.py',
             'CineCalendar\cinecalendar\qt_ui_v2.py',
             'CineCalendar\cinecalendar\premium_ui.py',
             'CineCalendar\cinecalendar\open_metadata.py',
             'CineCalendar\cinecalendar\updater.py',
+            'CineCalendar\scripts\benchmark_engine_v3.py',
             'CineCalendar\UPDATE_NOTES.txt'
           )
           foreach ($p in $required) { if (!(Test-Path $p)) { throw "Missing Premium source: $p" } }
@@ -47,6 +50,12 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m pytest -q
+
+      - name: Benchmark 260k catalog engine
+        working-directory: CineCalendar
+        env:
+          PYTHONPATH: .
+        run: python scripts/benchmark_engine_v3.py
 
       - name: Build fast portable folder
         working-directory: CineCalendar
