@@ -33,8 +33,10 @@ def scene(seed, name):
               for _ in range(32)]
     cmd = [ff, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo",
            "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
+           "-f", "lavfi", "-i", "sine=frequency=523:sample_rate=44100:duration=12",
            "-vf", "scale=1920:1080:flags=bicubic", "-c:v", "libx264", "-preset", "veryfast",
            "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "2", "-movflags", "+faststart",
+           "-c:a", "aac", "-b:a", "96k", "-shortest",
            "-metadata", "comment=DDG deterministic validation source", str(out / name)]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for frame in range(12 * fps):
@@ -61,13 +63,16 @@ transforms = [
     ("720p.mp4", ["-vf", "scale=1280:720", "-c:v", "libx264", "-crf", "25"]),
     ("bitrate.mp4", ["-c:v", "libx264", "-crf", "38"]),
     ("metadata.mp4", ["-map_metadata", "-1", "-c", "copy"]),
-    ("trim.mp4", ["-ss", "2", "-c:v", "libx264", "-crf", "23"]),
     ("watermark.mp4", ["-vf", "drawbox=x=iw-180:y=20:w=160:h=55:color=white@0.65:t=fill", "-c:v", "libx264"]),
     ("crop.mp4", ["-vf", "crop=1824:1026,scale=1920:1080", "-c:v", "libx264"]),
     ("brightness.mp4", ["-vf", "eq=brightness=0.05:contrast=1.07", "-c:v", "libx264"]),
+    ("fps.mp4", ["-vf", "fps=30000/1001", "-c:v", "libx264"]),
+    ("intro.mp4", ["-vf", "tpad=start_duration=2:start_mode=add:color=black", "-af", "adelay=2000:all=1", "-c:v", "libx264", "-c:a", "aac"]),
+    ("outro.mp4", ["-vf", "tpad=stop_duration=2:stop_mode=clone", "-af", "apad=pad_dur=2", "-t", "14", "-c:v", "libx264", "-c:a", "aac"]),
 ]
 for name, args in transforms:
     run(["-i", str(out / "source.mp4"), *args], name)
+run(["-ss", "2", "-i", str(out / "source.mp4"), "-t", "10", "-c:v", "libx264", "-crf", "23", "-c:a", "aac"], "trim.mp4")
 run(["-ss", "5", "-i", str(out / "source.mp4"), "-frames:v", "1"], "source.png")
 for name, args in [("recompressed.jpg", ["-q:v", "12"]),
                    ("resized.png", ["-vf", "scale=640:360"]),
@@ -88,7 +93,8 @@ case("C moved", "source.mp4", "exact", local_name="moved/renamed.mp4")
 for label, f in [("D remux", "remux.mkv"), ("E H264-H265", "hevc.mp4"),
                  ("F 1080-720", "720p.mp4"), ("G bitrate", "bitrate.mp4"),
                  ("H metadata", "metadata.mp4"), ("I trim-2s", "trim.mp4"),
-                 ("J watermark", "watermark.mp4")]:
+                 ("J watermark", "watermark.mp4"), ("T FPS", "fps.mp4"),
+                 ("U intro", "intro.mp4"), ("V outro", "outro.mp4")]:
     case(label, f, "related", remote_name="unrelated_name" + Path(f).suffix)
 case("K similar but different", "similar_but_different.mp4", "different")
 case("L JPEG recompression", "recompressed.jpg", "related", local="source.png")

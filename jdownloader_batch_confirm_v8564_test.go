@@ -36,23 +36,23 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	}
 }
 
-func TestJDFinalRouterUsesBatchWithoutLegacyPreflightV8565(t *testing.T) {
+func TestJDFinalRouterUsesBackendGuardBeforeHandoffV901(t *testing.T) {
 	b, err := os.ReadFile("web/jdownloader_final_v8551.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
 	for _, want := range []string{
-		"ddgJDownloaderBatchConfirmV8564",
-		"batch.sendBatchAware()",
+		"/api/download/jdownloader-direct",
+		"guardedBackendHandoff",
 		"event.stopImmediatePropagation()",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("final JD router missing %q", want)
 		}
 	}
-	if strings.Contains(s, "window.api('/api/download/preflight'") {
-		t.Fatal("final JD router must not run the full HDD preflight")
+	if strings.Contains(s, "batch.sendBatchAware()") || strings.Contains(s, "127.0.0.1:9666") {
+		t.Fatal("final JD router bypasses the backend guard")
 	}
 }
 

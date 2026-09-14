@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const jdownloaderDirectBaseV8550 = "http://127.0.0.1:9666"
+var jdownloaderDirectBaseV8550 = "http://127.0.0.1:9666"
 
 // handleQueueAddRoutedV8550 is a fail-safe in front of the normal DDG queue.
 // If the UI selected JDownloader, the request can never fall through to the
@@ -60,7 +60,9 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 		IDs         []int  `json:"ids"`
 		Destination string `json:"destination"`
 		GuardMode   string `json:"guardMode"`
-		AllowReview bool   `json:"allowReview"`
+		// allowReview is intentionally ignored. Only a final DOWNLOAD/LIPSĂ
+		// decision may cross the DDG -> JDownloader boundary.
+		AllowReview bool `json:"allowReview"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

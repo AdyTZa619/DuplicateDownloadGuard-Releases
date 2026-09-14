@@ -31,7 +31,7 @@ func TestPrimaryComparisonPublishesCryptographicEvidenceV90(t *testing.T) {
 	a, _, local := sourceDetectorFixtureV90(t, data)
 	a.compareRemote(context.Background(), []RemoteItem{{Name: "renamed.bin", Source: "HTTP", Size: int64(len(data)), HashType: "sha256", Hash: fmt.Sprintf("%x", sha256.Sum256(data))}}, "balanced")
 	row, ok := a.resultByID(1)
-	if !ok || row.LocalPath != local || row.Detector == nil || row.Detector.Classification != "EXACT" || row.Detector.Score == nil || *row.Detector.Score != 100 {
+	if !ok || row.LocalPath != local || row.Detector == nil || row.Detector.Classification != "IDENTIC" || row.Detector.Score == nil || *row.Detector.Score != 100 {
 		t.Fatalf("primary comparison did not publish detector evidence: %#v", row)
 	}
 }
@@ -78,7 +78,7 @@ func TestSourceHTTPAutomaticallyChecksContentV90(t *testing.T) {
 	server := contentServer(data)
 	defer server.Close()
 	row := sourceScanHTTPV90(t, a, server.URL+"/renamed.bin")
-	if row.Detector.Classification != "EXACT" || row.LocalPath != local || row.Status != "VERIFIED" {
+	if row.Detector.Classification != "IDENTIC" || row.LocalPath != local || row.Status != "VERIFIED" {
 		t.Fatalf("source integration: %#v", row)
 	}
 }
@@ -165,16 +165,62 @@ func TestSourceCorpusV90(t *testing.T) {
 			pass := false
 			switch tc.Expected {
 			case "exact":
-				pass = e.Classification == "EXACT" && row.LocalPath == local
+				pass = e.Classification == "IDENTIC" && row.LocalPath == local
 			case "related":
-				pass = e.Classification != "EXACT" && score >= 85 && row.LocalPath == local
+				pass = e.Classification == "ACELAȘI CONȚINUT" && score >= 85 && row.LocalPath == local
 			case "different":
-				pass = e.Classification != "EXACT" && score < 85
+				pass = e.Classification == "LIPSĂ" && score < 85
 			}
 			if !pass {
 				t.Fatalf("%s: class=%s score=%d path=%s reason=%s", tc.Expected, e.Classification, score, row.LocalPath, row.Reason)
 			}
 			t.Logf("%s: %s score=%d", tc.Expected, e.Classification, score)
 		})
+	}
+}
+
+func TestSourceVideoFindsWinnerOutsideInitialShortlistV901(t *testing.T) {
+	root := os.Getenv("DDG_MEDIA_CORPUS")
+	if root == "" {
+		t.Skip("set DDG_MEDIA_CORPUS")
+	}
+	collection := t.TempDir()
+	decoy, err := os.ReadFile(filepath.Join(root, "different.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		name := filepath.Join(collection, fmt.Sprintf("unrelated_name_candidate_%02d.mp4", i))
+		if err = os.WriteFile(name, decoy, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	winner := filepath.Join(collection, "far-away-folder", "completely-different-local-name.mp4")
+	if err = os.MkdirAll(filepath.Dir(winner), 0700); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(root, "source.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(winner, source, 0600); err != nil {
+		t.Fatal(err)
+	}
+	remotePath := filepath.Join(root, "hevc.mp4")
+	st, err := os.Stat(remotePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.FileServer(http.Dir(root)))
+	defer server.Close()
+	a := guardTestApp(t, collection, t.TempDir(), RemoteItem{})
+	a.runIndex(context.Background(), []string{collection}, "", 0)
+	mux := http.NewServeMux()
+	a.registerDuplicateRoutesV90(mux)
+	a.compareRemote(context.Background(), []RemoteItem{{Name: "remote-name.mp4", Size: st.Size(), Source: "BUNKR", DirectURL: server.URL + "/hevc.mp4", URL: "https://bunkr.example/a/x", Handle: "x"}}, "balanced")
+	waitSourceDetectorV90(t, a)
+	row, _ := a.resultByID(1)
+	if row.LocalPath != winner || row.Detector == nil || row.Detector.Classification != "ACELAȘI CONȚINUT" {
+		t.Fatalf("winner beyond the initial 12 candidates was lost: %#v", row)
 	}
 }

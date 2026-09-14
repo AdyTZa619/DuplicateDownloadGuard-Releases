@@ -5,6 +5,12 @@
     if (!evidence) return '';
     const score = Number.isFinite(evidence.score) ? `${evidence.score}/100` : 'date insuficiente';
     const signals = (evidence.signals || []).map(value => `<li>${escape(value)}</li>`).join('');
+    const measured = [
+      Number.isFinite(evidence.videoScore) ? `Video fingerprint: ${evidence.videoScore}%` : '',
+      Number.isFinite(evidence.audioScore) ? `Audio fingerprint: ${evidence.audioScore}%` : '',
+      evidence.framesTotal ? `${evidence.framesMatched || 0}/${evidence.framesTotal} cadre compatibile` : '',
+      Number.isFinite(evidence.durationDeltaSeconds) ? `Durată Δ: ${Number(evidence.durationDeltaSeconds).toFixed(3)} sec` : ''
+    ].filter(Boolean).map(value => `<li>${escape(value)}</li>`).join('');
     let technical = '';
     if (evidence.remote && evidence.local) {
       const r = evidence.remote, l = evidence.local;
@@ -20,7 +26,7 @@
         fields.map(row => '<tr>' + row.map(value => `<td>${escape(value ?? '—')}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
     }
     return `<div class="guardReason"><b>${escape(evidence.classification)}</b> · scor ${escape(score)}<div class="muted small">${escape(evidence.basis)}</div>` +
-      `<ul>${signals}</ul>${technical}${evidence.quality ? `<div><b>${escape(evidence.quality)}</b></div>` : ''}` +
+      `<ul>${measured}${signals}</ul>${technical}${evidence.quality ? `<div><b>${escape(evidence.quality)}</b></div>` : ''}` +
       `<div class="muted small">Video citit pentru analiză: ${Number(evidence.remoteBytes || 0).toLocaleString('ro-RO')} bytes${evidence.remoteCacheHit ? ' · amprentă online din cache, validată prin antetul sursei' : ''}` +
       `${evidence.pending ? ` · ${Number(evidence.pending)} candidați rămași de verificat` : ''}</div></div>`;
   }
