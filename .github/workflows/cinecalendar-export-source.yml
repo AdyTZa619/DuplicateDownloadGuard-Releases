@@ -1,0 +1,26 @@
+name: CineCalendar Export Source
+
+on:
+  push:
+    branches: ["cinecalendar-direct-exe"]
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat source_chunks/chunk_* | tr -d '\r\n' > cinecalendar-source.b64
+          test "$(wc -c < cinecalendar-source.b64)" -eq 109728
+          base64 -d cinecalendar-source.b64 > cinecalendar-source.zip
+          test "$(stat -c%s cinecalendar-source.zip)" -eq 82294
+          echo "d6b3473adb7d609cec39cb87a9d3f03814935406e5b0881dba812fe6c4b1646a  cinecalendar-source.zip" | sha256sum -c -
+          unzip -t cinecalendar-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CineCalendar-Source-Export
+          path: cinecalendar-source.zip
+          retention-days: 3
