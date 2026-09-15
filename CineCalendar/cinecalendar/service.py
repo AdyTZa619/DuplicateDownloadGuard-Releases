@@ -5,7 +5,7 @@ from .autoseed import ensure_initial_ratings
 from .calendar_engine_v2 import RichCalendarEngine
 from .db import Database
 from .logging_setup import setup_logging
-from .recommender_v11 import FastRecommendationEngineV11
+from .recommender_v12 import FastRecommendationEngineV12
 from .util import AppPaths
 
 
@@ -17,14 +17,15 @@ class CineCalendarService:
         self._defaults()
         self.initial_ratings_state = ensure_initial_ratings(self.db, self.paths.root.parent, self.log)
         self.calendar = RichCalendarEngine()
-        self.recommender = FastRecommendationEngineV11(self.db, self.calendar)
+        self.recommender = FastRecommendationEngineV12(self.db, self.calendar)
         # Modelul colaborativ se încarcă/descarcă în fundal. Pornirea aplicației și UI-ul nu
         # așteaptă rețeaua sau încărcarea factorilor de pe disc; până e gata rămâne fallback v10.
         self.recommender.collaborative.start_background()
 
     def _defaults(self):
-        if self.db.get_setting("exclude_romance", None) is None:
-            self.db.set_setting("exclude_romance", True)
+        # Filtrul global Romance este retras. Preferințele reale vin din ratinguri/ALS, iar dacă
+        # utilizatorul are chef de un anumit gen într-o zi îl alege explicit din Home.
+        self.db.set_setting("exclude_romance", False)
         if self.db.get_setting("auto_watch_enabled", None) is None:
             self.db.set_setting("auto_watch_enabled", True)
         if self.db.get_setting("ratings_folder", None) is None:
