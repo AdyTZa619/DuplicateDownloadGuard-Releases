@@ -6,42 +6,27 @@ import (
 	"testing"
 )
 
-func TestJDownloaderFastV8567UsesOneShotCurrentFlashGotShape(t *testing.T) {
+func TestJDownloaderFastV8567DelegatesEverySendToCanonicalGuard(t *testing.T) {
 	b, err := os.ReadFile("web/jdownloader_fast_v8567.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
 	for _, want := range []string{
-		"params.set('urls', urls.join('\\n'))",
-		"params.set('descriptions', descriptions.join('\\n'))",
-		"params.set('fnames', filenames.join('\\n'))",
-		"params.set('package', packageName)",
-		"params.set('referer', referer)",
-		"form.submit()",
-		"Trimite numai lipsurile",
-		"const missing = groups.DOWNLOAD",
-		"submitRows(missing)",
-		"row?.localPresent === true",
-		"ddgJDFastFolderV85130",
+		"const guard = window.ddgJDownloaderGuardV901",
+		"const result = await guard.sendIDs(ids)",
+		"return await submitRows(unique.map(id => ({id})))",
 		"sendExactIDs",
 		"event.stopImmediatePropagation()",
 	} {
 		if !strings.Contains(s, want) {
-			t.Fatalf("missing deterministic JD behavior %q", want)
+			t.Fatalf("missing guarded JD behavior %q", want)
 		}
 	}
-	if strings.Contains(s, "params.set('description',") {
-		t.Fatal("current JD flashgot implementation reads plural descriptions")
-	}
-	if strings.Contains(s, "window.api('/api/download/preflight'") {
-		t.Fatal("fast JD flow must never run the HDD preflight")
-	}
-	if strings.Contains(s, "fetch(`${JD_BASE}/flashgot`") {
-		t.Fatal("fast JD flow must not POST once via fetch and retry via form")
-	}
-	if strings.Contains(s, "Trimite TOATE") || strings.Contains(s, "ddgJDFastAllV8567") {
-		t.Fatal("JD fast flow must not offer an all-files bypass")
+	for _, forbidden := range []string{"/flashgot", "form.submit()", "submitOneForm(", "window.api('/api/download/preflight'", "Trimite TOATE", "ddgJDFastAllV8567"} {
+		if strings.Contains(s, forbidden) {
+			t.Fatalf("fast JD flow retained bypass %q", forbidden)
+		}
 	}
 }
 
@@ -85,10 +70,13 @@ func TestJDownloaderFastV8567LoadsBehindWindowGuardAndBeforeLegacyHandlers(t *te
 		t.Fatal(err)
 	}
 	guard := string(guardBytes)
-	for _, want := range []string{"window.addEventListener('click'", "event.stopImmediatePropagation()", "ddgJDownloaderFastV8566"} {
+	for _, want := range []string{"window.addEventListener('click'", "event.stopImmediatePropagation()", "ddgJDownloaderGuardV901", "/api/download/jdownloader-direct"} {
 		if !strings.Contains(guard, want) {
 			t.Fatalf("window JD guard missing %q", want)
 		}
+	}
+	if strings.Contains(guard, "ddgJDownloaderFastV8566") {
+		t.Fatal("earliest window handler still delegates to the unsafe fast module")
 	}
 }
 

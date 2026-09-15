@@ -5,7 +5,6 @@
 (() => {
   'use strict';
 
-  const JD_BASE = 'http://127.0.0.1:9666';
   let busy = false;
   let pending = null;
 
@@ -112,30 +111,6 @@
     return 'DDG - selecție';
   }
 
-  async function checkJD() {
-    if (window.ddgDownloadActionsV8545?.checkJDownloader) {
-      return window.ddgDownloadActionsV8545.checkJDownloader();
-    }
-    return await new Promise(resolve => {
-      document.getElementById('ddgBatchJDCheck')?.remove();
-      window.jdownloader = false;
-      const s = document.createElement('script');
-      s.id = 'ddgBatchJDCheck';
-      s.src = `${JD_BASE}/jdcheck.js?_ddg=${Date.now()}`;
-      let done = false;
-      const finish = running => {
-        if (done) return;
-        done = true;
-        s.remove();
-        resolve({running: Boolean(running)});
-      };
-      s.onload = () => finish(window.jdownloader === true);
-      s.onerror = () => finish(false);
-      document.head.appendChild(s);
-      setTimeout(() => finish(window.jdownloader === true), 2200);
-    });
-  }
-
   function buildSubmission(rows) {
     const urls = [];
     const descriptions = [];
@@ -157,47 +132,13 @@
     return {params, count: urls.length, packageName};
   }
 
-  function submitHiddenForm(params) {
-    const frameName = `ddgJDBatch_${Date.now()}`;
-    const iframe = document.createElement('iframe');
-    iframe.name = frameName;
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `${JD_BASE}/flashgot`;
-    form.target = frameName;
-    form.style.display = 'none';
-    for (const [name, value] of params.entries()) {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
-    }
-    document.body.appendChild(form);
-    form.submit();
-    setTimeout(() => { form.remove(); iframe.remove(); }, 4000);
-  }
-
   async function submitRows(rows) {
-    const jd = await checkJD();
-    if (!jd?.running) throw new Error('JDownloader 2 nu răspunde pe 127.0.0.1:9666.');
-    const submission = buildSubmission(rows);
-    try {
-      const response = await fetch(`${JD_BASE}/flashgot`, {
-        method:'POST',
-        headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
-        body:submission.params.toString(),
-        cache:'no-store'
-      });
-      const reply = (await response.text()).trim();
-      if (!response.ok || /(^|\s)failed(\s|$)/i.test(reply)) throw new Error(reply || `HTTP ${response.status}`);
-      return {...submission, confirmed:true};
-    } catch (_) {
-      submitHiddenForm(submission.params);
-      return {...submission, confirmed:false};
-    }
+    const guard = window.ddgJDownloaderGuardV901;
+    if (!guard?.sendIDs) throw new Error('Filtrul JDownloader nu este disponibil. Nu s-a trimis nimic.');
+    const ids = (rows || []).map(row => Number(row?.id)).filter(Number.isFinite);
+    if (!ids.length) throw new Error('Selecția nu conține rezultate valide pentru JDownloader.');
+    const result = await guard.sendIDs(ids);
+    return {...result, count:Number(result?.externalAdded || 0), packageName:onePackageName(rows)};
   }
 
   async function preflight(ids, dest, mode) {
@@ -340,11 +281,8 @@
     try {
       const rows = pending?.rows?.length
         ? pending.rows.filter(r => ids.includes(Number(r.id)))
-        : await rowsForIDs(ids);
-      const safeIDs = new Set((pending?.safe || []).map(Number));
-      const missingRows = rows.filter(row => safeIDs.size ? safeIDs.has(Number(row.id)) : classifyCurrentRow(row) === 'DOWNLOAD');
-      if (!missingRows.length) throw new Error('Selecția nu conține fișiere clasificate „LIPSĂ”.');
-      const result = await submitRows(missingRows);
+        : ids.map(id => ({id}));
+      const result = await submitRows(rows);
       closeDecision();
       window.closeGuardReport?.();
       window.toast?.(`JDownloader: ${result.count} fișier(e) într-un singur pachet „${result.packageName}”`);

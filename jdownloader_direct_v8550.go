@@ -13,6 +13,18 @@ import (
 
 var jdownloaderDirectBaseV8550 = "http://127.0.0.1:9666"
 
+// jdownloaderDecisionAllowedV901 is the final server-side boundary. A transport
+// verdict by itself is not enough: the public detector classification and user
+// action must agree that the item is confirmed LIPSĂ. Missing evidence, an
+// interrupted analysis, or any future undecorated decision therefore fails
+// closed instead of reaching JDownloader.
+func jdownloaderDecisionAllowedV901(decision DownloadGuardDecision) bool {
+	return decision.Verdict == guardDownload &&
+		decision.Action == actionDownload &&
+		decision.Detector != nil &&
+		decision.Detector.Classification == "LIPSĂ"
+}
+
 // handleQueueAddRoutedV8550 is a fail-safe in front of the normal DDG queue.
 // If the UI selected JDownloader, the request can never fall through to the
 // internal queue: it is guarded and handed to JDownloader directly instead.
@@ -97,7 +109,7 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 	}
 	allowed := make(map[int]bool, len(report.Decisions))
 	for _, decision := range report.Decisions {
-		if decision.Verdict == guardDownload {
+		if jdownloaderDecisionAllowedV901(decision) {
 			allowed[decision.ResultID] = true
 		}
 	}

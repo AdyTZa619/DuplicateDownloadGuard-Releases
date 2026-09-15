@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,19 +59,61 @@ func TestJDownloaderBackendRechecksAndSendsOnlyFinalMissingV901(t *testing.T) {
 }
 
 func TestJDownloaderFinalUIUsesGuardedBackendV901(t *testing.T) {
-	b, err := os.ReadFile("web/jdownloader_final_v8551.js")
+	b, err := os.ReadFile("web/jdownloader_window_capture_v8566.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, required := range []string{"/api/download/jdownloader-direct", "guardedBackendHandoff", "JSON.stringify({ids, destination, guardMode})"} {
+	for _, required := range []string{"/api/download/jdownloader-direct", "ddgJDownloaderGuardV901", "JSON.stringify(request)", "event.stopImmediatePropagation()"} {
 		if !bytes.Contains(b, []byte(required)) {
 			t.Fatalf("guarded JD route missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"submitOneForm(", "currentReport(rows)", "allowReview: true"} {
+	for _, forbidden := range []string{"ddgJDownloaderFastV8566", "submitOneForm(", "currentReport(rows)", "allowReview: true", "/flashgot"} {
 		if bytes.Contains(b, []byte(forbidden)) {
 			t.Fatalf("JD UI retained bypass %q\n%s", forbidden, fmt.Sprintf("%.200s", s))
+		}
+	}
+}
+
+func TestEveryJDownloaderFrontendSenderDelegatesToCanonicalGuardV901(t *testing.T) {
+	files := []string{
+		"web/jdownloader_window_capture_v8566.js",
+		"web/jdownloader_fast_v8567.js",
+		"web/jdownloader_batch_confirm_v8564.js",
+		"web/jdownloader_final_v8551.js",
+		"web/download_actions_v8545.js",
+		"web/exact_guard.js",
+	}
+	for _, name := range files {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		if !strings.Contains(s, "ddgJDownloaderGuardV901") {
+			t.Fatalf("%s does not delegate to the canonical JD guard", name)
+		}
+		for _, forbidden := range []string{"/flashgot", "form.submit()", "submitOneForm(", "submitHiddenForm("} {
+			if strings.Contains(s, forbidden) {
+				t.Fatalf("%s retained direct JD bypass %q", name, forbidden)
+			}
+		}
+	}
+}
+
+func TestJDownloaderBoundaryRejectsUndecoratedOrReviewDecisionV901(t *testing.T) {
+	missing := decorateGuardDecision(DownloadGuardDecision{Verdict: guardDownload})
+	if !jdownloaderDecisionAllowedV901(missing) {
+		t.Fatal("fully decorated LIPSĂ decision was rejected")
+	}
+	for _, blocked := range []DownloadGuardDecision{
+		{Verdict: guardDownload},
+		decorateGuardDecision(DownloadGuardDecision{Verdict: guardReview}),
+		decorateGuardDecision(DownloadGuardDecision{Verdict: guardDuplicate, Exact: true}),
+	} {
+		if jdownloaderDecisionAllowedV901(blocked) {
+			t.Fatalf("non-LIPSĂ decision crossed JD boundary: %#v", blocked)
 		}
 	}
 }

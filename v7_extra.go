@@ -1590,7 +1590,7 @@ func (a *App) handleDownloadJD2(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed := map[int]bool{}
 	for _, decision := range report.Decisions {
-		if decision.Verdict == guardDownload {
+		if jdownloaderDecisionAllowedV901(decision) {
 			allowed[decision.ResultID] = true
 		}
 	}

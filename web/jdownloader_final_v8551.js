@@ -50,21 +50,9 @@
   }
 
   async function guardedBackendHandoff() {
-    const ids = selectedIDs();
-    if (!ids.length) throw new Error('Selectează fișiere');
-    const destination = String(document.getElementById('downloadDir')?.value || window.cfg?.downloadDir || '').trim();
-    const guardMode = document.getElementById('downloadGuardMode')?.value || window.cfg?.downloadGuardMode || 'smart';
-    const result = await window.api('/api/download/jdownloader-direct', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ids, destination, guardMode})
-    });
-    await window.loadResults?.();
-    if (result.guard && window.ddgShowGuardReportV8545) {
-      window.ddgShowGuardReportV8545(result.guard, {ids, destination, guardMode}, result.externalAdded || 0);
-    }
-    window.toast?.(result.message || `JDownloader: ${result.externalAdded || 0} fișier(e) confirmate LIPSĂ`);
-    return result;
+    const guard = window.ddgJDownloaderGuardV901;
+    if (!guard?.sendSelected) throw new Error('Filtrul JDownloader nu este disponibil. Nu s-a trimis nimic.');
+    return guard.sendSelected();
   }
 
   async function sendExclusiveToJDownloader() {

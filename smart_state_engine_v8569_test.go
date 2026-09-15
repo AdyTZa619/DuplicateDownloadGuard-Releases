@@ -76,17 +76,15 @@ func TestSmartStateV8569ReplacesV8568InBootstrap(t *testing.T) {
 	}
 }
 
-func TestSmartStateV8569DoesNotModifyVerifiedJDHandoff(t *testing.T) {
+func TestSmartStateV8569KeepsCanonicalGuardedJDHandoff(t *testing.T) {
 	b, err := os.ReadFile("web/jdownloader_fast_v8567.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
 	for _, marker := range []string{
-		"form.submit()",
-		"params.set('urls'",
-		"params.set('package'",
-		"JDownloader — fără rescanare HDD",
+		"const guard = window.ddgJDownloaderGuardV901",
+		"guard.sendIDs(ids)",
 	} {
 		if !strings.Contains(s, marker) {
 			t.Fatalf("verified JD handoff unexpectedly changed/missing marker %q", marker)
@@ -96,6 +94,8 @@ func TestSmartStateV8569DoesNotModifyVerifiedJDHandoff(t *testing.T) {
 		"window.api('/api/download/preflight",
 		"fetch('/api/download/preflight",
 		"fetch(\"/api/download/preflight",
+		"/flashgot",
+		"form.submit()",
 	} {
 		if strings.Contains(s, actualCall) {
 			t.Fatalf("verified JD handoff regressed to an actual preflight call: %q", actualCall)
