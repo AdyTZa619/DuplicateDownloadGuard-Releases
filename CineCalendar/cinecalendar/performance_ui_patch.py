@@ -50,7 +50,7 @@ def install_performance_ui_patch(window_cls) -> None:
 
         def fn(_progress):
             # RatingsFolderWatcher already rebuilds the profile exactly once when a changed
-            # export is imported; do not run build_profile a second time in the UI callback.
+            # export is imported; the UI callback must not rebuild it again.
             return RatingsFolderWatcher(self.db, folder).scan()
 
         worker = WorkerThread(fn, self)
