@@ -26,8 +26,17 @@ def main():
     install_update_exit_guard(decision_ui.DecisionWindow)
 
     from .premium_calendar_ui import CalendarPremiumWindow, run_premium_calendar
-    from .library_ui import install_library_ui
-    install_library_ui(CalendarPremiumWindow)
+    from . import library_ui
+
+    # The renderer calls the date sort key without an explicit mode; keep a safe default
+    # while retaining the same implementation for every other explicit sort mode.
+    _rating_sort_impl = library_ui._rating_sort_key
+
+    def _rating_sort_key(row, mode="date_desc"):
+        return _rating_sort_impl(row, mode)
+
+    library_ui._rating_sort_key = _rating_sort_key
+    library_ui.install_library_ui(CalendarPremiumWindow)
 
     on_ready = None
     if post_update:
