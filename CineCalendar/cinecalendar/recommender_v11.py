@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 
 from .collaborative_als import CollaborativeALSProvider
 from .models import Recommendation
@@ -12,7 +13,7 @@ from .util import clamp, cosine_sparse, utcnow_iso
 
 
 ENGINE_VERSION = "11.0.0-als"
-ALS_WEIGHT = 0.72
+ALS_WEIGHT = 0.80
 CONTENT_WEIGHT = 1.0 - ALS_WEIGHT
 
 
@@ -35,7 +36,14 @@ class FastRecommendationEngineV11(FastRecommendationEngineV10):
     def _state_token(self) -> tuple:
         base = super()._state_token()
         provider = getattr(self, "collaborative", None)
-        return base + ((provider.state_token() if provider is not None else ("fallback", "")),)
+        if provider is None:
+            collaborative_token = "als:fallback"
+        else:
+            state, version = provider.state_token()
+            collaborative_token = f"als:{state}:{version}"
+        # A flat string survives JSON persistence unchanged; when the model moves from loading
+        # to ready, the token changes and invalidates any temporary fallback decision pool.
+        return base + (collaborative_token,)
 
     def _persistent_key(self, when: date, mode: str) -> str:
         # Never reuse a v9/v10 persisted decision pool after switching to ALS ranking.
@@ -68,6 +76,20 @@ class FastRecommendationEngineV11(FastRecommendationEngineV10):
                     f"Estimarea de notă din profilul de conținut este {rec.score.predicted_rating:.1f}/10."
                 )
 
+    def _wait_briefly_for_first_model(self, timeout: float = 25.0) -> None:
+        """First-run model download is ~20 MB and happens off the UI thread.
+
+        Recommendation workers wait briefly so the first visible answer normally already comes
+        from ALS instead of silently showing a v10 fallback while the model is finishing.
+        """
+        self.collaborative.start_background()
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while time.monotonic() < deadline:
+            state = self.collaborative.status().get("state")
+            if state in {"ready", "error"}:
+                return
+            time.sleep(0.10)
+
     def recommend(self, when: date | None = None, count: int = 3, exclude_ids: set[int] | None = None,
                   record: bool = False, slot: str = "today", candidate_limit: int = 100000,
                   mode: str = "decide", runtime_max: int | None = None, runtime_min: int | None = None):
@@ -93,10 +115,10 @@ class FastRecommendationEngineV11(FastRecommendationEngineV10):
         effective = self._effective_limit(candidate_limit, mode)
         rows = list(self._candidate_rows(when, effective))
 
-        # The provider starts/downloads lazily in its own daemon thread. Until the verified model
-        # is present the exact v10 personal engine remains a functional fallback.
+        if not self.collaborative.is_ready():
+            self._wait_briefly_for_first_model(25.0)
         imdb_ids = [str(row["imdb_id"] or "") for row in rows if row["imdb_id"]]
-        collaborative, raw_collaborative, mapped_ratings = self.collaborative.score_candidates(imdb_ids)
+        collaborative, _raw_collaborative, mapped_ratings = self.collaborative.score_candidates(imdb_ids)
         collaborative_active = bool(collaborative) and mapped_ratings >= 20
 
         candidates: list[Recommendation] = []
