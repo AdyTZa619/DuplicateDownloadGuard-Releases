@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import inspect
 
 from cinecalendar.db import Database
-from cinecalendar.daily_genre_ui_patch import GENRES
+from cinecalendar.daily_genre_ui_patch import GENRES, install_daily_genre_ui_patch
 from cinecalendar.recommendation import romance_policy
 from cinecalendar.recommender_v12 import FastRecommendationEngineV12
 from cinecalendar.models import Movie
@@ -37,6 +37,14 @@ def test_premium_startup_installs_daily_genre_ui_patch():
     assert "install_daily_genre_ui_patch(CalendarPremiumWindow)" in source
     service_source = inspect.getsource(service_module.CineCalendarService.__init__)
     assert "FastRecommendationEngineV12" in service_source
+
+
+def test_genre_ui_is_secondary_not_required_for_default_recommendation():
+    source = inspect.getsource(install_daily_genre_ui_patch)
+    assert "Nu trebuie să setezi nimic" in source
+    assert "Opțional, doar dacă ai chef de ceva anume" in source
+    # Automatic loading must be scheduled independently of any genre interaction.
+    assert "QTimer.singleShot(0, self._load_today_async)" in source
 
 
 def test_daily_genre_is_active_only_for_selected_date(tmp_path):
