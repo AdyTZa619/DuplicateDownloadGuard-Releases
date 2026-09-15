@@ -15,7 +15,12 @@ GENRES = (
 
 
 def install_daily_genre_ui_patch(window_cls) -> None:
-    """Make genre a temporary daily intent, not a permanent taste exclusion."""
+    """Keep genre as an optional one-day intent, never a required step.
+
+    Home always starts by choosing the best automatic recommendation from the personal ALS
+    profile. The genre control is secondary and only matters when the user explicitly wants
+    something specific in that moment.
+    """
     original_settings = window_cls.page_settings
 
     def _today_genre(self) -> str:
@@ -33,7 +38,7 @@ def install_daily_genre_ui_patch(window_cls) -> None:
     def page_today(self):
         page, content = self.page_shell(
             "Ce văd acum?",
-            "O singură alegere bine argumentată din ratingurile tale. Dacă ai chef de un gen anume, îl alegi doar pentru azi.",
+            "Îți aleg automat filmul cu cea mai bună potrivire pentru tine. Nu trebuie să setezi nimic.",
         )
         self.today_content = content
         _total, rated, cand = self.catalog_count()
@@ -46,23 +51,26 @@ def install_daily_genre_ui_patch(window_cls) -> None:
             b = QPushButton("Pregătește automat catalogul"); b.setProperty("accent",True); b.clicked.connect(lambda:self.bootstrap_catalog(False)); l.addWidget(b, alignment=Qt.AlignLeft)
             content.addWidget(box); content.addStretch(1); return page
 
+        active = self._today_genre()
+        text = "Analizez profilul colaborativ MovieLens, ratingurile tale, istoricul și contextul zilei."
+        if active:
+            text += f" Pentru azi ai cerut explicit genul {active}."
+        content.addWidget(self.loading_panel("Îți aleg filmul…", text))
+
+        # Secondary control: useful only when the user explicitly feels like watching a genre.
         chooser = QFrame(); chooser.setObjectName("PremiumCard")
-        row = QHBoxLayout(chooser); row.setContentsMargins(16,12,16,12); row.setSpacing(12)
-        label = QLabel("Ce gen ai chef să vezi azi?"); label.setObjectName("BodyStrong"); row.addWidget(label)
-        combo = QComboBox(); combo.addItems(list(GENRES)); combo.setMinimumWidth(190)
-        current = self._today_genre()
+        row = QHBoxLayout(chooser); row.setContentsMargins(16,10,16,10); row.setSpacing(12)
+        label = QLabel("Opțional, doar dacă ai chef de ceva anume:")
+        label.setObjectName("Muted"); row.addWidget(label)
+        combo = QComboBox(); combo.addItems(list(GENRES)); combo.setMinimumWidth(180)
+        current = active
         combo.setCurrentText(current if current in GENRES else "Orice gen")
         combo.currentTextChanged.connect(lambda value: self._set_today_genre(value))
         row.addWidget(combo)
-        note = QLabel("Valabil numai azi; mâine revine automat la Orice gen.")
+        note = QLabel("Nu schimbă profilul; este valabil numai azi.")
         note.setObjectName("Muted"); row.addWidget(note, 1)
         content.addWidget(chooser)
 
-        active = self._today_genre()
-        text = "Analizez profilul colaborativ MovieLens + ratingurile tale și contextul zilei."
-        if active:
-            text += f" Filtrez întâi doar filmele din genul {active}."
-        content.addWidget(self.loading_panel("Îți aleg filmul…", text))
         content.addStretch(1)
         QTimer.singleShot(0, self._load_today_async)
         return page
