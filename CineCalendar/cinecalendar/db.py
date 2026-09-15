@@ -141,6 +141,15 @@ class Database:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=NORMAL")
         con.execute("PRAGMA busy_timeout=5000")
+        # Keep hot B-tree/table pages in RAM and memory-map the read-mostly catalog. This is
+        # especially important when CineCalendarData lives on a mechanical HDD: repeated
+        # recommendation queries should not turn thousands of small reads into 100% active time.
+        con.execute("PRAGMA temp_store=MEMORY")
+        con.execute("PRAGMA cache_size=-32768")  # ~32 MiB per active connection, upper bound.
+        try:
+            con.execute("PRAGMA mmap_size=268435456")  # up to 256 MiB, silently capped by SQLite/OS.
+        except sqlite3.DatabaseError:
+            pass
         return con
 
     @contextmanager
