@@ -10,7 +10,7 @@ import subprocess
 from .updater import NativeUpdateRequest, _download_to, _log, _safe_extract_zip, sha256_path
 from .updater_v3 import (
     UpdateInfo,
-    _powershell_helper,
+    _powershell_helper as _legacy_powershell_helper,
     check_for_update,
     cleanup_update_residue,
     health_matches,
@@ -20,6 +20,21 @@ from .updater_v3 import (
     update_supported,
     write_health_marker,
 )
+
+
+def _powershell_helper() -> str:
+    """Return a PowerShell helper that never shadows PowerShell's read-only $PID variable."""
+    script = _legacy_powershell_helper()
+    script = script.replace(
+        "function Wait-ParentExit([int]$Pid, [int]$Seconds) {",
+        "function Wait-ParentExit([int]$ProcessId, [int]$Seconds) {",
+    )
+    script = script.replace("Get-Process -Id $Pid", "Get-Process -Id $ProcessId")
+    if "function Wait-ParentExit([int]$ProcessId, [int]$Seconds) {" not in script:
+        raise RuntimeError("Helperul PowerShell nu a putut fi reparat: parametrul ProcessId lipsește.")
+    if "Get-Process -Id $Pid" in script or "[int]$Pid" in script:
+        raise RuntimeError("Helperul PowerShell încă încearcă să suprascrie variabila rezervată $PID.")
+    return script
 
 
 def _brokered_popen(args: list[str]) -> None:
@@ -68,7 +83,7 @@ def _brokered_popen(args: list[str]) -> None:
 
 def stage_and_start_update(info: UpdateInfo, data_root: str | Path, progress=None) -> NativeUpdateRequest:
     if not update_supported():
-        raise RuntimeError("Updaterul automat funcționează numai în CineCalendar.exe pentru Windows.")
+        raise RuntimeError("Updaterul automat funcționează numai în CineCalendar.exe pe Windows.")
     progress = progress or (lambda _m: None)
 
     import sys
