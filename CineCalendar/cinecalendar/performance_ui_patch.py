@@ -10,9 +10,9 @@ def install_performance_ui_patch(window_cls) -> None:
     """Patch inherited legacy UI hot spots without duplicating the premium window.
 
     The original base window was written for a tiny catalog. It performs a ratings-folder
-    scan on the GUI thread every 15 seconds and calculates candidate count with a 260k-row
-    LEFT JOIN. Those operations are harmless on SSD test runners but visibly stall a portable
-    install stored on a mechanical HDD.
+    scan on the GUI thread every 15 seconds and calculates candidate count with a full
+    260k-row join. Those operations are harmless on SSD test runners but visibly stall a
+    portable install stored on a mechanical HDD.
     """
     original_init = window_cls.__init__
 
@@ -29,7 +29,7 @@ def install_performance_ui_patch(window_cls) -> None:
 
     def catalog_count(self):
         # ratings.movie_id is UNIQUE + FK to movies, therefore unseen = movies - ratings.
-        # Avoid the old LEFT JOIN over the entire 260k catalog on every page opening.
+        # Count the two indexed tables independently instead of scanning the full catalog join.
         with self.db.connect() as con:
             row = con.execute(
                 "SELECT (SELECT COUNT(*) FROM movies) AS total, "
