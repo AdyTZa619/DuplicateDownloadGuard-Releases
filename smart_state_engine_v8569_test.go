@@ -26,6 +26,9 @@ func TestSmartStateV8569RebindsBestCurrentCandidate(t *testing.T) {
 		"exactCandidateName",
 		"Reconciliază după JD",
 		"găsit după JD • candidat nou confirmat",
+		"function rememberBackendHandoff(items)",
+		"detector === 'DE VERIFICAT'",
+		"guard === 'DOWNLOAD') return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW'",
 	} {
 		if !strings.Contains(s, marker) {
 			t.Fatalf("Smart State v8569 missing marker %q", marker)

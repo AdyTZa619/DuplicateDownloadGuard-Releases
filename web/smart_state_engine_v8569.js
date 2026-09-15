@@ -155,19 +155,22 @@
     if (strongLocalEvidence(row)) return 'HAVE';
     if (pendingTransfer(row, store)) return 'IN_JD';
     const guard = upper(row?.guardVerdict);
+    const detector = upper(row?.detector?.classification);
+    if (detector === 'IDENTIC' || detector === 'ACELAȘI CONȚINUT') return localPresent(row) ? 'HAVE' : 'REVIEW';
+    if (detector === 'DE VERIFICAT') return 'REVIEW';
     if (guard === 'DUPLICATE') return localPresent(row) ? 'HAVE' : 'REVIEW';
-    if (guard === 'DOWNLOAD') return 'DOWNLOAD';
+    if (guard === 'DOWNLOAD') return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW';
     if (guard === 'REVIEW') return 'REVIEW';
     const status = upper(row?.status), auto = currentAuto(row), manual = Boolean(row?.manual), ms = manualStatus(row);
     if (manual) {
       if (ms === 'HAVE') return localPresent(row) ? 'HAVE' : 'REVIEW';
-      if (ms === 'MISSING' || ms === 'DIFFERENT') return 'DOWNLOAD';
+      if (ms === 'MISSING' || ms === 'DIFFERENT') return 'REVIEW';
     }
     if (status === 'VERIFIED' || auto === 'VERIFIED') return localPresent(row) ? 'HAVE' : 'REVIEW';
-    if (status === 'MISSING' || status === 'DIFFERENT' || auto === 'MISSING' || auto === 'DIFFERENT') return 'DOWNLOAD';
+    if (status === 'MISSING' || status === 'DIFFERENT' || auto === 'MISSING' || auto === 'DIFFERENT') return 'REVIEW';
     if (status === 'HAVE' || auto === 'HAVE') return localPresent(row) ? 'HAVE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status) || ['POSSIBLE','SAMPLED'].includes(auto)) return 'REVIEW';
-    return localPresent(row) ? 'REVIEW' : 'DOWNLOAD';
+    return 'REVIEW';
   }
 
   function stateReason(row, state, store = loadTransfers()) {
@@ -487,6 +490,26 @@
 
   function parseFormField(form,name) { return String(form?.querySelector?.(`[name="${name}"]`)?.value || ''); }
   function splitLines(value) { return String(value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean); }
+  async function rememberBackendHandoff(items) {
+    const sent = (Array.isArray(items) ? items : []).filter(item => Number.isFinite(Number(item?.resultId)) && String(item?.url || '').trim());
+    if (!sent.length) return 0;
+    try {
+      const rows = await fetchAllRows(true), byID = new Map(rows.map(row => [Number(row.id), row]));
+      const store = loadTransfers(), now = Date.now();
+      let saved = 0;
+      for (const item of sent) {
+        const row = byID.get(Number(item.resultId));
+        if (!row) continue;
+        store.transfers[rowKey(row)] = {
+          state:'PENDING', sentAt:now, completedAt:0, packageName:'Duplicate Download Guard',
+          url:String(item.url || '').trim(), name:String(item.name || row?.remote?.name || row?.remote?.path || '').trim()
+        };
+        saved++;
+      }
+      if (saved) { saveTransfers(store); scheduleCycle(80); }
+      return saved;
+    } catch (_) { return 0; }
+  }
   async function rememberJDSubmission(form) {
     const action = String(form?.action||'').toLowerCase();
     if (!action.includes('127.0.0.1:9666/flashgot')) return;
@@ -560,6 +583,6 @@
 
   window.ddgSmartStateEngineV8569={
     finalState,shouldReleaseManual,strongLocalEvidence,exactCurrentEvidence,localPresent,rowKey,pendingTransfer,
-    fetchAllRows,scheduleCycle,reconcileBestCandidates,candidateIsStrong,candidatePriority,manualReconcile
+    fetchAllRows,scheduleCycle,reconcileBestCandidates,candidateIsStrong,candidatePriority,manualReconcile,rememberBackendHandoff
   };
 })();

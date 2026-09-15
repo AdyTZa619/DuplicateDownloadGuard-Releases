@@ -31,7 +31,10 @@ func jdownloaderURLForResultV8545(x Result) string {
 	}
 	if strings.EqualFold(strings.TrimSpace(r.Source), "BUNKR") && strings.TrimSpace(r.Handle) != "" {
 		if u, err := url.Parse(strings.TrimSpace(r.URL)); err == nil && u.Scheme != "" && u.Host != "" {
-			return u.Scheme + "://" + u.Host + "/f/" + url.PathEscape(strings.TrimSpace(r.Handle))
+			// JDownloader's Bunkr plugin resolves public single-file /d/ routes.
+			// The old browser handoff rewrote /f/ to /d/ immediately before the
+			// FlashGot POST; the backend handoff must perform that normalization.
+			return u.Scheme + "://" + u.Host + "/d/" + url.PathEscape(strings.TrimSpace(r.Handle))
 		}
 	}
 	if strings.EqualFold(strings.TrimSpace(r.Source), "CYBERDROP") && strings.TrimSpace(r.ProviderID) != "" {

@@ -72,7 +72,7 @@ func decorateGuardDecision(d DownloadGuardDecision) DownloadGuardDecision {
 	case "media-looks-same", "deterministic-samples":
 		d.UserStatus = userLooksSame
 		d.Action = actionReview
-	case "metadata-incomplete", "mega-busy", "remote-unavailable", "full-sha256-error", "sample-error", "media-tools-missing", "media-index-incomplete", "image-index-incomplete", "media-unverified":
+	case "metadata-incomplete", "mega-busy", "remote-unavailable", "full-sha256-error", "sample-error", "media-tools-missing", "media-index-incomplete", "image-index-incomplete", "media-unverified", "local-index-incomplete":
 		d.UserStatus = userUnverified
 		d.Action = actionRetry
 	}

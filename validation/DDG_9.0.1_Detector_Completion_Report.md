@@ -90,3 +90,30 @@ Prin urmare, candidatul nu este declarat „validat” pe MEGA+Bunkr reale. El p
 ## Publicare TEST
 
 PR #95 a trecut `DDG validation` și `DDG stability boundary` și a fost integrat în `testing` la commitul `8ecbaaae624b48ce7be9fcb456c9a8959167e502`. Buildul rezultat `9.0.1-test.138` a expus bypass-ul JDownloader descris mai sus și nu mai este considerat candidat sigur pentru acest flux. Corecția se publică într-o versiune TEST ulterioară numai după CI. Stable rămâne nemodificat.
+
+PR #96 a eliminat bypass-ul și a fost integrat în `testing` la commitul `9aa812bc233a2916321c0a592d9b0977927f1aee`. Automatizarea a publicat `9.0.1-test.139` la commitul `9ccc36650fbdaddbc7b48a3e21a62fb94b06b171`, SHA-256 `7de160c64159016c442d71fe0b1d745e7ac106171ad463963acf583b562a00c4`.
+
+## Stabilizare după 9.0.1-test.139
+
+Auditul de defecte efectuat după `.139` a identificat și corectat următoarele probleme, fără a adăuga funcții noi:
+
+1. Backendul JDownloader construia pentru Bunkr URL-ul `/f/<handle>`; acum folosește endpointul descărcabil `/d/<handle>`. Același format este păstrat și în helper-ele UI legacy.
+2. Smart State nu mai pierdea evidența elementelor trimise după mutarea handoff-ului în backend: răspunsul backend include exact elementele acceptate, iar UI memorează numai acele transferuri.
+3. Statusurile legacy/provizorii `MISSING` și `DIFFERENT` nu mai sunt afișate drept verdict final `LIPSĂ`. Atât Smart State, cât și popup-urile JDownloader cer combinația `guardVerdict=DOWNLOAD` + `detector.classification=LIPSĂ`; altfel rezultatul rămâne `DE VERIFICAT`.
+4. Un folder/HDD local configurat dar offline, lipsă sau necitibil nu mai este eliminat silențios din index. Scanarea este marcată incompletă, nu este reutilizată ca snapshot proaspăt și nu poate produce `LIPSĂ`. Un duplicat deja demonstrat într-o altă rădăcină rămâne totuși blocat corect.
+5. Fișierele video/imagine din cache care nu mai pot fi citite sau decodate rămân candidați neanalizați. Ele forțează `DE VERIFICAT` în loc să fie excluse din colecția relevantă.
+6. Răspunsul backend JDownloader enumeră numai elementele efectiv transmise după eliminarea linkurilor duplicate, astfel încât reconcilierea ulterioară nu poate marca rezultate netrimise ca fiind în JDownloader.
+
+Fișierele modificate în această stabilizare: `download_guard.go`, `download_guard_fresh_cache.go`, `duplicate_candidates_v90.go`, `duplicate_image_candidates_v90.go`, `image_signature_cache.go`, `media_meta_cache.go`, `smart_media_guard.go`, `jdownloader_bridge_v8545.go`, `jdownloader_direct_v8550.go`, `web/jdownloader_batch_confirm_v8564.js`, `web/jdownloader_fast_v8567.js`, `web/jdownloader_window_capture_v8566.js`, `web/smart_state_engine_v8569.js` și testele aferente. Media Picker, redesign-ul UI și MEGA Preview nu au fost modificate.
+
+Verificări locale după ultima modificare:
+
+- `go test ./... -count=1`: trecut în 9,879 s;
+- race țintit pentru JDownloader/guard/duplicate/index/media: trecut în 1,340 s;
+- `go vet ./...`: trecut;
+- verificarea sintaxei tuturor fișierelor JS: trecută;
+- `node --test web/tests/*.test.js`: 11/11 trecute în 171,975 ms;
+- `git diff --check`: trecut;
+- build Windows x64 cross-compilat: 13.333.504 bytes, SHA-256 `272929fc474764726883cad219288d82fb336c292f96e28dc6a93bbe0ddaeb6a`.
+
+Acest build de stabilizare nu a consumat trafic MEGA/Bunkr real: **0 bytes**. Nu au fost măsurați timpi reali de primă analiză/cache pe HDD-uri reale în această rundă. Testele folosesc filesystem temporar, HTTP/provider controlat și un server JDownloader fals local. Windows desktop real, JDownloader real, MEGA real și Bunkr real rămân **NEVERIFICATE** pentru noul candidat; în consecință poate fi publicat numai ca TEST și nu este declarat validat end-to-end.

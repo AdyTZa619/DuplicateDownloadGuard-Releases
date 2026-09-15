@@ -51,7 +51,7 @@
           return `https://gofile.io/?c=${encodeURIComponent(parts[1])}#file=${encodeURIComponent(String(remote.providerId))}`;
         }
       }
-      if (source === 'BUNKR' && remote.handle) return `${origin}/f/${encodeURIComponent(String(remote.handle))}`;
+      if (source === 'BUNKR' && remote.handle) return `${origin}/d/${encodeURIComponent(String(remote.handle))}`;
       if (source === 'CYBERDROP' && remote.providerId) return `${origin}/f/${encodeURIComponent(String(remote.providerId))}`;
     } catch (_) {}
     return '';
@@ -129,10 +129,13 @@
     // shown by Smart Guard in the main results table. Do not let an older manual
     // or auto status reclassify it inside the JDownloader popup.
     const guard = String(row?.guardVerdict || '').trim().toUpperCase();
+    const detector = String(row?.detector?.classification || '').trim().toUpperCase();
     const localPresent = row?.localPresent === true && Boolean(row?.localPath);
-    if (guard === 'DOWNLOAD') return 'DOWNLOAD';
     if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (guard === 'REVIEW') return 'REVIEW';
+    if (detector === 'IDENTIC' || detector === 'ACELAȘI CONȚINUT') return localPresent ? 'DUPLICATE' : 'REVIEW';
+    if (detector === 'DE VERIFICAT') return 'REVIEW';
+    if (guard === 'DOWNLOAD') return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW';
 
     // Legacy fallback only for rows that have no final Guard verdict yet.
     const manual = Boolean(row?.manual);
@@ -141,8 +144,8 @@
     if (manual && manualStatus === 'HAVE') return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (['HAVE','VERIFIED'].includes(status)) return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
-    if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
-    return manual ? 'REVIEW' : 'DOWNLOAD';
+    if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'REVIEW';
+    return 'REVIEW';
   }
 
   function splitRows(rows) {

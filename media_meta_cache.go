@@ -238,9 +238,8 @@ type videoDurationSearchV85 struct {
 // videoDurationCandidatesCached makes renamed-video discovery scalable without
 // ever treating a partial cache as proof that a video is missing. Cached
 // metadata is searched across the whole collection. A bounded number of
-// uncached files is probed per call. Local files proven unreadable are cached as
-// unusable until size/mtime changes; they cannot be a usable re-encoded copy and
-// therefore do not keep every remote video permanently in REVIEW.
+// uncached files is probed per call. Read failures are cached until size/mtime
+// changes, but remain pending because unreadable content cannot be excluded.
 func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo MediaInfo, remote RemoteItem, entries, existing []FileEntry, limit int) videoDurationSearchV85 {
 	if limit <= 0 {
 		limit = 7
@@ -328,7 +327,7 @@ func (a *App) videoDurationCandidatesCached(ctx context.Context, remoteInfo Medi
 			matched = appendDurationCandidateV85(matched, remote, row.Entry, ratio)
 		}
 	}
-	result.Pending = len(uncached) - resolved
+	result.Pending = len(uncached) - resolved + result.Excluded
 	if result.Pending < 0 {
 		result.Pending = 0
 	}

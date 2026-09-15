@@ -13,6 +13,12 @@ import (
 
 var jdownloaderDirectBaseV8550 = "http://127.0.0.1:9666"
 
+type jdownloaderExternalItemV901 struct {
+	ResultID int    `json:"resultId"`
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+}
+
 // jdownloaderDecisionAllowedV901 is the final server-side boundary. A transport
 // verdict by itself is not enough: the public detector classification and user
 // action must agree that the item is confirmed LIPSĂ. Missing evidence, an
@@ -116,6 +122,7 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 
 	links := make([]string, 0, len(selected))
 	descriptions := make([]string, 0, len(selected))
+	externalItems := make([]jdownloaderExternalItemV901, 0, len(selected))
 	seen := make(map[string]bool, len(selected))
 	for _, res := range selected {
 		if !allowed[res.ID] {
@@ -135,12 +142,13 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 			name = "DDG"
 		}
 		descriptions = append(descriptions, name)
+		externalItems = append(externalItems, jdownloaderExternalItemV901{ResultID: res.ID, URL: link, Name: name})
 	}
 
 	if len(links) == 0 {
 		jsonOut(w, map[string]any{
 			"ok": true, "jdownloader": true, "added": 0, "externalAdded": 0,
-			"destination": destination, "guard": report, "rejected": []any{},
+			"destination": destination, "guard": report, "rejected": []any{}, "externalItems": []jdownloaderExternalItemV901{},
 			"message": "Nimic de trimis în JDownloader: selecția este duplicat sau necesită verificare.",
 		})
 		return
@@ -154,7 +162,7 @@ func (a *App) handleJDownloaderDirectV8550(w http.ResponseWriter, r *http.Reques
 
 	jsonOut(w, map[string]any{
 		"ok": true, "jdownloader": true, "added": 0, "externalAdded": len(links),
-		"destination": destination, "guard": report, "rejected": []any{},
+		"destination": destination, "guard": report, "rejected": []any{}, "externalItems": externalItems,
 		"message": fmt.Sprintf("%d fișier(e) trimise exclusiv în JDownloader • %s", len(links), destination),
 	})
 }

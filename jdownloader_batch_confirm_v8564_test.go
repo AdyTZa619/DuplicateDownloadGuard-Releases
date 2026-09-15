@@ -16,6 +16,8 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	for _, want := range []string{
 		"const guard = window.ddgJDownloaderGuardV901",
 		"const result = await guard.sendIDs(ids)",
+		"detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW'",
+		"${album.origin}/d/",
 		"sendBatchAware",
 		"sendSafeOnly",
 	} {

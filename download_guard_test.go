@@ -137,6 +137,42 @@ func TestDownloadGuardAllowsSameSizeWhenFullHashDiffers(t *testing.T) {
 	}
 }
 
+func TestUnavailableConfiguredRootForcesReviewV901(t *testing.T) {
+	collection, download := t.TempDir(), t.TempDir()
+	missingRoot := filepath.Join(t.TempDir(), "disconnected-drive")
+	remote := RemoteItem{Name: "new-file.bin", Size: 123456, Source: "BUNKR", URL: "https://bunkr.example/a/album", Handle: "new-file"}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.LocalPaths = append(a.cfg.LocalPaths, missingRoot)
+	report, err := a.runDownloadGuard(context.Background(), a.results, download, guardModeSmart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := report.Decisions[0]
+	if !report.IndexIncomplete || len(report.IndexIssues) == 0 || got.Verdict != guardReview || got.Method != "local-index-incomplete" || got.Detector == nil || got.Detector.Classification != "DE VERIFICAT" {
+		t.Fatalf("unavailable configured root produced an unsafe verdict: report=%#v decision=%#v", report, got)
+	}
+}
+
+func TestIncompleteRootDoesNotEraseKnownDuplicateV901(t *testing.T) {
+	data := []byte("known duplicate remains blocked")
+	collection, download := t.TempDir(), t.TempDir()
+	local := filepath.Join(collection, "renamed.bin")
+	if err := os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	remote := RemoteItem{Name: "remote.bin", Size: int64(len(data)), Source: "HTTP", HashType: "sha256", Hash: hex.EncodeToString(sum[:])}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.LocalPaths = append(a.cfg.LocalPaths, filepath.Join(t.TempDir(), "offline"))
+	report, err := a.runDownloadGuard(context.Background(), a.results, download, guardModeSmart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := report.Decisions[0]; got.Verdict != guardDuplicate || got.LocalPath != local {
+		t.Fatalf("known duplicate was lost because another root is offline: %#v", got)
+	}
+}
+
 func TestDownloadGuardLargeMatchingSamplesStayReview(t *testing.T) {
 	data := bytes.Repeat([]byte("0123456789abcdef"), 160000)
 	server := contentServer(data)

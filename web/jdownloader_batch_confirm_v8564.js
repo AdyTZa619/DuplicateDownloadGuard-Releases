@@ -58,7 +58,7 @@
     if (String(r.source || '').toUpperCase() !== 'BUNKR' || !r.handle) return '';
     try {
       const album = new URL(r.url || '');
-      return `${album.origin}/f/${encodeURIComponent(String(r.handle))}`;
+      return `${album.origin}/d/${encodeURIComponent(String(r.handle))}`;
     } catch (_) { return ''; }
   }
 
@@ -154,6 +154,7 @@
     const status = String(row?.status || row?.autoStatus || '').trim().toUpperCase();
     const guard = String(row?.guardVerdict || '').trim().toUpperCase();
     const manualStatus = String(row?.manualStatus || '').trim().toUpperCase();
+    const detector = String(row?.detector?.classification || '').trim().toUpperCase();
     const localPresent = row?.localPresent === true && Boolean(row?.localPath);
 
     // Manual HAVE must never disappear from the confirmation just because an
@@ -161,12 +162,14 @@
     if (manual && manualStatus === 'HAVE') return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (guard === 'REVIEW') return 'REVIEW';
-    if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';
+    if (detector === 'IDENTIC' || detector === 'ACELAȘI CONȚINUT') return localPresent ? 'DUPLICATE' : 'REVIEW';
+    if (detector === 'DE VERIFICAT') return 'REVIEW';
+    if (guard === 'DOWNLOAD' && !manual) return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW';
 
     if (['HAVE','VERIFIED'].includes(status)) return localPresent ? 'DUPLICATE' : 'REVIEW';
     if (['POSSIBLE','SAMPLED','REVIEW','UNKNOWN',''].includes(status)) return 'REVIEW';
-    if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'DOWNLOAD';
-    return manual ? 'REVIEW' : 'DOWNLOAD';
+    if (['MISSING','DIFFERENT','DIFF'].includes(status)) return 'REVIEW';
+    return 'REVIEW';
   }
 
   function currentReport(rows) {

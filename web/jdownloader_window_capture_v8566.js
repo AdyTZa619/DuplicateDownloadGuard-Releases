@@ -40,6 +40,9 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(request)
       });
+      try {
+        await window.ddgSmartStateEngineV8569?.rememberBackendHandoff?.(result?.externalItems || []);
+      } catch (_) {}
       await window.loadResults?.();
       if (result?.guard && window.ddgShowGuardReportV8545) {
         window.ddgShowGuardReportV8545(result.guard, request, result.externalAdded || 0);
