@@ -8,6 +8,7 @@ from cinecalendar.daily_genre_ui_patch import GENRES
 from cinecalendar.recommendation import romance_policy
 from cinecalendar.recommender_v12 import FastRecommendationEngineV12
 from cinecalendar.models import Movie
+from cinecalendar import app as app_module
 from cinecalendar import service as service_module
 
 
@@ -29,6 +30,13 @@ def test_romance_is_not_globally_excluded_when_legacy_switch_is_off():
 def test_service_forces_legacy_romance_setting_off():
     source = inspect.getsource(service_module.CineCalendarService._defaults)
     assert 'set_setting("exclude_romance", False)' in source
+
+
+def test_premium_startup_installs_daily_genre_ui_patch():
+    source = inspect.getsource(app_module.main)
+    assert "install_daily_genre_ui_patch(CalendarPremiumWindow)" in source
+    service_source = inspect.getsource(service_module.CineCalendarService.__init__)
+    assert "FastRecommendationEngineV12" in service_source
 
 
 def test_daily_genre_is_active_only_for_selected_date(tmp_path):
