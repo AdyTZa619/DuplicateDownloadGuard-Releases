@@ -19,11 +19,13 @@ def test_rating_confidence_has_explicit_likes_dislikes_and_neutral_six():
 
 
 def test_established_als_is_primary_not_the_old_hand_written_ranker():
-    assert ALS_WEIGHT >= 0.65
+    assert ALS_WEIGHT >= 0.75
     source = inspect.getsource(FastRecommendationEngineV11.recommend)
     assert "collaborative.score_candidates" in source
     assert "ALS_WEIGHT * als_score" in source
     assert "_score_one" in source  # retained only as secondary/fallback signal
+    token_source = inspect.getsource(FastRecommendationEngineV11._state_token)
+    assert "collaborative_token" in token_source
 
 
 def test_local_fold_in_scores_candidates_without_uploading_private_ratings(tmp_path):
