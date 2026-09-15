@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.138",
+  "version": "9.0.1-test.139",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "7b0d4fe8683d6a2ba578ad10f5411629dac1a534edd91f4c510e0a96e80f9846",
-  "notes": "TEST: Record Windows TEST validation for detector",
-  "publishedAt": "2026-09-14T10:37:59.1582031Z",
+  "sha256": "7de160c64159016c442d71fe0b1d745e7ac106171ad463963acf583b562a00c4",
+  "notes": "TEST: Fail closed every JDownloader handoff on non-LIPSĂ results (#96)",
+  "publishedAt": "2026-09-15T21:02:50.5551287Z",
   "channel": "test"
 }
