@@ -29,6 +29,7 @@ def main():
     from .performance_ui_patch import install_performance_ui_patch
     from .table_theme_patch import install_table_theme_patch
     from .als_ui_patch import install_als_ui_patch
+    from .daily_genre_ui_patch import install_daily_genre_ui_patch
     from . import library_ui
 
     # Remove inherited small-catalog hot spots before the window is instantiated: the IMDb
@@ -42,6 +43,10 @@ def main():
     # Cards must describe the real ALS collaborative signal when it was actually used, rather
     # than falling back to a generic genre/director sentence.
     install_als_ui_patch(CalendarPremiumWindow)
+
+    # Genre is an explicit one-day intent (Action, Western, Romance etc.), never a permanent
+    # exclusion. The old global Romance switch is hidden and disabled.
+    install_daily_genre_ui_patch(CalendarPremiumWindow)
 
     # The renderer calls the date sort key without an explicit mode; keep a safe default
     # while retaining the same implementation for every other explicit sort mode.
