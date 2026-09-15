@@ -10,15 +10,63 @@ from .semantic import extract_semantic
 from .util import clamp
 
 
-ENGINE_VERSION = "6.0.1"
+ENGINE_VERSION = "6.1.0"
+
+# Events in this map require a genuinely event-specific semantic anchor.  A generic
+# History/Drama/War label is never enough for these dates.  Precision is deliberately
+# preferred over filling every lane with weak matches.
+STRICT_EVENT_ANCHORS: dict[str, tuple[str, ...]] = {
+    "exaltation_cross": ("cross_veneration", "passion_of_christ"),
+    "good_friday": ("passion_of_christ", "cross_veneration"),
+    "holy_thursday": ("passion_of_christ", "cross_veneration"),
+    "holy_saturday": ("passion_of_christ", "cross_veneration"),
+    "holy_week": ("passion_of_christ", "cross_veneration"),
+    "palm_sunday": ("passion_of_christ",),
+    "nativity": ("christmas",),
+    "easter": ("easter",),
+    "bright_week": ("easter",),
+    "holocaust_day": ("holocaust",),
+    "romania_national": ("romania",),
+    "romanian_revolution": ("revolution", "communism"),
+}
+
+TAG_LABELS = {
+    "cross_veneration": "Sfânta Cruce",
+    "passion_of_christ": "Patimile/Răstignirea lui Hristos",
+    "christianity": "creștinism",
+    "faith": "credință",
+    "easter": "Paști/Înviere",
+    "christmas": "Nașterea Domnului/Crăciun",
+    "holocaust": "Holocaust",
+    "romania": "România",
+    "revolution": "revoluție",
+    "communism": "comunism",
+    "saints": "sfinți/martiri",
+    "monasticism": "monahism",
+    "war": "război",
+    "peace": "pace",
+    "history": "istorie",
+    "medieval": "Evul Mediu",
+    "antiquity": "Antichitate",
+    "nature": "natură",
+    "family": "familie",
+    "contemplative": "atmosferă contemplativă",
+    "dark": "ton sobru",
+    "autumn": "toamnă",
+    "winter": "iarnă",
+    "spring": "primăvară",
+    "summer": "vară",
+}
 
 
 class FastRecommendationEngineV6(FastRecommendationEngineV5):
-    """Adds one-pass, cached calendar-day programs on top of the fast v5 engine.
+    """Fast calendar recommender with strict, explainable event relevance.
 
-    The old month page called the complete recommender repeatedly for several date ranges.
-    This class scans one balanced pool once, keeps representation for each calendar relation,
-    fully scores only a bounded union, and then reuses those scores for all visible sections.
+    The calendar view is precision-first: a title is not allowed to claim a historical or
+    spiritual relation merely because it shares a broad genre such as History.  When an
+    event has a concrete anchor (Holy Cross, Holocaust, Romania, Easter, etc.), secondary
+    relations must also carry that anchor.  If there are no genuine matches, the UI shows
+    fewer results instead of fabricating relevance.
     """
 
     CALENDAR_POOL = 2500
@@ -41,38 +89,96 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             .05 * float(s.season)
         )
 
-    def _calendar_score_cached(self, movie, when: date):
-        """v5 relation score plus a few explicit feast aliases.
+    @staticmethod
+    def _tag_strength(sem: dict[str, float], tags) -> tuple[float, str | None]:
+        best_strength = 0.0
+        best_tag = None
+        for tag in tags:
+            strength = float(sem.get(tag, 0.0) or 0.0)
+            if strength > best_strength:
+                best_strength = strength
+                best_tag = tag
+        return best_strength, best_tag
 
-        A Passion/Calvary film is genuinely direct for the Exaltation of the Cross even if
-        its metadata says `passion_of_christ` rather than the narrower `cross_veneration`.
-        These aliases improve recall without turning every generic Christian film into a
-        direct match.
+    @staticmethod
+    def _tag_label(tag: str | None) -> str:
+        if not tag:
+            return "semnal tematic verificat"
+        return TAG_LABELS.get(tag, tag.replace("_", " "))
+
+    def _strict_event_relation(self, ev, proximity: float, sem: dict[str, float]):
+        """Return a relation only when the movie carries evidence specific to the event.
+
+        This is the hard precision gate used by Program calendar.  In particular, for the
+        Exaltation of the Holy Cross, `History` or `Medieval` alone produces zero relevance.
         """
-        score, kind, reason = super()._calendar_score_cached(movie, when)
+        religious = ev.category in {"ortodox", "perioada_ortodoxa"}
+        strict_tags = STRICT_EVENT_ANCHORS.get(ev.key)
+        anchor_tags = strict_tags if strict_tags is not None else tuple(ev.direct_tags)
+        anchor_strength, anchor_tag = self._tag_strength(sem, anchor_tags)
+
+        direct_tags = strict_tags if strict_tags is not None else tuple(ev.direct_tags)
+        direct, direct_tag = self._tag_strength(sem, direct_tags)
+        historical, historical_tag = self._tag_strength(sem, ev.historical_tags)
+        spiritual, spiritual_tag = self._tag_strength(sem, ev.spiritual_tags)
+        atmosphere, atmosphere_tag = self._tag_strength(sem, ev.atmosphere_tags)
+
+        if strict_tags is not None:
+            # A strict feast/commemoration cannot inherit relevance from generic history,
+            # faith or atmosphere unless the event-specific anchor is present too.
+            historical *= anchor_strength
+            spiritual *= anchor_strength
+        elif religious:
+            if ev.direct_tags:
+                # A religious feast with a direct anchor requires that anchor before a
+                # broad historical/spiritual label can be presented as feast relevance.
+                historical *= anchor_strength
+                if ev.category != "perioada_ortodoxa":
+                    spiritual *= anchor_strength
+            else:
+                # Fasting periods legitimately use spiritual/monastic/contemplative themes.
+                historical *= spiritual
+        elif ev.direct_tags:
+            # Historical/civic events with a concrete subject (Romania, Holocaust, nature,
+            # peace...) require that subject before generic History/War can qualify.
+            historical *= anchor_strength
+            spiritual *= anchor_strength
+        else:
+            # No direct anchor: require corroboration from a second dimension rather than
+            # accepting History/War on its own.
+            corroboration = max(spiritual, atmosphere)
+            historical *= corroboration
+
+        candidates = [
+            ("directă", direct, 1.00, direct_tag or anchor_tag),
+            ("istorică", historical, .72, anchor_tag or historical_tag),
+            ("spirituală", spiritual, .58, anchor_tag or spiritual_tag),
+            ("atmosferică", atmosphere, .46, atmosphere_tag),
+        ]
+        kind, raw, multiplier, evidence_tag = max(candidates, key=lambda item: item[1] * item[2])
+        score = clamp(raw * multiplier * float(ev.importance) * float(proximity))
+        if score < .12:
+            return 0.0, "slabă", "Fără legătură calendaristică verificabilă."
+
+        reason = (
+            f"{ev.name}: legătură {kind} prin {self._tag_label(evidence_tag)}."
+        )
+        return score, kind, reason
+
+    def _calendar_score_cached(self, movie, when: date):
         sem = movie.semantic or extract_semantic(movie)
         events, _season_label, _season_tags = self._date_context(when)
-        aliases = {
-            "exaltation_cross": ("passion_of_christ",),
-            "good_friday": ("cross_veneration",),
-            "holy_thursday": ("cross_veneration",),
-            "holy_saturday": ("passion_of_christ",),
-        }
-        best = (score, kind, reason)
+        best = (0.0, "slabă", "Fără reper calendaristic puternic.")
         for ev, proximity in events:
-            tags = aliases.get(ev.key, ())
-            if not tags:
-                continue
-            strength = max((float(sem.get(t, 0) or 0) for t in tags), default=0.0)
-            alias_score = clamp(strength * .92 * ev.importance * proximity)
-            if alias_score > best[0]:
-                best = (alias_score, "directă", f"{ev.name}: relevanță directă.")
+            relation = self._strict_event_relation(ev, proximity, sem)
+            if relation[0] > best[0]:
+                best = relation
         return best
 
     def calendar_day_program(self, when: date | None = None, count_per_section: int = 6) -> dict:
         when = when or date.today()
         count_per_section = max(3, min(8, int(count_per_section or 6)))
-        cache_key = (when.isoformat(), count_per_section, self._state_token())
+        cache_key = (when.isoformat(), count_per_section, self._state_token(), ENGINE_VERSION)
         cached = self._calendar_program_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -102,8 +208,8 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             quality = self._quality(movie)
             novelty = self._novelty(movie, context)
             value = (
-                .46 * calendar_score + .25 * affinity + .11 * quality +
-                .07 * season_score + .06 * evidence + .05 * novelty
+                .52 * calendar_score + .22 * affinity + .10 * quality +
+                .06 * season_score + .05 * evidence + .05 * novelty
             )
             rough.append((value, movie, calendar_score, kind, season_score, reason))
 
@@ -124,10 +230,15 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
                 if len(chosen) >= self.CALENDAR_FINALISTS:
                     return
 
-        add_many(rough, 220)
+        # Calendar-relevant candidates first.  The personal/quality tail exists only so the
+        # seasonal lane can still work on ordinary days; it cannot enter a strict event lane
+        # without passing _calendar_score_cached again during full scoring.
+        relevant_rough = [item for item in rough if item[2] >= .12]
+        add_many(relevant_rough, 260)
+        add_many(rough, 120)
         for relation in ("directă", "spirituală", "istorică", "atmosferică"):
             relation_items = sorted(
-                (item for item in rough if item[3] == relation and item[2] >= .10),
+                (item for item in rough if item[3] == relation and item[2] >= .12),
                 key=lambda item: (item[2], item[0]), reverse=True,
             )
             add_many(relation_items, 34)
@@ -150,7 +261,7 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
         self._assert_no_blocked_leak(scored)
         scored.sort(key=self._calendar_rank, reverse=True)
 
-        def lane(kind: str | None = None, min_calendar: float = .10, season_only: bool = False):
+        def lane(kind: str | None = None, min_calendar: float = .12, season_only: bool = False):
             out = []
             for rec in scored:
                 s = rec.score
@@ -169,19 +280,30 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
                 out.sort(key=lambda r: (r.score.calendar, self._calendar_rank(r)), reverse=True)
             return out
 
-        exact = [r for r in scored if r.score.calendar >= .10]
+        active_events = self.calendar.relevant_events(when)
+        has_specific_event = any(
+            ev.category != "sezon" and float(ev.importance) * float(proximity) >= .45
+            for ev, proximity in active_events
+        )
+
+        # The summary lane contains only actual direct/spiritual/historical relations.  On a
+        # concrete feast/commemoration we never back-fill it with generic seasonal films.
+        exact = [
+            r for r in scored
+            if r.score.calendar >= .16 and r.score.calendar_kind in {"directă", "spirituală", "istorică"}
+        ]
         exact.sort(key=self._calendar_rank, reverse=True)
-        if not exact:
-            exact = [r for r in scored if r.score.season > .34]
+        if not exact and not has_specific_event:
+            exact = [r for r in scored if r.score.season > .40]
             exact.sort(key=lambda r: (r.score.season, r.score.final), reverse=True)
 
         specs = [
-            ("exact", "Pentru ziua asta", "Legătura cu ziua/perioada este criteriul principal; gustul tău decide ordinea.", exact),
-            ("direct", "Legătură directă", "Filme cu o legătură tematică directă cu reperul calendaristic activ.", lane("directă", .10)),
-            ("spiritual", "Legătură spirituală", "Credință, creștinism, viață spirituală sau teme apropiate reperului zilei.", lane("spirituală", .10)),
-            ("historical", "Legătură istorică", "Filme conectate istoric cu evenimentul, epoca sau memoria zilei.", lane("istorică", .10)),
-            ("atmosphere", "Atmosfera zilei", "Ton, anotimp și atmosferă potrivite perioadei, fără a pretinde o legătură directă.", lane("atmosferică", .09)),
-            ("season", "Sezon și perioadă", "Potrivire cu momentul anului și micro-perioada calendaristică.", lane(season_only=True)),
+            ("exact", "Pentru ziua asta", "Doar filme cu o legătură verificabilă cu ziua/perioada; gustul tău decide ordinea.", exact),
+            ("direct", "Legătură directă", "Filme cu o legătură tematică explicită cu reperul calendaristic activ.", lane("directă", .16)),
+            ("spiritual", "Legătură spirituală", "Teme spirituale acceptate numai când există și dovadă relevantă pentru reperul zilei.", lane("spirituală", .15)),
+            ("historical", "Legătură istorică", "Istoria generică nu este suficientă; filmul trebuie să aibă și subiectul concret al zilei.", lane("istorică", .18)),
+            ("atmosphere", "Atmosfera zilei", "Ton/anotimp potrivit, separat clar de legătura factuală cu evenimentul.", lane("atmosferică", .14)),
+            ("season", "Sezon și perioadă", "Potrivire cu momentul anului; nu este prezentată ca legătură directă cu sărbătoarea.", lane(season_only=True)),
         ]
 
         sections = []
@@ -190,10 +312,6 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             picked = []
             for rec in recs:
                 mid = int(rec.movie.id)
-                # `Pentru ziua asta` is the summary and may intentionally overlap a more
-                # explicit lane.  The specialized lanes de-duplicate only among themselves,
-                # so categories like `Legătură directă` never disappear just because their
-                # strongest film was also in the summary.
                 if key != "exact" and mid in used_specialized:
                     continue
                 picked.append(rec)
@@ -204,13 +322,12 @@ class FastRecommendationEngineV6(FastRecommendationEngineV5):
             if picked:
                 sections.append({"key": key, "title": title, "subtitle": subtitle, "recommendations": picked})
 
-        events = self.calendar.relevant_events(when)
         phase, season_tags = self.calendar.season_phase(when)
         result = {
             "date": when,
             "phase": phase,
             "season_tags": dict(season_tags),
-            "events": events,
+            "events": active_events,
             "sections": sections,
             "pre_rank_count": self.last_calendar_pre_rank_count,
             "full_score_count": self.last_calendar_full_score_count,
