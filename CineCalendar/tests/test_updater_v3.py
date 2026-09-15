@@ -6,7 +6,8 @@ import time
 
 import pytest
 
-from cinecalendar.updater_v3 import cleanup_update_residue, _powershell_helper
+from cinecalendar.updater_v3 import cleanup_update_residue
+from cinecalendar.updater_v4 import _powershell_helper
 
 
 def test_cleanup_update_residue_removes_only_transient_payloads(tmp_path):
@@ -42,6 +43,33 @@ def test_clean_helper_forces_stuck_parent_and_cleans_success_residue():
     assert "Remove-Item -LiteralPath $backup -Recurse -Force" in script
     assert "Remove-Item -LiteralPath $req.request_path -Force" in script
     assert "Remove-Item -LiteralPath $req.helper_script -Force" in script
+
+
+def test_helper_never_shadows_powershell_readonly_pid():
+    script = _powershell_helper()
+    assert "function Wait-ParentExit([int]$ProcessId, [int]$Seconds)" in script
+    assert "Get-Process -Id $ProcessId" in script
+    assert "[int]$Pid" not in script
+    assert "Get-Process -Id $Pid" not in script
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell semantics only")
+def test_wait_parent_exit_executes_without_pid_readonly_error():
+    """Execute the generated function; regression for '$PID is read-only or constant'."""
+    script = _powershell_helper()
+    start = script.index("function Wait-ParentExit")
+    end = script.index("function Norm", start)
+    fn = script[start:end]
+    command = fn + "\nif (-not (Wait-ParentExit -ProcessId 2147483647 -Seconds 0)) { exit 9 }"
+    completed = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert "read-only or constant" not in (completed.stderr + completed.stdout).lower()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows process semantics only")
