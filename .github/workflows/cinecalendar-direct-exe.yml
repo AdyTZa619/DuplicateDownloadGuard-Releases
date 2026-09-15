@@ -5,6 +5,7 @@ on:
     branches: ["cinecalendar-direct-exe"]
     paths-ignore:
       - "CineCalendar/update-v2.json"
+      - "CineCalendar/collaborative-model.json"
       - "working_source/**"
   workflow_dispatch:
 
@@ -31,6 +32,11 @@ jobs:
             'CineCalendar\launcher.py',
             'CineCalendar\cinecalendar\recommendation.py',
             'CineCalendar\cinecalendar\recommender_v3.py',
+            'CineCalendar\cinecalendar\recommender_v10.py',
+            'CineCalendar\cinecalendar\recommender_v11.py',
+            'CineCalendar\cinecalendar\collaborative_als.py',
+            'CineCalendar\collaborative-model.json',
+            'CineCalendar\MOVIELENS_MODEL_NOTICE.txt',
             'CineCalendar\cinecalendar\autoseed.py',
             'CineCalendar\cinecalendar\qt_ui_v2.py',
             'CineCalendar\cinecalendar\premium_ui.py',
@@ -61,12 +67,13 @@ jobs:
         working-directory: CineCalendar
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name CineCalendar --manifest CineCalendar.manifest --hidden-import=sqlite3 launcher.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name CineCalendar --manifest CineCalendar.manifest --hidden-import=sqlite3 --collect-all implicit launcher.py
           $exe = 'dist\CineCalendar\CineCalendar.exe'
           if (!(Test-Path $exe)) { throw 'Premium EXE was not created' }
           $b = [IO.File]::ReadAllBytes($exe)
           if ($b.Length -lt 2 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw 'Not a Windows PE executable' }
           if (!(Test-Path 'dist\CineCalendar\_internal')) { throw 'PyInstaller _internal folder missing' }
+          Copy-Item 'MOVIELENS_MODEL_NOTICE.txt' 'dist\CineCalendar\MOVIELENS_MODEL_NOTICE.txt' -Force
           Write-Host "Launcher EXE bytes: $($b.Length)"
           Write-Host "Portable folder bytes: $((Get-ChildItem 'dist\CineCalendar' -Recurse -File | Measure-Object Length -Sum).Sum)"
           Get-FileHash $exe -Algorithm SHA256
@@ -98,6 +105,9 @@ jobs:
           Nu este necesar Python și nu se instalează nimic.
           IMPORTANT: păstrează CineCalendar.exe împreună cu folderul _internal și restul fișierelor din acest director.
           Datele personale sunt păstrate separat în CineCalendarData și NU sunt șterse la update.
+          Motorul principal de recomandare este implicit ALS, antrenat pe MovieLens 32M. Modelul public (~20 MB) este descărcat o singură dată și verificat SHA-256; ratingurile tale IMDb rămân exclusiv local și sunt folosite pentru recalcularea profilului ALS.
+          Filmele noi care nu există în MovieLens folosesc motorul personal de conținut ca fallback.
+          Vezi MOVIELENS_MODEL_NOTICE.txt pentru sursă și condițiile de utilizare ale modelului derivat.
           Actualizările ulterioare se fac direct din aplicație: ZIP verificat SHA-256, staging, backup, health-check și rollback automat.
           "@
           $readme | Set-Content -Encoding utf8NoBOM 'dist\CineCalendar\README.txt'
