@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.139",
+  "version": "9.0.1-test.140",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "7de160c64159016c442d71fe0b1d745e7ac106171ad463963acf583b562a00c4",
-  "notes": "TEST: Fail closed every JDownloader handoff on non-LIPSĂ results (#96)",
-  "publishedAt": "2026-09-15T21:02:50.5551287Z",
+  "sha256": "cde48a4382b2cf1be4be0d00f8a8ef02f5f3c7347e2bd096d4db27037f862b90",
+  "notes": "TEST: Stabilize detector and Bunkr/JDownloader after TEST.139 (#97)",
+  "publishedAt": "2026-09-15T21:26:33.3893131Z",
   "channel": "test"
 }
