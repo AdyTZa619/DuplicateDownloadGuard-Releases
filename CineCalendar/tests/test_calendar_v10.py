@@ -2,6 +2,7 @@ from datetime import date
 
 from cinecalendar.calendar_engine_v2 import RichCalendarEngine
 from cinecalendar.db import Database
+from cinecalendar.imdb_import import add_manual_rating
 from cinecalendar.models import Movie
 from cinecalendar.recommender_v9 import FastRecommendationEngineV9
 from cinecalendar.recommender_v10 import FastRecommendationEngineV10
@@ -34,6 +35,19 @@ def test_holy_cross_related_lane_accepts_christian_subject_not_beach(tmp_path):
     assert "Nu este prezentat ca legătură factuală directă" in c_reason
     assert b_strength == 0
     assert b_event is None
+
+
+def test_rated_religious_favourite_is_seed_but_random_beach_is_not(tmp_path):
+    db = Database(tmp_path / "seed-v10.db")
+    add_manual_rating(db, "The Passion of the Christ", 2004, 10, "tt0335345", ["Drama"])
+    add_manual_rating(db, "The Beach", 2000, 10, "tt0163978", ["Adventure", "Drama", "Romance"])
+    engine = FastRecommendationEngineV10(db, RichCalendarEngine())
+
+    seeds = engine._rated_event_seeds(date(2026, 9, 15))
+    titles = {seed[0].title for seed in seeds}
+
+    assert "The Passion of the Christ" in titles
+    assert "The Beach" not in titles
 
 
 def test_concrete_event_removes_generic_seasonal_filler(tmp_path, monkeypatch):
