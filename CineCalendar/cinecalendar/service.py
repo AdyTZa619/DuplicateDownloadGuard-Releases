@@ -5,7 +5,7 @@ from .autoseed import ensure_initial_ratings
 from .calendar_engine_v2 import RichCalendarEngine
 from .db import Database
 from .logging_setup import setup_logging
-from .recommender_v6 import FastRecommendationEngineV6
+from .recommender_v7 import FastRecommendationEngineV7
 from .util import AppPaths
 
 
@@ -17,7 +17,7 @@ class CineCalendarService:
         self._defaults()
         self.initial_ratings_state = ensure_initial_ratings(self.db, self.paths.root.parent, self.log)
         self.calendar = RichCalendarEngine()
-        self.recommender = FastRecommendationEngineV6(self.db, self.calendar)
+        self.recommender = FastRecommendationEngineV7(self.db, self.calendar)
 
     def _defaults(self):
         if self.db.get_setting("exclude_romance", None) is None:
