@@ -26,7 +26,12 @@ def main():
     install_update_exit_guard(decision_ui.DecisionWindow)
 
     from .premium_calendar_ui import CalendarPremiumWindow, run_premium_calendar
+    from .performance_ui_patch import install_performance_ui_patch
     from . import library_ui
+
+    # Remove inherited small-catalog hot spots before the window is instantiated: the IMDb
+    # watcher becomes asynchronous/less frequent and catalog counts avoid a 260k LEFT JOIN.
+    install_performance_ui_patch(CalendarPremiumWindow)
 
     # The renderer calls the date sort key without an explicit mode; keep a safe default
     # while retaining the same implementation for every other explicit sort mode.
