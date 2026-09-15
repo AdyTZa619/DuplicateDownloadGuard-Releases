@@ -1,9 +1,9 @@
 {
-  "version": "2.3.3",
-  "url": "https://github.com/AdyTZa619/DuplicateDownloadGuard-Releases/releases/download/cinecalendar-v2.3.3/CineCalendar-2.3.3-Premium-Windows-x64.zip",
-  "sha256": "76fd5e9844d88e2b79185a44c4f7af54e053aeb2446cb7aa4cf9d2d45c538396",
-  "notes": "CineCalendar 2.3.3 repară definitiv handoff-ul updaterului pe Windows și curăță reziduurile de update. Helperul PowerShell este lansat detașat de procesul GUI, astfel încât nu mai moare odată cu CineCalendar.exe. Dacă procesul vechi rămâne blocat după închiderea ferestrei, helperul îl oprește controlat după o perioadă scurtă și continuă instalarea. După health-check reușit, sunt șterse automat pachetul ZIP temporar, folderele staged, backup-ul de rollback, health marker-ul, apply_update.json și apply_update.ps1; logul updaterului este mutat în CineCalendarData\\logs\\updater.log, astfel încât CineCalendarData\\updates să nu rămână plin de fișiere temporare. La începutul fiecărui update sunt curățate și reziduurile rămase de la încercări eșuate 2.3.1/2.3.2. CineCalendarData și baza de date personală nu sunt șterse. Include în continuare motorul rapid, filtrul anti-văzut și Program calendar pe fiecare zi din 2.3.1.",
-  "publishedAt": "2026-09-14T22:02:47.2622473Z",
+  "version": "2.3.4",
+  "url": "https://github.com/AdyTZa619/DuplicateDownloadGuard-Releases/releases/download/cinecalendar-v2.3.4/CineCalendar-2.3.4-Premium-Windows-x64.zip",
+  "sha256": "7f1edcdea0ded55ccf71e58f76caca66d3b0289dbc4c46aadd93a02856822251",
+  "notes": "CineCalendar 2.3.4 repară eroarea PowerShell „Cannot overwrite variable Pid because it is read-only or constant” din helperul de update. Cauza era parametrul intern $Pid din funcția Wait-ParentExit, care intra în conflict cu variabila automată read-only $PID din PowerShell. Helperul folosește acum $ProcessId și există test Windows care execută efectiv funcția generată și verifică explicit că eroarea nu mai apare. Rămân active handoff-ul brokered prin CIM/WMI, oprirea controlată a procesului vechi dacă rămâne blocat, health-check-ul, rollback-ul și protecția CineCalendarData. După update reușit sunt curățate automat ZIP-ul temporar, folderele staged, backup-ul de rollback, health marker-ul, apply_update.json și apply_update.ps1; logul rămâne în CineCalendarData\\logs\\updater.log. Include în continuare motorul rapid, filtrul anti-văzut și Program calendar pe fiecare zi.",
+  "publishedAt": "2026-09-15T08:31:20.6583485Z",
   "channel": "stable",
   "package": "onedir-zip"
 }
