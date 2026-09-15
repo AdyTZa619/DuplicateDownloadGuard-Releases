@@ -326,16 +326,18 @@ func imageCandidateRoughRankV85(remote RemoteItem, e FileEntry) int {
 }
 
 // imageCandidatesCachedV85 searches cached perceptual signatures across the
-// whole image collection, not only similarly named/sized files. Files that are
-// proven unreadable are cached as unusable until size/mtime changes, so one
-// corrupt local image cannot keep unrelated remote images permanently blocked.
+// whole image collection, not only similarly named/sized files. Read failures
+// are cached until size/mtime changes, but remain pending because unreadable
+// content cannot safely prove that a remote image is missing.
 func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSignatureV85, remote RemoteItem, entries, existing []FileEntry, limit int) imageCandidateSearchV85 {
 	if limit <= 0 {
 		limit = 7
 	}
 	result := imageCandidateSearchV85{Candidates: append([]FileEntry(nil), existing...), BestScore: -1, SecondScore: -1}
 	cacheChanged := false
+	indexedMode := false
 	if indexed, ok := ctx.Value(detectorCandidateKeyV90{}).(*detectorCandidatesV90); ok {
+		indexedMode = true
 		var pending int
 		entries, pending = indexed.imagePool(a, remoteSig, existing)
 		result.Pending = pending
@@ -348,6 +350,9 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 		if cachedLocalImageFailureV85(a, e) {
 			result.Cached++
 			result.Excluded++
+			if !indexedMode {
+				result.Pending++
+			}
 			continue
 		}
 		sig, ok := cachedLocalImageSignatureV85(a, e)
@@ -363,6 +368,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 				cacheLocalImageFailureV85(a, e, err.Error())
 				cacheChanged = true
 				result.Excluded++
+				result.Pending++
 				continue
 			}
 			cacheLocalImageSignatureV85(a, e, sig)
@@ -394,6 +400,9 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 		if cachedLocalImageFailureV85(a, e) {
 			result.Cached++
 			result.Excluded++
+			if !indexedMode {
+				result.Pending++
+			}
 			continue
 		}
 		uncached = append(uncached, rough{Entry: e, Rank: imageCandidateRoughRankV85(remote, e)})
@@ -421,6 +430,7 @@ func (a *App) imageCandidatesCachedV85(ctx context.Context, remoteSig imageSigna
 			cacheLocalImageFailureV85(a, row.Entry, err.Error())
 			cacheChanged = true
 			result.Excluded++
+			result.Pending++
 			continue
 		}
 		cacheLocalImageSignatureV85(a, row.Entry, sig)

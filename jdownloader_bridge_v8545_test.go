@@ -24,7 +24,7 @@ func TestJDownloaderDedicatedProvidersUseStablePerFileURLsV85130(t *testing.T) {
 		remote RemoteItem
 		want   string
 	}{
-		{RemoteItem{Source: "BUNKR", URL: "https://bunkr.example/a/album", Handle: "file-handle", DirectURL: "https://cdn.example/temporary.mp4"}, "https://bunkr.example/f/file-handle"},
+		{RemoteItem{Source: "BUNKR", URL: "https://bunkr.example/a/album", Handle: "file-handle", DirectURL: "https://cdn.example/temporary.mp4"}, "https://bunkr.example/d/file-handle"},
 		{RemoteItem{Source: "CYBERDROP", URL: "https://cyberdrop.example/a/album", ProviderID: "file-id", DirectURL: "https://cdn.example/temporary.jpg"}, "https://cyberdrop.example/f/file-id"},
 	}
 	for _, tc := range cases {

@@ -30,15 +30,15 @@ func TestJDownloaderFastV8567DelegatesEverySendToCanonicalGuard(t *testing.T) {
 	}
 }
 
-func TestJDownloaderPopupUsesFinalGuardVerdictV8568(t *testing.T) {
+func TestJDownloaderPopupRequiresFinalMissingDetectorVerdictV901(t *testing.T) {
 	b, err := os.ReadFile("web/jdownloader_fast_v8567.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	finalVerdict := "if (guard === 'DOWNLOAD') return 'DOWNLOAD';"
+	finalVerdict := "if (guard === 'DOWNLOAD') return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW';"
 	if !strings.Contains(s, finalVerdict) || !strings.Contains(s, "if (guard === 'DUPLICATE') return localPresent ? 'DUPLICATE' : 'REVIEW';") {
-		t.Fatal("JD popup is not combining final Guard verdict with current local presence")
+		t.Fatal("JD popup is not combining final Guard, detector truth, and current local presence")
 	}
 	if strings.Contains(s, "if (guard === 'DOWNLOAD' && !manual) return 'DOWNLOAD';") {
 		t.Fatal("manual flag must not override a final DOWNLOAD guard verdict")
@@ -47,7 +47,7 @@ func TestJDownloaderPopupUsesFinalGuardVerdictV8568(t *testing.T) {
 	finalPos := strings.Index(s, finalVerdict)
 	statusPos := strings.Index(s, "const status = String(row?.status")
 	if guardPos < 0 || finalPos < 0 || statusPos < 0 || !(guardPos < finalPos && finalPos < statusPos) {
-		t.Fatalf("final guard verdict must take precedence before legacy/manual status fallback: guard=%d final=%d status=%d", guardPos, finalPos, statusPos)
+		t.Fatalf("final guard plus detector truth must take precedence before legacy/manual status fallback: guard=%d final=%d status=%d", guardPos, finalPos, statusPos)
 	}
 }
 

@@ -36,6 +36,7 @@ func (a *App) rememberGuardRefreshV8545(entries []FileEntry, scan guardScan) {
 	copyEntries := append([]FileEntry(nil), entries...)
 	copyScan := scan
 	copyScan.Roots = append([]string(nil), scan.Roots...)
+	copyScan.Issues = append([]string(nil), scan.Issues...)
 	guardRefreshSnapshotsV8545.Store(a, guardRefreshSnapshotV8545{
 		At:       time.Now(),
 		RootsKey: guardRootsKeyV8545(scan.Roots),
@@ -64,5 +65,6 @@ func (a *App) reuseFreshGuardIndexV8545(destination string) ([]FileEntry, guardS
 	entries := append([]FileEntry(nil), snapshot.Entries...)
 	scan := snapshot.Scan
 	scan.Roots = append([]string(nil), snapshot.Scan.Roots...)
+	scan.Issues = append([]string(nil), snapshot.Scan.Issues...)
 	return entries, scan, age, true
 }

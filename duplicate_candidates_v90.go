@@ -13,12 +13,14 @@ type durationEntryV90 struct {
 	Duration float64
 }
 type detectorCandidatesV90 struct {
-	Entries       []FileEntry
-	Videos        []durationEntryV90
-	Unknown       []FileEntry
-	Bands         map[uint16][]int
-	ImageBands    map[uint16][]int
-	UnknownImages []FileEntry
+	Entries        []FileEntry
+	Videos         []durationEntryV90
+	Unknown        []FileEntry
+	UnusableVideos int
+	Bands          map[uint16][]int
+	ImageBands     map[uint16][]int
+	UnknownImages  []FileEntry
+	UnusableImages int
 }
 
 // Build once per source/preflight, not once for each remote row. Size buckets
@@ -34,7 +36,9 @@ func detectorCandidateContextV90(ctx context.Context, a *App, entries []FileEntr
 					key := uint16(band*256) + uint16(byte(sig.PHash>>uint(band*8)))
 					x.ImageBands[key] = append(x.ImageBands[key], entryID)
 				}
-			} else if !cachedLocalImageFailureV85(a, e) {
+			} else if cachedLocalImageFailureV85(a, e) {
+				x.UnusableImages++
+			} else {
 				x.UnknownImages = append(x.UnknownImages, e)
 			}
 			continue
@@ -44,7 +48,9 @@ func detectorCandidateContextV90(ctx context.Context, a *App, entries []FileEntr
 		}
 		if info, ok := cachedLocalMediaInfo(a, e); ok {
 			x.Videos = append(x.Videos, durationEntryV90{e, info.Duration})
-		} else if !cachedLocalMediaFailureV85(a, e) {
+		} else if cachedLocalMediaFailureV85(a, e) {
+			x.UnusableVideos++
+		} else {
 			x.Unknown = append(x.Unknown, e)
 		}
 		if fp, ok := cachedLocalVideoFingerprintV85(a, e); ok && richVideoFingerprintUsableV90(fp) {
@@ -87,6 +93,9 @@ func (a *App) videoCandidatesV90(ctx context.Context, fp videoFingerprintV85, re
 	// the uncached tail. A fixed 64-row result window could otherwise starve a
 	// completely renamed duplicate forever.
 	search := a.videoDurationCandidatesCached(context.WithValue(ctx, detectorCandidateViewV90{}, true), fp.Info, remote, pool, nil, len(pool)+1)
+	// An unreadable local video cannot be excluded as the duplicate. Preserve
+	// that uncertainty until the file changes, is removed, or becomes readable.
+	search.Pending += x.UnusableVideos
 	votes := map[string]int{}
 	byPath := map[string]FileEntry{}
 	// Multi-probe 8-bit bands retain pHashes with up to 15 differing bits without

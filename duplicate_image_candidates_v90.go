@@ -50,10 +50,18 @@ func (x *detectorCandidatesV90) imagePool(a *App, sig imageSignatureV85, existin
 		}
 		return out[i].Path < out[j].Path
 	})
-	pending := 0
+	// Cached read/decode failures remain uncertainty, not proof that the remote
+	// image is missing. Cache identity invalidation clears them after a change.
+	pending := x.UnusableImages
 	uncachedAdded := 0
 	for _, e := range x.UnknownImages {
-		if _, ok := cachedLocalImageSignatureV85(a, e); ok || cachedLocalImageFailureV85(a, e) {
+		if _, ok := cachedLocalImageSignatureV85(a, e); ok {
+			continue
+		}
+		// The snapshot may predate this failure. Count it explicitly on every
+		// later pass so progressive analysis cannot turn uncertainty into LIPSĂ.
+		if cachedLocalImageFailureV85(a, e) {
+			pending++
 			continue
 		}
 		if uncachedAdded >= 64 {

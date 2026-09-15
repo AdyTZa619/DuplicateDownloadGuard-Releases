@@ -54,12 +54,64 @@ type DownloadGuardReport struct {
 	DurationMS       int64                   `json:"durationMs"`
 	ReusedFreshIndex bool                    `json:"reusedFreshIndex,omitempty"`
 	IndexAgeMS       int64                   `json:"indexAgeMs,omitempty"`
+	IndexIncomplete  bool                    `json:"indexIncomplete,omitempty"`
+	IndexIssues      []string                `json:"indexIssues,omitempty"`
 }
 
 type guardScan struct {
-	Files int
-	Bytes int64
-	Roots []string
+	Files      int
+	Bytes      int64
+	Roots      []string
+	Incomplete bool
+	Issues     []string
+}
+
+func (scan *guardScan) addIssue(path string, err error) {
+	if scan == nil || err == nil {
+		return
+	}
+	scan.Incomplete = true
+	if len(scan.Issues) >= 25 {
+		return
+	}
+	message := strings.TrimSpace(path)
+	if message != "" {
+		message += ": "
+	}
+	scan.Issues = append(scan.Issues, message+err.Error())
+}
+
+func (a *App) configuredGuardRootIssuesV901() []string {
+	a.mu.RLock()
+	paths := append([]string(nil), a.cfg.LocalPaths...)
+	paths = append(paths, a.cfg.DownloadDir)
+	a.mu.RUnlock()
+	seen := map[string]bool{}
+	issues := []string{}
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		path = filepath.Clean(path)
+		key := pathKey(path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		info, err := os.Stat(path)
+		if err != nil {
+			issues = append(issues, path+": "+err.Error())
+			continue
+		}
+		if !info.IsDir() {
+			issues = append(issues, path+": locația configurată nu este folder")
+		}
+	}
+	return issues
 }
 
 func normalizeGuardMode(mode string) string {
@@ -176,6 +228,9 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 	entries := map[string]FileEntry{}
 	seen := map[string]bool{}
 	scan := guardScan{Roots: append([]string(nil), roots...)}
+	for _, issue := range a.configuredGuardRootIssuesV901() {
+		scan.addIssue("", errors.New(issue))
+	}
 
 	add := func(path string, info os.FileInfo) {
 		if info == nil || info.IsDir() || isGuardTemporaryFile(path) {
@@ -201,6 +256,7 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 				return ctx.Err()
 			}
 			if walkErr != nil {
+				scan.addIssue(path, walkErr)
 				if d != nil && d.IsDir() {
 					return filepath.SkipDir
 				}
@@ -212,10 +268,13 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 			info, err := d.Info()
 			if err == nil {
 				add(path, info)
+			} else {
+				scan.addIssue(path, err)
 			}
 			return nil
 		})
 		if err != nil && !errors.Is(err, context.Canceled) {
+			scan.addIssue(root, err)
 			a.logf("ExactGuard: scanarea live a ignorat o eroare în %s: %v", root, err)
 		}
 		if ctx.Err() != nil {
@@ -249,7 +308,11 @@ func (a *App) refreshLiveIndexForGuard(ctx context.Context, destination string) 
 	for _, e := range entries {
 		out = append(out, e)
 	}
-	a.rememberGuardRefreshV8545(out, scan)
+	if scan.Incomplete {
+		guardRefreshSnapshotsV8545.Delete(a)
+	} else {
+		a.rememberGuardRefreshV8545(out, scan)
+	}
 	return out, scan, nil
 }
 
@@ -559,6 +622,7 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 		}
 	}
 	report.ScannedFiles, report.ScannedBytes, report.ScannedRoots = scan.Files, scan.Bytes, scan.Roots
+	report.IndexIncomplete, report.IndexIssues = scan.Incomplete, append([]string(nil), scan.Issues...)
 	report.ReusedFreshIndex = reusedFreshIndex
 	if reusedFreshIndex {
 		report.IndexAgeMS = indexAge.Milliseconds()
@@ -603,6 +667,9 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 		}
 		if decision.Verdict == guardDownload && row.Manual && strings.EqualFold(row.Status, "HAVE") {
 			decision = guardReviewDecision(row, "manual-have", "Fișierul este marcat manual «Ai deja». Download Guard nu suprascrie această decizie fără confirmare explicită. "+decision.Reason, decision.Candidates, row.LocalPath)
+		}
+		if decision.Verdict == guardDownload && scan.Incomplete {
+			decision = guardReviewDecision(row, "local-index-incomplete", fmt.Sprintf("Indexul local este incomplet: %d problemă(e) de acces/configurare. Nu declar LIPSĂ până când toate locațiile configurate pot fi verificate.", len(scan.Issues)), decision.Candidates, decision.LocalPath)
 		}
 		decision = decorateGuardDecision(decision)
 		decision.Detector.DeepAnalyzed = int(metrics.Deep.Load())

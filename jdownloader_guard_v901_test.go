@@ -47,8 +47,17 @@ func TestJDownloaderBackendRechecksAndSendsOnlyFinalMissingV901(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("handoff failed: %d %s", w.Code, w.Body.String())
 	}
-	if got := form.Get("urls"); got != "https://bunkr.example/f/missing" {
+	if got := form.Get("urls"); got != "https://bunkr.example/d/missing" {
 		t.Fatalf("unchecked duplicate crossed JD boundary: %q", got)
+	}
+	var response struct {
+		ExternalItems []jdownloaderExternalItemV901 `json:"externalItems"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ExternalItems) != 1 || response.ExternalItems[0].ResultID != 2 || response.ExternalItems[0].URL != "https://bunkr.example/d/missing" {
+		t.Fatalf("backend handoff journal is not the exact sent set: %#v", response.ExternalItems)
 	}
 	if row, _ := a.resultByID(1); row.GuardVerdict != guardDuplicate || row.LocalPath != local {
 		t.Fatalf("duplicate not blocked by common detector: %#v", row)
@@ -115,6 +124,38 @@ func TestJDownloaderBoundaryRejectsUndecoratedOrReviewDecisionV901(t *testing.T)
 		if jdownloaderDecisionAllowedV901(blocked) {
 			t.Fatalf("non-LIPSĂ decision crossed JD boundary: %#v", blocked)
 		}
+	}
+}
+
+func TestJDownloaderBlocksMissingWhenConfiguredRootIsOfflineV901(t *testing.T) {
+	collection, download := t.TempDir(), t.TempDir()
+	a := guardTestApp(t, collection, download, RemoteItem{})
+	a.cfg.LocalPaths = append(a.cfg.LocalPaths, filepath.Join(t.TempDir(), "offline-drive"))
+	a.results = []Result{{ID: 1, Remote: RemoteItem{Name: "apparently-missing.bin", Size: 12345, Source: "BUNKR", URL: "https://bunkr.example/a/a", Handle: "missing"}}}
+	var calls int
+	jd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("success"))
+	}))
+	defer jd.Close()
+	oldBase := jdownloaderDirectBaseV8550
+	jdownloaderDirectBaseV8550 = jd.URL
+	defer func() { jdownloaderDirectBaseV8550 = oldBase }()
+	body, _ := json.Marshal(map[string]any{"ids": []int{1}, "destination": download, "guardMode": "smart"})
+	w := httptest.NewRecorder()
+	a.handleJDownloaderDirectEndpointV8551(w, httptest.NewRequest(http.MethodPost, "/api/download/jdownloader-direct", bytes.NewReader(body)))
+	if w.Code != http.StatusOK || calls != 0 {
+		t.Fatalf("offline collection crossed JD boundary: code=%d calls=%d body=%s", w.Code, calls, w.Body.String())
+	}
+	var response struct {
+		ExternalAdded int                 `json:"externalAdded"`
+		Guard         DownloadGuardReport `json:"guard"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ExternalAdded != 0 || len(response.Guard.Decisions) != 1 || response.Guard.Decisions[0].Verdict != guardReview {
+		t.Fatalf("offline root was not fail-closed: %#v", response)
 	}
 }
 

@@ -70,6 +70,45 @@ func TestUnexaminedDurationCandidatesRemainPendingV90(t *testing.T) {
 	}
 }
 
+func TestCachedUnreadableMediaRemainPendingV901(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	video := FileEntry{Path: filepath.Join(a.appDir, "unreadable.mp4"), Name: "unreadable.mp4", Size: 1000, MTime: 1}
+	imageEntry := FileEntry{Path: filepath.Join(a.appDir, "unreadable.jpg"), Name: "unreadable.jpg", Size: 2000, MTime: 2}
+	cacheLocalMediaFailureV85(a, video, "access denied")
+	cacheLocalImageFailureV85(a, imageEntry, "decode failed")
+	entries := []FileEntry{video, imageEntry}
+	ctx := detectorCandidateContextV90(context.Background(), a, entries)
+	indexed := ctx.Value(detectorCandidateKeyV90{}).(*detectorCandidatesV90)
+	if indexed.UnusableVideos != 1 || indexed.UnusableImages != 1 {
+		t.Fatalf("cached read failures disappeared from detector uncertainty: %#v", indexed)
+	}
+	videoSearch := a.videoCandidatesV90(ctx, richFixtureFingerprintV90(101), RemoteItem{Name: "remote.mp4", Size: 9000}, entries)
+	if videoSearch.Pending == 0 {
+		t.Fatal("unreadable video was treated as proof that remote content is missing")
+	}
+	_, imagePending := indexed.imagePool(a, makeImageSignatureV85(image.NewRGBA(image.Rect(0, 0, 32, 32))), nil)
+	if imagePending == 0 {
+		t.Fatal("unreadable image was treated as proof that remote content is missing")
+	}
+}
+
+func TestImageFailureAfterIndexBuildRemainsPendingV901(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	entry := FileEntry{Path: filepath.Join(a.appDir, "fails-later.jpg"), Name: "fails-later.jpg", Size: 2000, MTime: 2}
+	ctx := detectorCandidateContextV90(context.Background(), a, []FileEntry{entry})
+	indexed := ctx.Value(detectorCandidateKeyV90{}).(*detectorCandidatesV90)
+	if indexed.UnusableImages != 0 || len(indexed.UnknownImages) != 1 {
+		t.Fatalf("unexpected initial image index: %#v", indexed)
+	}
+	cacheLocalImageFailureV85(a, entry, "decode failed after snapshot")
+	for pass := 0; pass < 2; pass++ {
+		_, pending := indexed.imagePool(a, makeImageSignatureV85(image.NewRGBA(image.Rect(0, 0, 32, 32))), nil)
+		if pending == 0 {
+			t.Fatalf("pass %d lost post-snapshot image failure uncertainty", pass+1)
+		}
+	}
+}
+
 func BenchmarkDetectorCandidateSnapshotV90(b *testing.B) {
 	a := &App{appDir: b.TempDir()}
 	entries := make([]FileEntry, 10000)
