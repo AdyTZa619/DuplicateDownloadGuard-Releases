@@ -34,7 +34,9 @@ jobs:
             'CineCalendar\cinecalendar\recommender_v3.py',
             'CineCalendar\cinecalendar\recommender_v10.py',
             'CineCalendar\cinecalendar\recommender_v11.py',
+            'CineCalendar\cinecalendar\recommender_v12.py',
             'CineCalendar\cinecalendar\collaborative_als.py',
+            'CineCalendar\cinecalendar\daily_genre_ui_patch.py',
             'CineCalendar\collaborative-model.json',
             'CineCalendar\MOVIELENS_MODEL_NOTICE.txt',
             'CineCalendar\cinecalendar\autoseed.py',
@@ -137,7 +139,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin cinecalendar-direct-exe
+          git fetch origin cinecalendar-direct-exe --tags
           $current = (git rev-parse HEAD).Trim()
           $remote = (git rev-parse origin/cinecalendar-direct-exe).Trim()
           if ($current -ne $remote) {
@@ -151,11 +153,14 @@ jobs:
           $tag = "cinecalendar-v$version"
           $notes = (Get-Content 'UPDATE_NOTES.txt' -Raw).Trim()
 
+          # Stable versions are immutable. Replacing a bundle under the same version makes
+          # installed clients believe they are current and prevents them from receiving the
+          # revised code. A code change must always bump __version__ first.
           if (gh release view $tag --repo '${{ github.repository }}' 2>$null) {
-            gh release upload $tag $zipName --clobber --repo '${{ github.repository }}'
-          } else {
-            gh release create $tag $zipName --target $current --title "CineCalendar $version Premium" --notes $notes --repo '${{ github.repository }}'
+            throw "Stable release $tag already exists. Bump CineCalendar __version__; same-version replacement is forbidden."
           }
+
+          gh release create $tag $zipName --target $current --title "CineCalendar $version Premium" --notes $notes --repo '${{ github.repository }}'
 
           $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$zipName"
           $manifest = [ordered]@{
