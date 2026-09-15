@@ -14,25 +14,19 @@ func TestJDownloaderBatchConfirmationV8564(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		"params.set('package', packageName)",
-		"Trimite numai lipsurile",
-		"ddgJDSendSafe",
-		"ddgJDFullRecheck",
-		"const missingRows = rows.filter",
-		"submitRows(missingRows)",
-		"row?.localPresent === true",
-		"Do not force dir or autostart",
-		"Deliberately do NOT call /api/download/preflight here",
+		"const guard = window.ddgJDownloaderGuardV901",
+		"const result = await guard.sendIDs(ids)",
+		"sendBatchAware",
+		"sendSafeOnly",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing JD batch behavior %q", want)
 		}
 	}
-	if strings.Contains(s, "params.set('dir'") || strings.Contains(s, "params.set('autostart'") {
-		t.Fatal("JD batch must not force destination or autostart")
-	}
-	if strings.Contains(s, "Trimite TOATE") || strings.Contains(s, "ddgJDSendAll") || strings.Contains(s, "confirmAll") {
-		t.Fatal("legacy JD batch flow must not offer an all-files bypass")
+	for _, forbidden := range []string{"/flashgot", "form.submit()", "submitHiddenForm(", "Trimite TOATE", "ddgJDSendAll", "confirmAll"} {
+		if strings.Contains(s, forbidden) {
+			t.Fatalf("legacy JD batch retained bypass %q", forbidden)
+		}
 	}
 }
 
@@ -42,8 +36,12 @@ func TestJDFinalRouterUsesBackendGuardBeforeHandoffV901(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
+	guardBytes, err := os.ReadFile("web/jdownloader_window_capture_v8566.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := string(guardBytes)
 	for _, want := range []string{
-		"/api/download/jdownloader-direct",
 		"guardedBackendHandoff",
 		"event.stopImmediatePropagation()",
 	} {
@@ -53,6 +51,11 @@ func TestJDFinalRouterUsesBackendGuardBeforeHandoffV901(t *testing.T) {
 	}
 	if strings.Contains(s, "batch.sendBatchAware()") || strings.Contains(s, "127.0.0.1:9666") {
 		t.Fatal("final JD router bypasses the backend guard")
+	}
+	for _, want := range []string{"/api/download/jdownloader-direct", "ddgJDownloaderGuardV901"} {
+		if !strings.Contains(guard, want) {
+			t.Fatalf("canonical JD boundary missing %q", want)
+		}
 	}
 }
 

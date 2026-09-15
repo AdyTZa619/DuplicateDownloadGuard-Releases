@@ -3687,7 +3687,7 @@ func (a *App) handleExportMissing(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, decision := range report.Decisions {
-			if decision.Verdict == guardDownload {
+			if jdownloaderDecisionAllowedV901(decision) {
 				allowed[decision.ResultID] = true
 			}
 		}

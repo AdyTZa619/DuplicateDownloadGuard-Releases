@@ -137,23 +137,14 @@
   }
 
   async function submitJDownloaderDirect(rows, destination, autoStart = true) {
-    const submission = buildJDSubmission(rows, destination, autoStart);
-    let response;
-    try {
-      response = await fetchWithTimeout(`${JD_BASE}/flashgot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: submission.body.toString()
-      }, 15000);
-    } catch (error) {
-      throw new Error(`JDownloader nu a confirmat primirea linkurilor: ${error?.name === 'AbortError' ? 'timeout' : (error?.message || error)}`);
-    }
-
-    const reply = (await response.text()).trim();
-    if (!response.ok || /(^|\s)failed(\s|$)/i.test(reply)) {
-      throw new Error(`JDownloader a refuzat cererea${reply ? `: ${reply}` : ''}`);
-    }
-    return { ...submission, reply };
+    void destination;
+    void autoStart;
+    const guard = window.ddgJDownloaderGuardV901;
+    if (!guard?.sendIDs) throw new Error('Filtrul JDownloader nu este disponibil. Nu s-a trimis nimic.');
+    const ids = (rows || []).map(row => Number(row?.id)).filter(Number.isFinite);
+    if (!ids.length) throw new Error('Selecția nu conține rezultate valide pentru JDownloader.');
+    const result = await guard.sendIDs(ids);
+    return {...result, count:Number(result?.externalAdded || 0), destination:String(result?.destination || '')};
   }
 
   async function preflightAllowed(ids, destination, mode) {

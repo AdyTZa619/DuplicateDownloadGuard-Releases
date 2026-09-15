@@ -1,6 +1,6 @@
 # DDG 9.0.1 TEST — detector MEGA/Bunkr și barieră JDownloader
 
-Data verificării locale: 2026-09-14.
+Data ultimei verificări locale: 2026-09-15.
 
 ## Bază verificată
 
@@ -14,7 +14,7 @@ Auditul a confirmat că `.136` avea deja motorul comun `evaluateDownloadGuard`, 
 
 ## Modificări
 
-1. Eliminarea bypass-ului JDownloader din browser. Fluxul UI folosește exclusiv `/api/download/jdownloader-direct`; backendul reexecută guard-ul și transmite către JDownloader numai deciziile finale `DOWNLOAD` / clasificarea `LIPSĂ`.
+1. Eliminarea bypass-ului JDownloader din browser. Fluxul UI folosește exclusiv `/api/download/jdownloader-direct`; backendul reexecută guard-ul și transmite către JDownloader numai deciziile finale `DOWNLOAD` / acțiunea `DESCARCĂ` / clasificarea `LIPSĂ`.
 2. `allowReview` nu mai poate introduce `DE VERIFICAT` nici în JDownloader, nici în coada internă. `ACELAȘI CONȚINUT` este normalizat intern ca `DUPLICATE`, cu acțiunea `NU DESCĂRCA`.
 3. Căutarea video nu mai poate rămâne blocată în primele 64/512 intrări. Toate fingerprinturile deja cache-uite sunt comparate ieftin, iar coada necunoscută avansează în loturi până când nu mai există candidați neanalizați.
 4. Căutarea imaginilor avansează progresiv prin colecția relevantă și reutilizează semnăturile calculate în trecerile anterioare; fingerprintul remote este calculat o singură dată per analiză.
@@ -29,11 +29,11 @@ Auditul a confirmat că `.136` avea deja motorul comun `evaluateDownloadGuard`, 
 
 Motor și verdict: `duplicate_candidates_v90.go`, `duplicate_deep_video_v901.go`, `duplicate_evidence_v90.go`, `duplicate_image_candidates_v90.go`, `duplicate_source_v90.go`, `image_signature_cache.go`, `smart_media_guard.go`, `video_candidate_analysis.go`, `video_verdict_finalize.go`.
 
-Barieră download/JDownloader: `jdownloader_direct_v8550.go`, `v8_extra.go`, `web/exact_guard.js`, `web/jdownloader_final_v8551.js`.
+Barieră download/JDownloader: `jdownloader_direct_v8550.go`, `main.go`, `v7_extra.go`, `v8_extra.go`, `web/download_actions_v8545.js`, `web/exact_guard.js`, `web/jdownloader_batch_confirm_v8564.js`, `web/jdownloader_fast_v8567.js`, `web/jdownloader_final_v8551.js`, `web/jdownloader_window_capture_v8566.js`.
 
 Explicabilitate UI: `web/duplicate_evidence_v90.js`.
 
-Teste/corpus: `duplicate_corpus_v90_test.go`, `duplicate_evidence_v90_test.go`, `duplicate_progressive_v901_test.go`, `duplicate_source_integration_v90_test.go`, `jdownloader_batch_confirm_v8564_test.go`, `jdownloader_guard_v901_test.go`, `smart_media_guard_test.go`, `web/tests/duplicate_evidence_v90.test.js`, `validation/generate_duplicate_corpus.py`.
+Teste/corpus: `duplicate_corpus_v90_test.go`, `duplicate_evidence_v90_test.go`, `duplicate_progressive_v901_test.go`, `duplicate_source_integration_v90_test.go`, `jdownloader_batch_confirm_v8564_test.go`, `jdownloader_bridge_v8545_test.go`, `jdownloader_guard_v901_test.go`, `jdownloader_media_picker_v8566_test.go`, `smart_media_guard_test.go`, `smart_state_engine_v8569_test.go`, `web/tests/duplicate_evidence_v90.test.js`, `web/tests/jdownloader_flow_v85130.test.js`, `validation/generate_duplicate_corpus.py`.
 
 Media Picker, redesign-ul UI, `web/index.html` și implementarea MEGA Preview nu au fost modificate.
 
@@ -59,7 +59,7 @@ Teste suplimentare trecute:
 - un lot mixt JDownloader trimite numai elementul confirmat `LIPSĂ`;
 - `go test ./...`, testele JS, verificarea sintaxei JS, `go test -race ./...`, `go vet ./...` și build cross-compiled Windows x64 au trecut local.
 
-Buildul Windows x64 local cross-compilat este PE32+ x86-64 și are SHA-256 `709579776761c4e450886fa727fb43ddf109555ab7b0d63aefa77cf2a7d9961b`. Acesta este doar un artefact local de verificare, nu buildul TEST publicat.
+Buildul Windows x64 local cross-compilat după corecția JDownloader are 9.460.224 bytes și SHA-256 `a8fc4560ab866026e1d1d52a026c073651078f80f65c4df0302250099f6bcc92`. Acesta este doar un artefact local de verificare, nu buildul TEST publicat.
 
 ## Timp și trafic pe corpus
 
@@ -82,11 +82,11 @@ False positive în corpus: **0/3 cazuri negative**. False negative în corpus: *
 | Windows desktop real, foldere/HDD reale | **NEVERIFICAT** — CI `windows-latest` pentru PR #95 a trecut `go test`, `go vet`, build x64 și uploadul artefactului de validare, dar nu reprezintă utilizare într-o sesiune desktop cu HDD-uri reale. |
 | MEGA real | **NEVERIFICAT** — nu există link/sesiune MEGA reală disponibilă în acest mediu. |
 | Bunkr real | **NEVERIFICAT** — integrarea Bunkr a fost testată prin provider/HTTP controlat, nu pe CDN/gallery-dl Bunkr live. |
-| JDownloader real | **NEVERIFICAT** — protocolul FlashGot a fost verificat cu server local controlat, nu cu o instanță JDownloader pornită. |
+| JDownloader real | `.138` a eșuat în utilizarea reală: interceptorul `window` încărcat primul apela modulul `fast`, care trimitea direct la `/flashgot` și ocolea backendul. Corecția elimină inițiatorii direcți și are teste de click/rutare plus server local controlat, dar noul candidat **NU A FOST ÎNCĂ RETESTAT** cu o instanță JDownloader reală. |
 | Regresie MEGA Preview | Fișierele preview nu au fost atinse; suitele automate existente trec. Redarea MEGA reală rămâne neverificată. |
 
 Prin urmare, candidatul nu este declarat „validat” pe MEGA+Bunkr reale. El poate fi publicat numai ca versiune **TEST**, iar verificarea manuală reală rămâne obligatorie înainte de orice promovare Stable.
 
 ## Publicare TEST
 
-PR #95 a trecut `DDG validation` și `DDG stability boundary` și a fost integrat în `testing` la commitul `8ecbaaae624b48ce7be9fcb456c9a8959167e502`. Versiunea și SHA-256 ale updaterului se citesc din `update-test.json` după terminarea workflow-ului de publicare. Stable rămâne nemodificat.
+PR #95 a trecut `DDG validation` și `DDG stability boundary` și a fost integrat în `testing` la commitul `8ecbaaae624b48ce7be9fcb456c9a8959167e502`. Buildul rezultat `9.0.1-test.138` a expus bypass-ul JDownloader descris mai sus și nu mai este considerat candidat sigur pentru acest flux. Corecția se publică într-o versiune TEST ulterioară numai după CI. Stable rămâne nemodificat.

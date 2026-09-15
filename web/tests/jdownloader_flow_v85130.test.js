@@ -40,6 +40,40 @@ function loadMediaPicker() {
   return context.window.ddgMediaPickerV8566;
 }
 
+function loadCanonicalJDGuard() {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'jdownloader_window_capture_v8566.js'), 'utf8');
+  const calls = [];
+  const listeners = {};
+  const elements = {
+    downloadMethod: {value: 'jdownloader'},
+    downloadDir: {value: 'H:\\Downloads'},
+    downloadGuardMode: {value: 'smart'},
+  };
+  const window = {
+    api: async (url, options) => {
+      calls.push({url, options});
+      return {externalAdded: 1, message: '1 fișier trimis', guard: {decisions: []}};
+    },
+    addEventListener: (name, fn) => { listeners[name] = fn; },
+    cfg: {},
+    idsForAction: () => [7, 8, 7],
+    loadResults: async () => {},
+    toast: () => {},
+  };
+  const context = {
+    console,
+    document: {getElementById: id => elements[id] || null},
+    JSON,
+    Number,
+    Object,
+    Set,
+    String,
+    window,
+  };
+  vm.runInNewContext(source, context, {filename: 'jdownloader_window_capture_v8566.js'});
+  return {guard:window.ddgJDownloaderGuardV901, calls, listeners};
+}
+
 test('JD keeps only current missing rows and never stale local verdicts', () => {
   const jd = loadFastJD();
   const rows = [
@@ -67,6 +101,29 @@ test('JD builds one FlashGot payload and one package for missing rows', () => {
   assert.equal(submission.params.get('urls'), 'https://cdn.test/a.jpg\nhttps://cdn.test/b.jpg');
   assert.equal(submission.params.get('package'), 'album');
   assert.equal(submission.params.get('referer'), 'https://example.test/gallery');
+});
+
+test('earliest JD click guard sends IDs only to the guarded backend route', async () => {
+  const {guard, calls, listeners} = loadCanonicalJDGuard();
+  assert.ok(guard);
+  assert.equal(typeof listeners.click, 'function');
+  let prevented = false;
+  let stopped = false;
+  listeners.click({
+    target: {closest: () => ({id: 'jdSelectedBtn', getAttribute: () => null})},
+    preventDefault: () => { prevented = true; },
+    stopImmediatePropagation: () => { stopped = true; },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/download/jdownloader-direct');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    ids: [7, 8],
+    destination: 'H:\\Downloads',
+    guardMode: 'smart',
+  });
 });
 
 test('generic Media Picker refuses every dedicated provider', () => {

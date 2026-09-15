@@ -41,7 +41,8 @@ func TestJDownloaderBackendFailSafeAllowsOnlyMissingV85130(t *testing.T) {
 	}
 	s := string(b)
 	for _, marker := range []string{
-		"if decision.Verdict == guardDownload",
+		"if jdownloaderDecisionAllowedV901(decision)",
+		"decision.Detector.Classification == \"LIPSĂ\"",
 		"form.Set(\"descriptions\"",
 		"form.Set(\"fnames\"",
 		"form.Set(\"package\"",

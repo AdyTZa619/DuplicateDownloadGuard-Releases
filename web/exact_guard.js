@@ -362,21 +362,15 @@
       }
     };
 
-    const originalJD2 = sendSelectedJD2;
     sendSelectedJD2 = async function () {
       const ids = idsForAction();
       if (!ids.length) return toast('Selectează fișiere');
       try {
-        const data = await api('/api/download/jd2', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids, folder: cfg.jdFolder || '' })
-        });
-        await loadResults();
-        showGuardReport(data.guard, { ids, destination: cfg.downloadDir || '', guardMode: cfg.downloadGuardMode || 'smart' }, data.count);
-        toast(`JDownloader: ${data.count} link(uri) confirmate ca lipsă`);
+        const guard = window.ddgJDownloaderGuardV901;
+        if (!guard?.sendIDs) throw new Error('Filtrul JDownloader nu este disponibil. Nu s-a trimis nimic.');
+        await guard.sendIDs(ids);
       } catch (error) {
-        if (!String(error.message).includes('404')) return toast(error.message);
-        return originalJD2();
+        toast(error.message || String(error));
       }
     };
 

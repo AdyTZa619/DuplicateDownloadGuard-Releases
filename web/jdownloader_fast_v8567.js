@@ -1,10 +1,9 @@
-// TEST v8.5.67 — deterministic JDownloader FlashGot handoff.
-// Uses CURRENT DDG results only: no /api/download/preflight and no HDD rescan.
-// One explicit form POST to JDExternInterface /flashgot = one handoff request.
+// TEST v9.0.1 — compatibility UI over the canonical guarded JD handoff.
+// Legacy helpers remain available to callers, but no browser code in this
+// module can contact JDownloader directly or decide the final allowed set.
 (() => {
   'use strict';
 
-  const JD_BASE = 'http://127.0.0.1:9666';
   let busy = false;
   let pending = null;
 
@@ -125,52 +124,6 @@
     return {params, count: urls.length, packageName, referer};
   }
 
-  async function checkJD() {
-    return await new Promise(resolve => {
-      document.getElementById('ddgJDCheckV8567')?.remove();
-      window.jdownloader = false;
-      const script = document.createElement('script');
-      script.id = 'ddgJDCheckV8567';
-      script.src = `${JD_BASE}/jdcheck.js?_ddg=${Date.now()}`;
-      let done = false;
-      const finish = running => {
-        if (done) return;
-        done = true;
-        script.remove();
-        resolve(Boolean(running));
-      };
-      script.onload = () => finish(window.jdownloader === true);
-      script.onerror = () => finish(false);
-      document.head.appendChild(script);
-      setTimeout(() => finish(window.jdownloader === true), 2200);
-    });
-  }
-
-  function submitOneForm(params) {
-    // Never fetch() then retry: if a client blocks reading the cross-origin
-    // response after JD accepted the POST, retrying would duplicate the links.
-    const frameName = `ddgJDOneShot_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const iframe = document.createElement('iframe');
-    iframe.name = frameName;
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `${JD_BASE}/flashgot`;
-    form.target = frameName;
-    form.style.display = 'none';
-    for (const [name, value] of params.entries()) {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
-    }
-    document.body.appendChild(form);
-    form.submit();
-    setTimeout(() => { form.remove(); iframe.remove(); }, 5000);
-  }
-
   function classify(row) {
     // guardVerdict is DDG's final authoritative decision and is the same verdict
     // shown by Smart Guard in the main results table. Do not let an older manual
@@ -201,10 +154,12 @@
   function downloadRows(rows) { return splitRows(rows).DOWNLOAD; }
 
   async function submitRows(rows) {
-    if (!(await checkJD())) throw new Error('JDownloader 2 nu răspunde pe 127.0.0.1:9666. Verifică dacă JD este pornit și External Interface/FlashGot este activ.');
-    const submission = buildSubmission(rows);
-    submitOneForm(submission.params);
-    return submission;
+    const guard = window.ddgJDownloaderGuardV901;
+    if (!guard?.sendIDs) throw new Error('Filtrul JDownloader nu este disponibil. Nu s-a trimis nimic.');
+    const ids = (rows || []).map(row => Number(row?.id)).filter(Number.isFinite);
+    if (!ids.length) throw new Error('Selecția nu conține rezultate valide pentru JDownloader.');
+    const result = await guard.sendIDs(ids);
+    return {...result, count:Number(result?.externalAdded || 0), packageName:onePackageName(rows)};
   }
 
   function installDialog() {
@@ -274,9 +229,7 @@
     if (busy || !rows?.length) return;
     busy = true;
     try {
-      const missing = downloadRows(rows);
-      if (!missing.length) throw new Error('Selecția nu conține niciun fișier confirmat ca lipsă. Elementele „Ai deja” și „De verificat” nu sunt trimise.');
-      const result = await submitRows(missing);
+      const result = await submitRows(rows);
       closeDialog();
       pending = null;
       window.toast?.(`JDownloader: ${result.count} fișier(e) • un singur pachet „${result.packageName}”`);
@@ -290,8 +243,8 @@
     if (!ids.length) return window.toast?.('Selectează fișiere');
     busy = true;
     const button = document.getElementById('downloadGuardBtn') || document.querySelector('button[onclick="downloadSelected()"]');
-    if (button) { button.disabled = true; button.textContent = '⏳ Citesc rezultatele curente…'; }
-    try { showDialog(await rowsForIDs(ids)); }
+    if (button) { button.disabled = true; button.textContent = '⏳ Verific selecția în backend…'; }
+    try { await submitRows(ids.map(id => ({id}))); }
     catch (error) { window.toast?.(error?.message || String(error)); }
     finally {
       busy = false;
@@ -305,20 +258,10 @@
     if (!unique.length) return window.toast?.('Nu există fișiere de trimis');
     busy = true;
     try {
-      const rows = await rowsForIDs(unique);
-      const groups = splitRows(rows);
-      const missing = groups.DOWNLOAD;
-      if (!missing.length) {
-        window.toast?.('Nimic de trimis: selecția nu conține fișiere clasificate „LIPSĂ”.');
-        return;
-      }
-      if (options.confirm !== false) {
-        const ok = window.confirm(`Din ${rows.length} fișier(e) selectate trimit numai cele ${missing.length} clasificate „LIPSĂ”, într-un singur pachet JDownloader.\n\nAi deja: ${groups.DUPLICATE.length}\nDe verificat: ${groups.REVIEW.length}\n\nNu se face nicio rescanare HDD.`);
-        if (!ok) return;
-      }
-      const result = await submitRows(missing);
-      window.toast?.(`JDownloader: ${result.count} fișier(e) • un singur pachet „${result.packageName}”`);
-      return result;
+      // options is retained for Media Picker compatibility. The backend is the
+      // authority and rechecks every ID before exporting final LIPSĂ only.
+      void options;
+      return await submitRows(unique.map(id => ({id})));
     } catch (error) {
       window.toast?.(error?.message || String(error));
       throw error;
@@ -330,7 +273,7 @@
     const button = document.getElementById('downloadGuardBtn') || document.querySelector('button[onclick="downloadSelected()"]');
     if (button && liveEngine() === 'jdownloader' && !busy) {
       button.textContent = '⬇ Trimite în JDownloader';
-      button.title = 'Folosește rezultatele curente; fără rescanare HDD. O singură trimitere FlashGot / un singur pachet.';
+      button.title = 'Backendul DDG reverifică selecția și trimite numai verdictul final LIPSĂ.';
     }
     if (select && !select.dataset.ddgFastJDBoundV8567) {
       select.dataset.ddgFastJDBoundV8567 = '1';
