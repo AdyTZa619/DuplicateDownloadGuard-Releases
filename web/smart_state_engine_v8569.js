@@ -143,6 +143,10 @@
     return auto === 'HAVE' && Boolean(row.sameSize) && exactName(row);
   }
   function manualStatus(row) { return upper(row?.manualStatus || (row?.manual ? row?.status : '')); }
+  function analysisPending(row) {
+    return !row?.manual && Number(row?.guardAt || 0) <= 0 &&
+      Boolean(row?.detector) && upper(row?.detector?.classification) === 'DE VERIFICAT';
+  }
   function shouldReleaseManual(row) {
     if (!row?.manual) return false;
     const manual = manualStatus(row);
@@ -154,6 +158,7 @@
   function finalState(row, store = loadTransfers()) {
     if (strongLocalEvidence(row)) return 'HAVE';
     if (pendingTransfer(row, store)) return 'IN_JD';
+    if (analysisPending(row)) return 'ANALYZING';
     const guard = upper(row?.guardVerdict);
     const detector = upper(row?.detector?.classification);
     if (detector === 'IDENTIC' || detector === 'ACELAȘI CONȚINUT') return localPresent(row) ? 'HAVE' : 'REVIEW';
@@ -176,6 +181,7 @@
   function stateReason(row, state, store = loadTransfers()) {
     const transfer = transferRecord(row, store), resolution = resolutionRecord(row, store);
     if (state === 'IN_JD') return 'trimis în JDownloader • aștept confirmarea locală';
+    if (state === 'ANALYZING') return 'în coada detectorului • încă fără verdict final';
     if (state === 'HAVE') {
       if (resolution?.reason === 'jd-rebind') return 'găsit după JD • candidat nou confirmat';
       if (resolution?.reason === 'candidate-rebind') return 'candidat local nou confirmat';
@@ -201,8 +207,8 @@
     }
     return 'nu există suficientă dovadă pentru un verdict sigur';
   }
-  function stateLabel(state) { return {HAVE:'AI DEJA', REVIEW:'DE VERIFICAT', DOWNLOAD:'LIPSEȘTE', IN_JD:'ÎN JD'}[state] || state; }
-  function stateClass(state) { return {HAVE:'HAVE', REVIEW:'POSSIBLE', DOWNLOAD:'MISSING', IN_JD:'DDG_IN_JD'}[state] || 'POSSIBLE'; }
+  function stateLabel(state) { return {HAVE:'AI DEJA', REVIEW:'DE VERIFICAT', DOWNLOAD:'LIPSEȘTE', IN_JD:'ÎN JD', ANALYZING:'ÎN ANALIZĂ'}[state] || state; }
+  function stateClass(state) { return {HAVE:'HAVE', REVIEW:'POSSIBLE', DOWNLOAD:'MISSING', IN_JD:'DDG_IN_JD', ANALYZING:'DDG_ANALYZING'}[state] || 'POSSIBLE'; }
 
   async function fetchAllRows(force = false) {
     const now = Date.now();
@@ -409,9 +415,9 @@
     if (cardValueId === 'sumReview') { const p = card.querySelector('.reviewProgress'); if (p) p.style.display='none'; }
   }
   function renderSummary(rows,store) {
-    const counts = {HAVE:0,REVIEW:0,DOWNLOAD:0,IN_JD:0};
+    const counts = {HAVE:0,REVIEW:0,DOWNLOAD:0,IN_JD:0,ANALYZING:0};
     for (const row of rows || []) counts[finalState(row,store)]++;
-    setCard('sumTotal','TOTAL',rows.length,'sesiunea curentă');
+    setCard('sumTotal','TOTAL',rows.length,counts.ANALYZING ? `${counts.ANALYZING} în analiză • ${rows.length-counts.ANALYZING} cu verdict` : 'analiza încheiată');
     setCard('sumReview','AI DEJA',counts.HAVE,'confirmate de starea actuală');
     setCard('sumManual','DE VERIFICAT',counts.REVIEW,'necesită atenție');
     setCard('sumSmart95','LIPSESC',counts.DOWNLOAD,'gata de descărcat');
@@ -438,6 +444,7 @@
     style.id = 'ddgSmartStateV8569Style';
     style.textContent = `
       .DDG_IN_JD{background:#173b5f;color:#9fd2ff;border:1px solid #285b87}
+      .DDG_ANALYZING{background:#1c3044;color:#8fc8ff;border:1px solid #315579}
       .ddgSmartReason{display:block;margin-top:5px;color:#8ea3b8;font-size:10px;line-height:1.25;max-width:200px}
       .ddgSmartMeta{display:inline-block;margin-top:4px;margin-right:4px;border:1px solid #344b61;border-radius:999px;padding:1px 5px;color:#8ea3b8;font-size:9px;text-transform:uppercase;letter-spacing:.04em}
       .summaryMini[data-ddg-smart="1"] .reviewProgress{display:none!important}
@@ -582,7 +589,7 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 
   window.ddgSmartStateEngineV8569={
-    finalState,shouldReleaseManual,strongLocalEvidence,exactCurrentEvidence,localPresent,rowKey,pendingTransfer,
+    finalState,analysisPending,shouldReleaseManual,strongLocalEvidence,exactCurrentEvidence,localPresent,rowKey,pendingTransfer,
     fetchAllRows,scheduleCycle,reconcileBestCandidates,candidateIsStrong,candidatePriority,manualReconcile,rememberBackendHandoff
   };
 })();

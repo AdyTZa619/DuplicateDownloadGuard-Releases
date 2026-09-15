@@ -117,3 +117,18 @@ Verificări locale după ultima modificare:
 - build Windows x64 cross-compilat: 13.333.504 bytes, SHA-256 `272929fc474764726883cad219288d82fb336c292f96e28dc6a93bbe0ddaeb6a`.
 
 Acest build de stabilizare nu a consumat trafic MEGA/Bunkr real: **0 bytes**. Nu au fost măsurați timpi reali de primă analiză/cache pe HDD-uri reale în această rundă. Testele folosesc filesystem temporar, HTTP/provider controlat și un server JDownloader fals local. Windows desktop real, JDownloader real, MEGA real și Bunkr real rămân **NEVERIFICATE** pentru noul candidat; în consecință poate fi publicat numai ca TEST și nu este declarat validat end-to-end.
+
+## Corecție stare provizorie după 9.0.1-test.140
+
+O verificare vizuală reală a arătat `Detector: 1/76`, `Posibile: 75`, dar interfața afișa `De confirmat: 76`. Cauza a fost confundarea dovezii provizorii create înaintea workerului cu verdictul final `DE VERIFICAT`.
+
+Corecția separă explicit:
+
+- `ÎN ANALIZĂ`: workerul nu a terminat încă rezultatul (`guardAt=0`, dovadă provizorie);
+- `DE VERIFICAT`: workerul a terminat, dar dovezile au rămas insuficiente;
+- `AI DEJA`: `IDENTIC` sau `ACELAȘI CONȚINUT` cu dovadă locală actuală;
+- `LIPSEȘTE`: exclusiv `guardVerdict=DOWNLOAD`, `detector.classification=LIPSĂ` și analiză finalizată.
+
+Filtrul, sumarul, tabelul, selecția inteligentă și calculul bytes pentru download folosesc aceeași separare. Pentru cazul observat, sumarul așteptat în timpul progresului este `75 În analiză` și `1 De verificat`, nu `76 De confirmat`. Bariera JDownloader nu este relaxată.
+
+Verificări locale ale corecției: `go test ./...` trecut în 10,119 s; race țintit trecut în 1,595 s; `go vet ./...` trecut; 11/11 teste JS trecute; build Windows x64 cross-compilat 13.326.336 bytes, SHA-256 `1ee774e45c64ccc1c3339822c31007ef2c9b5907be3204afce23f69ac39dd986`. Testarea pe instalarea Windows din captură rămâne necesară.
