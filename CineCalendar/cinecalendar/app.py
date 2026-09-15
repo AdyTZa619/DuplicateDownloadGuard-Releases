@@ -27,11 +27,16 @@ def main():
 
     from .premium_calendar_ui import CalendarPremiumWindow, run_premium_calendar
     from .performance_ui_patch import install_performance_ui_patch
+    from .table_theme_patch import install_table_theme_patch
     from . import library_ui
 
     # Remove inherited small-catalog hot spots before the window is instantiated: the IMDb
     # watcher becomes asynchronous/less frequent and catalog counts avoid a 260k LEFT JOIN.
     install_performance_ui_patch(CalendarPremiumWindow)
+
+    # Premium used a light Windows alternateBase under the dark global text palette, making
+    # every second table row appear blank. Theme QTableWidget/QHeaderView explicitly.
+    install_table_theme_patch(CalendarPremiumWindow)
 
     # The renderer calls the date sort key without an explicit mode; keep a safe default
     # while retaining the same implementation for every other explicit sort mode.
