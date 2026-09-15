@@ -49,7 +49,7 @@ def test_rich_calendar_is_not_just_a_few_anchors():
     assert any(ev.key == "exaltation_cross" for ev, _ in active)
 
 
-def test_day_program_has_explicit_calendar_sections_and_cache(tmp_path, monkeypatch):
+def test_holy_cross_program_rejects_generic_history_false_positives(tmp_path, monkeypatch):
     db = Database(tmp_path / "calendar.db")
     ratings = tmp_path / "ratings.csv"
     _write_ratings(ratings)
@@ -58,28 +58,63 @@ def test_day_program_has_explicit_calendar_sections_and_cache(tmp_path, monkeypa
 
     catalog = tmp_path / "catalog.csv"
     lines = ["imdb_id,title,year,title_type,runtime,genres,directors,imdb_rating,num_votes,overview"]
-    special = [
+
+    genuinely_related = [
         ("tt9200001", "The Holy Cross", "Christian history of the holy cross and faith"),
-        ("tt9200002", "Cross of Faith", "Christian faith and the cross through history"),
-        ("tt9200003", "Calvary Chronicle", "Christian history, calvary and faith"),
-        ("tt9200004", "Roman Faith", "Christianity in the Roman empire"),
-        ("tt9200005", "Ancient Martyrs", "Christian martyrs in antiquity"),
-        ("tt9200006", "Autumn Monastery", "A contemplative monastery story in autumn"),
+        ("tt9200002", "Cross of Faith", "Christian faith and the holy cross"),
+        ("tt9200003", "Calvary Chronicle", "The passion of Christ, calvary and crucifixion"),
     ]
-    for iid, title, overview in special:
+    for iid, title, overview in genuinely_related:
         lines.append(f"{iid},{title},2024,Movie,105,History,Calendar Director,8.1,40000,{overview}")
-    for i in range(7, 80):
+
+    # Real-world type of false positives reported by the UI: History/Biography/Drama is not
+    # evidence of a link with the Exaltation of the Holy Cross.
+    unrelated = [
+        ("tt9200101", "Apollo 13", "NASA lunar mission accident and rescue"),
+        ("tt9200102", "Munich", "Political thriller about the aftermath of the 1972 Olympics"),
+        ("tt9200103", "Downfall", "The final days of Nazi Germany in Berlin"),
+        ("tt9200104", "Argo", "CIA rescue operation during the Iran hostage crisis"),
+        ("tt9200105", "Dark Waters", "Corporate pollution investigation"),
+        ("tt9200106", "Straight Outta Compton", "Biography of a hip hop group"),
+    ]
+    for iid, title, overview in unrelated:
+        lines.append(f"{iid},{title},2020,Movie,120,History;Drama,Calendar Director,8.0,80000,{overview}")
+
+    lines.append("tt9200201,Autumn Monastery,2024,Movie,100,Drama,Calendar Director,7.8,12000,A contemplative monastery story in autumn")
+    for i in range(30, 100):
         lines.append(
-            f"tt920{i:04d},Calendar Candidate {i},2023,Movie,100,History,Calendar Director,7.{i%9},{1000+i*300},history drama"
+            f"tt920{i:04d},Generic History Candidate {i},2023,Movie,100,History,Calendar Director,7.{i%9},{1000+i*300},generic history drama"
         )
     catalog.write_text("\n".join(lines) + "\n", encoding="utf-8")
     import_catalog_csv(db, catalog)
 
     engine = FastRecommendationEngineV6(db, RichCalendarEngine())
-    result = engine.calendar_day_program(date(2026, 9, 14), 3)
-    assert result["sections"]
-    assert result["sections"][0]["key"] == "exact"
-    assert any(section["key"] in {"direct", "spiritual", "historical"} for section in result["sections"])
+    result = engine.calendar_day_program(date(2026, 9, 14), 6)
+    sections = {section["key"]: section for section in result["sections"]}
+
+    assert "exact" in sections
+    exact_titles = {rec.movie.title for rec in sections["exact"]["recommendations"]}
+    assert exact_titles & {"The Holy Cross", "Cross of Faith", "Calvary Chronicle"}
+
+    factual_lanes = {"exact", "direct", "spiritual", "historical"}
+    factual_titles = {
+        rec.movie.title
+        for section in result["sections"]
+        if section["key"] in factual_lanes
+        for rec in section["recommendations"]
+    }
+    forbidden = {title for _iid, title, _overview in unrelated}
+    assert factual_titles.isdisjoint(forbidden)
+    assert not any(title.startswith("Generic History Candidate") for title in factual_titles)
+
+    # Every factual recommendation shown for the feast must carry a Cross/Passion anchor.
+    for section in result["sections"]:
+        if section["key"] not in factual_lanes:
+            continue
+        for rec in section["recommendations"]:
+            sem = rec.movie.semantic
+            assert max(float(sem.get("cross_veneration", 0) or 0), float(sem.get("passion_of_christ", 0) or 0)) > 0
+
     assert all(
         rec.movie.imdb_id not in {f"tt91000{i:02d}" for i in range(1, 8)}
         for section in result["sections"]
@@ -90,5 +125,5 @@ def test_day_program_has_explicit_calendar_sections_and_cache(tmp_path, monkeypa
         raise AssertionError("calendar_day_program recalculated a cached day")
 
     monkeypatch.setattr(engine, "_candidate_rows", should_not_query_again)
-    cached = engine.calendar_day_program(date(2026, 9, 14), 3)
+    cached = engine.calendar_day_program(date(2026, 9, 14), 6)
     assert cached is result
