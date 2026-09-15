@@ -27,6 +27,8 @@ func TestSmartStateV8569RebindsBestCurrentCandidate(t *testing.T) {
 		"Reconciliază după JD",
 		"găsit după JD • candidat nou confirmat",
 		"function rememberBackendHandoff(items)",
+		"function analysisPending(row)",
+		"ANALYZING:'ÎN ANALIZĂ'",
 		"detector === 'DE VERIFICAT'",
 		"guard === 'DOWNLOAD') return detector === 'LIPSĂ' ? 'DOWNLOAD' : 'REVIEW'",
 	} {
