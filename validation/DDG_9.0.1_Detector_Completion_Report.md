@@ -1,6 +1,6 @@
 # DDG 9.0.1 TEST — detector MEGA/Bunkr și barieră JDownloader
 
-Data ultimei verificări locale: 2026-09-15.
+Data ultimei verificări locale: 2026-09-16.
 
 ## Bază verificată
 
@@ -165,3 +165,26 @@ Rezultate locale după corecție:
 - build Windows x64 cross-compilat: 9.477.120 bytes, SHA-256 `f534566948c8b44b95eb4bb819d106817c32f1dc1c5add06827fc2ecda41518a`.
 
 Trafic real MEGA/Bunkr consumat în această rundă: **0 bytes**. Windows desktop real, HDD-uri reale, MEGA real, Bunkr real și JDownloader real rămân **NEVERIFICATE**; candidatul poate fi publicat numai pe canalul TEST și nu este declarat validat end-to-end.
+
+## Corecție acces CDN și clasificare media după 9.0.1-test.142
+
+Auditul următor a identificat trei cauze prin care un duplicat real putea rămâne neanalizat:
+
+1. Proxy-ul detectorului cerea obligatoriu un răspuns `HEAD 200` cu `Content-Length`. Unele CDN-uri refuză `HEAD`, dar acceptă corect `GET Range`; acum detectorul face fallback la o probă strictă `bytes=0-0`, validează `206` și `Content-Range`, consumă exact un octet și refuză răspunsurile care ignoră Range sau aplică Content-Encoding.
+2. Tipul media remote era dedus exclusiv din extensia numelui. Motorul comun folosește acum mai întâi MIME-ul specific furnizat de MEGA/Bunkr/provider și apoi extensia ca fallback, astfel încât numele fără extensie sau cu extensie învechită pot intra în fingerprintul video/imagine.
+3. Cache-ul metadata video era o stare globală pentru un singur director de aplicație. O analiză concurentă putea schimba directorul activ și pierde candidați deja indexați. Cache-ul este acum izolat pe `appDir`, cu generație și persistență separate.
+
+Teste noi de regresie: fallback `HEAD 405 → Range`, refuz pentru Range ignorat/invalid/codat, clasificare MIME pentru nume fără extensie și extensie greșită, duplicat imagine Bunkr fără extensie și izolare cache între două instanțe. Toate au trecut repetat.
+
+Rezultate locale după această corecție:
+
+- corpus FFmpeg complet: **22/22 trecute** în 159,81 s; false positive **0/3**, false negative **0/19**;
+- video mare peste limita de hash integral: trecut în 3,88 s;
+- `go test ./... -count=3`: trecut în 31,487 s;
+- testele țintite noi rulate de 5–10 ori: trecute;
+- race țintit detector/cache/JDownloader: trecut în 4,529 s;
+- `go vet ./...` pentru Windows amd64: trecut;
+- teste JavaScript: **11/11 trecute**;
+- build Windows x64 cross-compilat: 13.340.160 bytes, SHA-256 `b73de5ccf3a5f00f3db5ec067b2aa6b69726580a0bc1d1d6e9ad818dc462666a`.
+
+Trafic real MEGA/Bunkr consumat: **0 bytes**. Testele HTTP au consumat numai payload local controlat; fallback-ul nou adaugă exact un octet când `HEAD` nu oferă metadata. Windows desktop real, HDD-uri reale, MEGA real, Bunkr real și JDownloader real rămân **NEVERIFICATE** pentru acest candidat.

@@ -19,48 +19,54 @@ type localMediaMetaCacheEntry struct {
 	Error    string    `json:"error,omitempty"`
 }
 
-var localMediaMetaCacheState = struct {
-	sync.Mutex
-	SaveMu     sync.Mutex
-	AppDir     string
-	Loaded     bool
+type localMediaMetaCacheData struct {
 	Dirty      bool
 	Generation uint64
 	Entries    map[string]localMediaMetaCacheEntry
+}
+
+var localMediaMetaCacheState = struct {
+	sync.Mutex
+	SaveMu sync.Mutex
+	ByApp  map[string]*localMediaMetaCacheData
 }{}
 
 func localMediaMetaCacheFile(a *App) string {
 	return filepath.Join(a.appDir, "media_meta_cache.json")
 }
 
-func ensureLocalMediaMetaCacheLoaded(a *App) {
-	localMediaMetaCacheState.Lock()
-	defer localMediaMetaCacheState.Unlock()
+func localMediaMetaCacheDataLocked(a *App) *localMediaMetaCacheData {
 	appDir := filepath.Clean(a.appDir)
-	if localMediaMetaCacheState.Loaded && localMediaMetaCacheState.AppDir == appDir {
-		return
+	if localMediaMetaCacheState.ByApp == nil {
+		localMediaMetaCacheState.ByApp = map[string]*localMediaMetaCacheData{}
 	}
-	localMediaMetaCacheState.AppDir = appDir
-	localMediaMetaCacheState.Loaded = true
-	localMediaMetaCacheState.Dirty = false
-	localMediaMetaCacheState.Generation = 0
-	localMediaMetaCacheState.Entries = map[string]localMediaMetaCacheEntry{}
+	if data := localMediaMetaCacheState.ByApp[appDir]; data != nil {
+		return data
+	}
+	data := &localMediaMetaCacheData{Entries: map[string]localMediaMetaCacheEntry{}}
+	localMediaMetaCacheState.ByApp[appDir] = data
 	b, err := os.ReadFile(localMediaMetaCacheFile(a))
 	if err != nil {
-		return
+		return data
 	}
 	var rows map[string]localMediaMetaCacheEntry
 	if json.Unmarshal(b, &rows) == nil && rows != nil {
-		localMediaMetaCacheState.Entries = rows
+		data.Entries = rows
 	}
+	return data
+}
+
+func ensureLocalMediaMetaCacheLoaded(a *App) {
+	localMediaMetaCacheState.Lock()
+	_ = localMediaMetaCacheDataLocked(a)
+	localMediaMetaCacheState.Unlock()
 }
 
 func cachedLocalMediaInfo(a *App, e FileEntry) (MediaInfo, bool) {
-	ensureLocalMediaMetaCacheLoaded(a)
 	key := pathKey(e.Path)
 	localMediaMetaCacheState.Lock()
 	defer localMediaMetaCacheState.Unlock()
-	row, ok := localMediaMetaCacheState.Entries[key]
+	row, ok := localMediaMetaCacheDataLocked(a).Entries[key]
 	if !ok || row.Size != e.Size || row.MTime != e.MTime || row.Unusable || !row.Info.OK {
 		return MediaInfo{}, false
 	}
@@ -68,10 +74,9 @@ func cachedLocalMediaInfo(a *App, e FileEntry) (MediaInfo, bool) {
 }
 
 func cachedLocalMediaFailureV85(a *App, e FileEntry) bool {
-	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
 	defer localMediaMetaCacheState.Unlock()
-	row, ok := localMediaMetaCacheState.Entries[pathKey(e.Path)]
+	row, ok := localMediaMetaCacheDataLocked(a).Entries[pathKey(e.Path)]
 	return ok && row.Size == e.Size && row.MTime == e.MTime && row.Unusable
 }
 
@@ -79,29 +84,28 @@ func cacheLocalMediaInfo(a *App, e FileEntry, info MediaInfo) {
 	if !info.OK {
 		return
 	}
-	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.Lock()
-	localMediaMetaCacheState.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Info: info}
-	localMediaMetaCacheState.Dirty = true
-	localMediaMetaCacheState.Generation++
+	data := localMediaMetaCacheDataLocked(a)
+	data.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Info: info}
+	data.Dirty = true
+	data.Generation++
 	localMediaMetaCacheState.Unlock()
 }
 
 func cacheLocalMediaFailureV85(a *App, e FileEntry, reason string) {
-	ensureLocalMediaMetaCacheLoaded(a)
 	reason = strings.TrimSpace(reason)
 	if len(reason) > 300 {
 		reason = reason[:300]
 	}
 	localMediaMetaCacheState.Lock()
-	localMediaMetaCacheState.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Unusable: true, Error: reason}
-	localMediaMetaCacheState.Dirty = true
-	localMediaMetaCacheState.Generation++
+	data := localMediaMetaCacheDataLocked(a)
+	data.Entries[pathKey(e.Path)] = localMediaMetaCacheEntry{Size: e.Size, MTime: e.MTime, Unusable: true, Error: reason}
+	data.Dirty = true
+	data.Generation++
 	localMediaMetaCacheState.Unlock()
 }
 
 func pruneLocalMediaMetaCache(a *App, entries []FileEntry) bool {
-	ensureLocalMediaMetaCacheLoaded(a)
 	valid := make(map[string]FileEntry, len(entries))
 	for _, e := range entries {
 		if remoteMediaKind(e.Name) == "video" {
@@ -110,16 +114,17 @@ func pruneLocalMediaMetaCache(a *App, entries []FileEntry) bool {
 	}
 	changed := false
 	localMediaMetaCacheState.Lock()
-	for key, cached := range localMediaMetaCacheState.Entries {
+	data := localMediaMetaCacheDataLocked(a)
+	for key, cached := range data.Entries {
 		e, ok := valid[key]
 		if !ok || e.Size != cached.Size || e.MTime != cached.MTime {
-			delete(localMediaMetaCacheState.Entries, key)
+			delete(data.Entries, key)
 			changed = true
 		}
 	}
 	if changed {
-		localMediaMetaCacheState.Dirty = true
-		localMediaMetaCacheState.Generation++
+		data.Dirty = true
+		data.Generation++
 	}
 	localMediaMetaCacheState.Unlock()
 	return changed
@@ -149,18 +154,18 @@ func replaceCacheFileV85(tmp, path string) error {
 }
 
 func saveLocalMediaMetaCache(a *App) error {
-	ensureLocalMediaMetaCacheLoaded(a)
 	localMediaMetaCacheState.SaveMu.Lock()
 	defer localMediaMetaCacheState.SaveMu.Unlock()
 
 	localMediaMetaCacheState.Lock()
-	if !localMediaMetaCacheState.Dirty {
+	data := localMediaMetaCacheDataLocked(a)
+	if !data.Dirty {
 		localMediaMetaCacheState.Unlock()
 		return nil
 	}
-	generation := localMediaMetaCacheState.Generation
-	rows := make(map[string]localMediaMetaCacheEntry, len(localMediaMetaCacheState.Entries))
-	for k, v := range localMediaMetaCacheState.Entries {
+	generation := data.Generation
+	rows := make(map[string]localMediaMetaCacheEntry, len(data.Entries))
+	for k, v := range data.Entries {
 		rows[k] = v
 	}
 	localMediaMetaCacheState.Unlock()
@@ -177,8 +182,9 @@ func saveLocalMediaMetaCache(a *App) error {
 		return err
 	}
 	localMediaMetaCacheState.Lock()
-	if localMediaMetaCacheState.Generation == generation {
-		localMediaMetaCacheState.Dirty = false
+	data = localMediaMetaCacheDataLocked(a)
+	if data.Generation == generation {
+		data.Dirty = false
 	}
 	localMediaMetaCacheState.Unlock()
 	return nil

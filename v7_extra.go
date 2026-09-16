@@ -827,7 +827,7 @@ func (a *App) handleVisualVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
 	defer cancel()
-	kind := remoteMediaKind(res.Remote.Name)
+	kind := remoteItemMediaKind(res.Remote)
 	score := 0
 	method := ""
 	note := ""
@@ -958,7 +958,7 @@ func (a *App) handleSmartVerify(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// If bytes cannot be compared directly (e.g. re-encoded media), fall back to perceptual verification.
-	kind := remoteMediaKind(res.Remote.Name)
+	kind := remoteItemMediaKind(res.Remote)
 	if kind == "image" || kind == "video" {
 		rr := httptestLikeVisual(a, res, local, r.Context())
 		if rr.err == nil {
@@ -983,7 +983,7 @@ func httptestLikeVisual(a *App, res Result, local string, parent context.Context
 	}
 	ctx, c := context.WithTimeout(parent, 4*time.Minute)
 	defer c()
-	kind := remoteMediaKind(res.Remote.Name)
+	kind := remoteItemMediaKind(res.Remote)
 	score := 0
 	method := ""
 	note := ""

@@ -89,6 +89,21 @@ func TestPruneLocalMediaMetaCacheRemovesStaleEntries(t *testing.T) {
 	}
 }
 
+func TestLocalMediaMetaCacheIsolatedPerAppDirectory(t *testing.T) {
+	a := &App{appDir: t.TempDir()}
+	b := &App{appDir: t.TempDir()}
+	entryA := FileEntry{Path: `D:\video\a.mp4`, Name: "a.mp4", Size: 100, MTime: 10}
+	entryB := FileEntry{Path: `E:\video\b.mp4`, Name: "b.mp4", Size: 200, MTime: 20}
+	cacheLocalMediaInfo(a, entryA, MediaInfo{OK: true, Duration: 11})
+	cacheLocalMediaInfo(b, entryB, MediaInfo{OK: true, Duration: 22})
+	if got, ok := cachedLocalMediaInfo(a, entryA); !ok || got.Duration != 11 {
+		t.Fatalf("app A cache was replaced by app B: %#v ok=%v", got, ok)
+	}
+	if got, ok := cachedLocalMediaInfo(b, entryB); !ok || got.Duration != 22 {
+		t.Fatalf("app B cache missing: %#v ok=%v", got, ok)
+	}
+}
+
 func TestReplaceCacheFileV85ReplacesExistingDestination(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.json")

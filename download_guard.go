@@ -414,7 +414,7 @@ func sampleGuardCandidates(ctx context.Context, target string, size int64, candi
 func bestAIAdvisoryCandidate(remote RemoteItem, entries []FileEntry) (FileEntry, bool) {
 	bestRank := -1
 	var best FileEntry
-	remoteKind := remoteMediaKind(remote.Name)
+	remoteKind := remoteItemMediaKind(remote)
 	if remoteKind != "image" && remoteKind != "video" {
 		return best, false
 	}
@@ -447,7 +447,7 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 		return history
 	}
 	if res.Remote.Size <= 0 || res.Remote.ApproxSize {
-		kind := remoteMediaKind(res.Remote.Name)
+		kind := remoteItemMediaKind(res.Remote)
 		if kind == "image" || kind == "video" {
 			if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
 				return mediaDecision
@@ -649,7 +649,7 @@ func (a *App) runDownloadGuard(ctx context.Context, rows []Result, destination, 
 
 	hasMega := false
 	for _, row := range rows {
-		kind := remoteMediaKind(row.Remote.Name)
+		kind := remoteItemMediaKind(row.Remote)
 		needsMedia := kind == "image" || kind == "video"
 		if strings.EqualFold(row.Remote.Source, "MEGA") && (mode == guardModeAI || needsMedia || (row.Remote.Size > 0 && len(bySize[row.Remote.Size]) > 0 && row.Remote.Hash == "")) {
 			hasMega = true

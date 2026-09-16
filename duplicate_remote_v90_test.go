@@ -104,3 +104,73 @@ func TestDetectorLoopbackServesSeekAndCancelsV90(t *testing.T) {
 		t.Fatal("session did not cancel")
 	}
 }
+
+func TestDetectorFallsBackToOneByteRangeWhenHeadRejectedV90(t *testing.T) {
+	data := bytes.Repeat([]byte("range-fallback-"), 30000)
+	var heads, gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"range-stable"`)
+		w.Header().Set("Content-Type", "video/mp4")
+		if r.Method == http.MethodHead {
+			heads.Add(1)
+			http.Error(w, "HEAD disabled", http.StatusMethodNotAllowed)
+			return
+		}
+		gets.Add(1)
+		http.ServeContent(w, r, "media", fixedTime, bytes.NewReader(data))
+	}))
+	defer server.Close()
+
+	ctx, _, close, err := prepareDetectorRemoteV90(context.Background(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer close()
+	s := ctx.Value(detectorRemoteKeyV90{}).(*detectorRemoteV90)
+	if s.Size != int64(len(data)) || s.Bytes != 1 || s.ContentType != "video/mp4" || s.Validator != `"range-stable"` {
+		t.Fatalf("wrong fallback metadata: %+v", s)
+	}
+	b, err := s.block(ctx, 0)
+	if err != nil || len(b) != int(detectorRemoteBlockV90) {
+		t.Fatalf("range-backed block failed: len=%d err=%v", len(b), err)
+	}
+	if heads.Load() != 1 || gets.Load() != 2 {
+		t.Fatalf("unexpected requests: HEAD=%d GET=%d", heads.Load(), gets.Load())
+	}
+}
+
+func TestDetectorRangeProbeRefusesUnsafeResponsesV90(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		rangeH string
+		encode string
+	}{
+		{name: "range ignored", status: http.StatusOK},
+		{name: "invalid content range", status: http.StatusPartialContent, rangeH: "bytes 0-1/4096"},
+		{name: "encoded", status: http.StatusPartialContent, rangeH: "bytes 0-0/4096", encode: "gzip"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodHead {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				if tc.rangeH != "" {
+					w.Header().Set("Content-Range", tc.rangeH)
+				}
+				if tc.encode != "" {
+					w.Header().Set("Content-Encoding", tc.encode)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write(bytes.Repeat([]byte("x"), 4096))
+			}))
+			defer server.Close()
+			if _, _, close, err := prepareDetectorRemoteV90(context.Background(), server.URL); err == nil {
+				close()
+				t.Fatal("unsafe range probe was accepted")
+			}
+		})
+	}
+}

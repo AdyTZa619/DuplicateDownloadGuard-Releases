@@ -75,6 +75,24 @@ func TestRemoteMediaKind(t *testing.T) {
 	}
 }
 
+func TestRemoteItemMediaKindUsesSpecificContentType(t *testing.T) {
+	cases := []struct {
+		item RemoteItem
+		want string
+	}{
+		{RemoteItem{Name: "extensionless", ContentType: "video/mp4"}, "video"},
+		{RemoteItem{Name: "obsolete.jpg", ContentType: "video/webm; charset=binary"}, "video"},
+		{RemoteItem{Name: "opaque", ContentType: "image/webp"}, "image"},
+		{RemoteItem{Name: "song.bin", ContentType: "audio/flac"}, "audio"},
+		{RemoteItem{Name: "fallback.MKV", ContentType: "application/octet-stream"}, "video"},
+	}
+	for _, tc := range cases {
+		if got := remoteItemMediaKind(tc.item); got != tc.want {
+			t.Fatalf("%+v: want %s got %s", tc.item, tc.want, got)
+		}
+	}
+}
+
 func TestMegaRemoteRefPrefersHandle(t *testing.T) {
 	item := RemoteItem{Path: "video.mp4", Handle: "AbCdEf12"}
 	if got := megaRemoteRef(item); got != "H:AbCdEf12" {

@@ -11,7 +11,7 @@ func normalizeInitialMediaResultV85(r *Result) {
 	if r == nil {
 		return
 	}
-	kind := remoteMediaKind(r.Remote.Name)
+	kind := remoteItemMediaKind(r.Remote)
 	if kind != "image" && kind != "video" {
 		return
 	}

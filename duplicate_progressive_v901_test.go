@@ -74,6 +74,38 @@ func TestProgressiveImageFindsRenamedWinnerOutsideFirstShortlistV901(t *testing.
 	}
 }
 
+func TestExtensionlessRemoteImageUsesProviderContentTypeV901(t *testing.T) {
+	collection := t.TempDir()
+	img := patternedImageV901(17, 160, 90)
+	local := filepath.Join(collection, "unrelated-local-name.jpg")
+	f, err := os.Create(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = jpeg.Encode(f, img, &jpeg.Options{Quality: 72}); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	var remoteBytes bytes.Buffer
+	if err = png.Encode(&remoteBytes, img); err != nil {
+		t.Fatal(err)
+	}
+	server := contentServer(remoteBytes.Bytes())
+	defer server.Close()
+	a := guardTestApp(t, collection, t.TempDir(), RemoteItem{})
+	a.runIndex(context.Background(), []string{collection}, "", 0)
+	entries := make([]FileEntry, 0, len(a.index))
+	for _, entry := range a.index {
+		entries = append(entries, entry)
+	}
+	result := Result{ID: 1, Remote: RemoteItem{Name: "opaque-provider-id", ContentType: "image/png", Size: int64(remoteBytes.Len()), Source: "BUNKR", DirectURL: server.URL}}
+	d, ok := a.mediaNearDuplicateDecision(detectorCandidateContextV90(context.Background(), a, entries), result, entries, true)
+	if !ok || d.LocalPath != local || d.Verdict != guardDuplicate {
+		t.Fatalf("content type did not activate image detector: %#v", d)
+	}
+}
+
 func TestBunkrUsesSameAutomaticDetectorAsOtherSourcesV901(t *testing.T) {
 	data := bytes.Repeat([]byte("shared-engine"), 1000)
 	a, _, local := sourceDetectorFixtureV90(t, data)

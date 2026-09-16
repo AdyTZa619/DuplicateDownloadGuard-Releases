@@ -98,7 +98,7 @@ func (a *App) downloadResultForJobV855(j *DownloadJob) Result {
 		return Result{}
 	}
 	snapshot := remoteSnapshotFromJobV855(j)
-	fallback := Result{ID: j.ResultID, Remote: snapshot, MediaKind: remoteMediaKind(snapshot.Name)}
+	fallback := Result{ID: j.ResultID, Remote: snapshot, MediaKind: remoteItemMediaKind(snapshot)}
 	if live, ok := a.resultByID(j.ResultID); ok && sameQueueRemoteV855(j, live) {
 		return live
 	}
