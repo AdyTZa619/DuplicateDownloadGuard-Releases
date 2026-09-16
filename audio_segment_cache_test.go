@@ -73,3 +73,28 @@ func TestAudioSegmentKeySeparatesDifferentOffsets(t *testing.T) {
 		t.Fatal("different segment durations must not share cache key")
 	}
 }
+
+func TestLocalAudioSegmentCacheRejectsLegacyFingerprintVersion(t *testing.T) {
+	resetLocalAudioSegmentCacheStateV85ForTest()
+	defer resetLocalAudioSegmentCacheStateV85ForTest()
+	a := &App{appDir: t.TempDir()}
+	path := filepath.Join(a.appDir, "clip.mp4")
+	if err := os.WriteFile(path, []byte("media bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := audioSegmentKeyV85(path, 0, 12)
+	localAudioSegmentCacheStateV85.Lock()
+	localAudioSegmentCacheStateV85.AppDir = filepath.Clean(a.appDir)
+	localAudioSegmentCacheStateV85.Loaded = true
+	localAudioSegmentCacheStateV85.Entries = map[string]localAudioSegmentCacheEntryV85{
+		key: {Path: path, Size: st.Size(), MTime: st.ModTime().UnixNano(), Version: 1, Fingerprint: []uint32{1, 2, 3, 4, 5, 6, 7, 8}},
+	}
+	localAudioSegmentCacheStateV85.Unlock()
+	if _, ok := cachedLocalAudioSegmentV85(a, path, 0, 12); ok {
+		t.Fatal("legacy audio fingerprint must not be reused")
+	}
+}
