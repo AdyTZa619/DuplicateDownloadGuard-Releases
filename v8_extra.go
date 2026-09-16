@@ -619,7 +619,7 @@ func readImageForAI(ctx context.Context, target string, max int64) ([]byte, erro
 }
 
 func (a *App) aiImages(ctx context.Context, res Result, local string) ([][]byte, error) {
-	kind := remoteMediaKind(res.Remote.Name)
+	kind := remoteItemMediaKind(res.Remote)
 	if kind != "image" && kind != "video" {
 		return nil, nil
 	}

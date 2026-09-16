@@ -1813,7 +1813,7 @@ func rankCandidate(remote RemoteItem, e FileEntry) Candidate {
 }
 
 func enrichResult(r *Result, idx map[string]FileEntry) {
-	r.MediaKind = remoteMediaKind(r.Remote.Name)
+	r.MediaKind = remoteItemMediaKind(r.Remote)
 	r.SameSize, r.SameExt = false, false
 	r.LocalPresent = false
 	if r.LocalPath != "" {
@@ -2547,7 +2547,7 @@ func (a *App) handleSmartSelect(w http.ResponseWriter, r *http.Request) {
 		if media != "" && media != "all" {
 			mk := x.MediaKind
 			if mk == "" {
-				mk = remoteMediaKind(x.Remote.Name)
+				mk = remoteItemMediaKind(x.Remote)
 			}
 			if mk != media {
 				continue
@@ -2621,7 +2621,7 @@ func (a *App) handleSelectCandidate(w http.ResponseWriter, r *http.Request) {
 		a.results[i].MatchScore = c.MatchScore
 		a.results[i].SameSize = c.SameSize
 		a.results[i].SameExt = c.SameExt
-		a.results[i].MediaKind = remoteMediaKind(a.results[i].Remote.Name)
+		a.results[i].MediaKind = remoteItemMediaKind(a.results[i].Remote)
 		candReason := fmt.Sprintf("Candidat local selectat pentru verificare • similaritate nume %d%% • diferență mărime %s.", c.NameScore, human(abs64(c.SizeDelta)))
 		if a.results[i].AutoStatus == "" {
 			a.results[i].AutoStatus, a.results[i].AutoConfidence, a.results[i].AutoReason = a.results[i].Status, a.results[i].Confidence, a.results[i].Reason
@@ -3333,6 +3333,27 @@ func remoteMediaKind(name string) string {
 		return "audio"
 	default:
 		return "other"
+	}
+}
+
+// remoteItemMediaKind uses provider metadata when it is specific enough, then
+// falls back to the filename. Remote URLs frequently have no useful extension
+// (or retain an obsolete one after conversion), so the filename alone must not
+// decide whether the duplicate detector runs its image/video pipeline.
+func remoteItemMediaKind(item RemoteItem) string {
+	contentType := strings.ToLower(strings.TrimSpace(item.ContentType))
+	if i := strings.IndexByte(contentType, ';'); i >= 0 {
+		contentType = strings.TrimSpace(contentType[:i])
+	}
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		return "image"
+	case strings.HasPrefix(contentType, "video/"):
+		return "video"
+	case strings.HasPrefix(contentType, "audio/"):
+		return "audio"
+	default:
+		return remoteMediaKind(item.Name)
 	}
 }
 

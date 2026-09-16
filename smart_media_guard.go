@@ -121,7 +121,7 @@ type mediaGuardCandidate struct {
 }
 
 func mediaGuardCandidates(remote RemoteItem, entries []FileEntry, limit int) []FileEntry {
-	kind := remoteMediaKind(remote.Name)
+	kind := remoteItemMediaKind(remote)
 	if kind != "image" && kind != "video" {
 		return nil
 	}
@@ -561,7 +561,7 @@ func (a *App) scoreVideoCandidatesV85(ctx context.Context, remoteFP videoFingerp
 }
 
 func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entries []FileEntry, megaRemoteAvailable bool) (decision DownloadGuardDecision, found bool) {
-	kind := remoteMediaKind(res.Remote.Name)
+	kind := remoteItemMediaKind(res.Remote)
 	if kind != "image" && kind != "video" {
 		return DownloadGuardDecision{}, false
 	}

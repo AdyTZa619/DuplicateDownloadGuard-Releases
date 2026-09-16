@@ -50,29 +50,13 @@ func prepareDetectorRemoteV90(parent context.Context, target string) (context.Co
 		return parent, target, func() {}, nil
 	}
 	ctx, cancel := context.WithCancel(parent)
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+	metadata, err := detectorRemoteMetadataV90(ctx, target)
 	if err != nil {
 		cancel()
 		return parent, "", func() {}, err
 	}
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		cancel()
-		return parent, "", func() {}, err
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || resp.ContentLength <= 0 {
-		cancel()
-		return parent, "", func() {}, errors.New("remote size unavailable; additional verification required")
-	}
-	s := &detectorRemoteV90{Original: target, Size: resp.ContentLength, ContentType: resp.Header.Get("Content-Type"),
-		Blocks: map[int64][]byte{}, Context: ctx, Cancel: cancel}
-	if etag := resp.Header.Get("ETag"); etag != "" && !strings.HasPrefix(etag, "W/") {
-		s.Validator = etag
-	} else {
-		s.Validator = resp.Header.Get("Last-Modified")
-	}
+	s := &detectorRemoteV90{Original: target, Size: metadata.Size, Bytes: metadata.ProbeBytes, ContentType: metadata.ContentType,
+		Validator: metadata.Validator, Blocks: map[int64][]byte{}, Context: ctx, Cancel: cancel}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		cancel()
@@ -94,6 +78,74 @@ func prepareDetectorRemoteV90(parent context.Context, target string) (context.Co
 	go func() { _ = s.Server.Serve(listener) }()
 	close := func() { cancel(); _ = s.Server.Close() }
 	return context.WithValue(ctx, detectorRemoteKeyV90{}, s), s.URL, close, nil
+}
+
+type detectorRemoteMetadataResultV90 struct {
+	Size        int64
+	ProbeBytes  int64
+	ContentType string
+	Validator   string
+}
+
+func detectorRemoteValidatorV90(header http.Header) string {
+	if etag := header.Get("ETag"); etag != "" && !strings.HasPrefix(etag, "W/") {
+		return etag
+	}
+	return header.Get("Last-Modified")
+}
+
+func detectorRemoteMetadataV90(ctx context.Context, target string) (detectorRemoteMetadataResultV90, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+	if err != nil {
+		return detectorRemoteMetadataResultV90{}, err
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	if resp, headErr := http.DefaultClient.Do(req); headErr == nil {
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK && resp.ContentLength > 0 {
+			return detectorRemoteMetadataResultV90{Size: resp.ContentLength, ContentType: resp.Header.Get("Content-Type"), Validator: detectorRemoteValidatorV90(resp.Header)}, nil
+		}
+	}
+
+	// Some Bunkr/CDN endpoints reject HEAD while correctly supporting byte
+	// ranges. Probe exactly one byte; a server that ignores Range is rejected
+	// without reading its full response body.
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return detectorRemoteMetadataResultV90{}, err
+	}
+	req.Header.Set("Range", "bytes=0-0")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return detectorRemoteMetadataResultV90{}, err
+	}
+	defer resp.Body.Close()
+	size, ok := parseDetectorProbeContentRangeV90(resp.Header.Get("Content-Range"))
+	if resp.StatusCode != http.StatusPartialContent || !ok || resp.Header.Get("Content-Encoding") != "" {
+		return detectorRemoteMetadataResultV90{}, errors.New("remote size/range unavailable; full download refused")
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 2))
+	if err != nil || len(b) != 1 {
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		return detectorRemoteMetadataResultV90{}, err
+	}
+	return detectorRemoteMetadataResultV90{Size: size, ProbeBytes: 1, ContentType: resp.Header.Get("Content-Type"), Validator: detectorRemoteValidatorV90(resp.Header)}, nil
+}
+
+func parseDetectorProbeContentRangeV90(value string) (int64, bool) {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "bytes") {
+		return 0, false
+	}
+	parts := strings.Split(fields[1], "/")
+	if len(parts) != 2 || parts[0] != "0-0" || parts[1] == "*" {
+		return 0, false
+	}
+	size, err := strconv.ParseInt(parts[1], 10, 64)
+	return size, err == nil && size > 0
 }
 
 type detectorRemoteReaderV90 struct {
