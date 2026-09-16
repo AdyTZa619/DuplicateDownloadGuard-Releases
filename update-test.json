@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.143",
+  "version": "9.0.1-test.144",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "9296fc7c6d2c4d054eb7a67d27a384212f51e2657363043a53cf49dd81b1ffda",
-  "notes": "TEST: Merge PR #102: fix remote duplicate detection fallback",
-  "publishedAt": "2026-09-16T14:00:27.0154461Z",
+  "sha256": "58ec58c473ee5c9ed1c8f954b1f220d6b1c169226919a08a073250ce568473b8",
+  "notes": "TEST: Fix Windows audio fingerprint and enforce strict detector CI (#103)",
+  "publishedAt": "2026-09-16T21:25:00.5432672Z",
   "channel": "test"
 }
