@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.141",
+  "version": "9.0.1-test.142",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "26253458cefa2d24806db2eed0959000ab7a1606d52a65476dc4d456dec184b3",
-  "notes": "TEST: Separate detector progress from final review verdicts (#99)",
-  "publishedAt": "2026-09-16T07:43:02.4560958Z",
+  "sha256": "e2338ce764cd5d26779939d8e454d2a95bcc5a11c07bf9a3de10122f448b8d99",
+  "notes": "TEST: Fix large media duplicate confirmation after sampling (#100)",
+  "publishedAt": "2026-09-16T10:08:28.3226293Z",
   "channel": "test"
 }
