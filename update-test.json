@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.142",
+  "version": "9.0.1-test.143",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "e2338ce764cd5d26779939d8e454d2a95bcc5a11c07bf9a3de10122f448b8d99",
-  "notes": "TEST: Fix large media duplicate confirmation after sampling (#100)",
-  "publishedAt": "2026-09-16T10:08:28.3226293Z",
+  "sha256": "9296fc7c6d2c4d054eb7a67d27a384212f51e2657363043a53cf49dd81b1ffda",
+  "notes": "TEST: Merge PR #102: fix remote duplicate detection fallback",
+  "publishedAt": "2026-09-16T14:00:27.0154461Z",
   "channel": "test"
 }
