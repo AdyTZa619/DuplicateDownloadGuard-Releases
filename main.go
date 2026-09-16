@@ -2174,6 +2174,14 @@ func resultPendingReview(x Result) bool {
 	if x.Manual || resultAnalysisPendingV901(x) {
 		return false
 	}
+	classification := ""
+	if x.Detector != nil {
+		classification = strings.ToUpper(strings.TrimSpace(x.Detector.Classification))
+	}
+	if strings.EqualFold(strings.TrimSpace(x.GuardVerdict), guardDuplicate) && x.LocalPresent &&
+		(classification == "IDENTIC" || classification == "ACELAȘI CONȚINUT") {
+		return false
+	}
 	s := resultAutoStatus(x)
 	// Review = există un candidat local/plauzibil, dar nu avem confirmare exactă/manuală.
 	return s == "HAVE" || s == "POSSIBLE" || s == "SAMPLED"

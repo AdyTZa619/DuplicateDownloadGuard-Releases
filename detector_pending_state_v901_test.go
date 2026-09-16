@@ -64,3 +64,23 @@ func TestMissingFilterRequiresCompletedFinalDetectorVerdictV901(t *testing.T) {
 		t.Fatal("smart selection omitted completed LIPSĂ")
 	}
 }
+
+func TestConfirmedSameContentIsNotCountedAsReviewV901(t *testing.T) {
+	confirmed := Result{
+		Status: "HAVE", AutoStatus: "HAVE", GuardAt: 123, GuardVerdict: guardDuplicate,
+		LocalPath: `H:\\Videos\\renamed-local.mkv`, LocalPresent: true,
+		Detector: &DuplicateEvidenceV90{Classification: "ACELAȘI CONȚINUT"},
+		Remote:   RemoteItem{Name: "different-remote-name.mp4", Size: 456},
+	}
+	if resultPendingReview(confirmed) || resultMatchesFilter(confirmed, "", "REVIEW") {
+		t.Fatal("a confirmed same-content duplicate leaked into De confirmat")
+	}
+	if got := resultDecisionBucketV85130(confirmed); got != "LOCAL" {
+		t.Fatalf("decision bucket=%q, want LOCAL", got)
+	}
+	summary := buildResultSummary([]Result{confirmed})
+	workflow := summary["workflow"].(map[string]int)
+	if workflow["AUTO_HAVE"] != 1 || workflow["REVIEW"] != 0 {
+		t.Fatalf("confirmed duplicate summary is inconsistent: %#v", workflow)
+	}
+}

@@ -84,3 +84,25 @@ func TestMediaEntryCountV85(t *testing.T) {
 		t.Fatalf("image count=%d, want 1", got)
 	}
 }
+
+func TestApplySameContentDecisionStaysConfirmedHaveV901(t *testing.T) {
+	row := Result{ID: 7, Status: "POSSIBLE", AutoStatus: "POSSIBLE", Remote: RemoteItem{Name: "remote.mp4"}}
+	decision := decorateGuardDecision(DownloadGuardDecision{
+		ResultID:   7,
+		Name:       "remote.mp4",
+		Verdict:    guardDuplicate,
+		Method:     "media-version",
+		Reason:     "fingerprint video și audio confirmate",
+		LocalPath:  `H:\\Videos\\renamed-local.mkv`,
+		Similarity: 97,
+	})
+
+	applyGuardDecisionV90(&row, decision, 123)
+
+	if row.GuardVerdict != guardDuplicate || row.AutoStatus != "HAVE" || row.Status != "HAVE" {
+		t.Fatalf("same-content duplicate was demoted back to review: %#v", row)
+	}
+	if row.Detector == nil || row.Detector.Classification != "ACELAȘI CONȚINUT" || row.MatchScore != 97 {
+		t.Fatalf("same-content evidence was not preserved: %#v", row)
+	}
+}

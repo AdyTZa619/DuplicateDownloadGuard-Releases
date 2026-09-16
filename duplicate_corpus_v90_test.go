@@ -117,3 +117,41 @@ func TestDuplicateCorpusV90(t *testing.T) {
 		}
 	}
 }
+
+func TestLargeExactVideoContinuesFromSamplesToMediaFingerprintV901(t *testing.T) {
+	root := os.Getenv("DDG_MEDIA_CORPUS")
+	if root == "" {
+		t.Skip("set DDG_MEDIA_CORPUS to generated corpus directory")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "source.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Trailing bytes are valid to ignore for this MP4 fixture and make the
+	// remote larger than the default 12 MiB full-hash limit. This reproduces the
+	// real large-file branch without creating a second expensive encode.
+	data = append(data, make([]byte, 13<<20)...)
+	server := contentServer(data)
+	defer server.Close()
+	collection, download := t.TempDir(), t.TempDir()
+	local := filepath.Join(collection, "folder-fără-legătură", "completely-renamed-local.mp4")
+	if err = os.MkdirAll(filepath.Dir(local), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Name: "unrelated-remote-name.mp4", Size: int64(len(data)), Source: "BUNKR", DirectURL: server.URL}
+	a := guardTestApp(t, collection, download, remote)
+	report, err := a.runDownloadGuard(context.Background(), a.results, download, guardModeSmart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := report.Decisions[0]
+	if d.Verdict != guardDuplicate || d.Method != "media-same-content" || d.LocalPath != local || d.Detector == nil || d.Detector.Classification != "ACELAȘI CONȚINUT" {
+		t.Fatalf("large exact video stopped at sample-only review: %#v", d)
+	}
+	if row := a.results[0]; row.AutoStatus != "HAVE" || row.Status != "HAVE" {
+		t.Fatalf("confirmed large video was not surfaced as AI DEJA: %#v", row)
+	}
+}
