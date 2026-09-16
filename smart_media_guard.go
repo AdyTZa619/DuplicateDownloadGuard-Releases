@@ -633,10 +633,11 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if err != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+err.Error(), localCount, res.LocalPath)
 		}
-		// Image-only collections must also keep filling the local cache after the
-		// foreground guard releases its lock; the warm worker is coalesced/bounded.
-		scheduleMediaCacheWarmV85(a, entries)
 		if pending > 0 {
+			// Only incomplete/cancelled passes need background cache work. Starting
+			// a worker after every fully resolved image decision does no useful work
+			// and can overlap the next foreground analysis.
+			scheduleMediaCacheWarmV85(a, entries)
 			return incompleteMediaDecisionV90(res, bestScore, pending, "image-index-incomplete", fmt.Sprintf("Mai există %d imagini locale fără semnătură perceptuală validată. Cache-ul se completează progresiv; nu aleg un candidat slab și nu declar fișierul nou până nu pot exclude imaginile complet redenumite.", pending), localCount, bestPath)
 		}
 	} else {

@@ -536,7 +536,21 @@ func (a *App) evaluateDownloadGuard(ctx context.Context, res Result, entries []F
 		return guardReviewDecision(res, "sample-error", "Mostrele remote nu au putut fi verificate: "+err.Error(), len(candidates), candidates[0].Path)
 	}
 	if len(survivors) > 0 {
-		return guardReviewDecision(res, "deterministic-samples", fmt.Sprintf("%d candidat(ți) au trecut toate mostrele distribuite (%s trafic). Pot fi identici, dar mostrele nu sunt dovadă integrală.", len(survivors), human(transferred)), len(candidates), survivors[0].Path)
+		// Matching byte samples are strong candidate evidence, but not an exact
+		// proof. Do not stop the pipeline here for media: this was leaving large
+		// renamed videos/images permanently at SAMPLED even though the perceptual
+		// stages could confirm the same content.
+		mediaFailure := ""
+		if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
+			mediaDecision = decorateDetectorEvidenceV90(mediaDecision)
+			mediaDecision.Detector.Signals = append(mediaDecision.Detector.Signals,
+				fmt.Sprintf("Mostre binare: %d candidat(ți) au coincis în toate blocurile distribuite (%s trafic).", len(survivors), human(transferred)))
+			if mediaDecision.Verdict == guardDuplicate || mediaDecision.Similarity > 0 {
+				return mediaDecision
+			}
+			mediaFailure = " Verificarea media suplimentară nu s-a putut finaliza: " + mediaDecision.Reason
+		}
+		return guardReviewDecision(res, "deterministic-samples", fmt.Sprintf("%d candidat(ți) au trecut toate mostrele distribuite (%s trafic). Pot fi identici, dar mostrele nu sunt dovadă integrală.%s", len(survivors), human(transferred), mediaFailure), len(candidates), survivors[0].Path)
 	}
 	if mediaDecision, ok := a.mediaNearDuplicateDecision(ctx, res, entries, megaRemoteAvailable); ok {
 		return mediaDecision
@@ -741,14 +755,21 @@ func applyGuardDecisionV90(x *Result, decision DownloadGuardDecision, now int64)
 	}
 	switch decision.Verdict {
 	case guardDuplicate:
-		x.AutoStatus = "VERIFIED"
-		x.AutoConfidence = "ExactGuard • 100% conținut"
 		x.AutoReason = decision.Reason
 		if decision.Exact {
+			x.AutoStatus = "VERIFIED"
+			x.AutoConfidence = "ExactGuard • 100% conținut"
 			x.MatchScore, x.SameSize = 100, true
 		} else {
-			x.AutoStatus = "POSSIBLE"
-			x.AutoConfidence = "Istoric disponibil; conținut neverificat"
+			x.AutoStatus = "HAVE"
+			x.AutoConfidence = "Detector media • același conținut confirmat"
+			if decision.Method == "download-history" {
+				x.AutoConfidence = "Istoric DDG • fișier local neschimbat"
+			}
+			if decision.Similarity > 0 {
+				x.VisualScore = min(99, decision.Similarity)
+				x.MatchScore = min(99, decision.Similarity)
+			}
 		}
 	case guardReview:
 		status := "POSSIBLE"

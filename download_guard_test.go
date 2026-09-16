@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,27 @@ import (
 	"strings"
 	"testing"
 )
+
+func largeDeterministicPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 900, 900))
+	state := uint32(0x9e3779b9)
+	for i := 0; i < len(img.Pix); i += 4 {
+		state = state*1664525 + 1013904223
+		img.Pix[i] = byte(state >> 24)
+		img.Pix[i+1] = byte(state >> 16)
+		img.Pix[i+2] = byte(state >> 8)
+		img.Pix[i+3] = 255
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() <= 1<<20 {
+		t.Fatalf("regression fixture must exceed the full-hash threshold: %d bytes", out.Len())
+	}
+	return out.Bytes()
+}
 
 func guardTestApp(t *testing.T, collection, download string, remote RemoteItem) *App {
 	t.Helper()
@@ -195,6 +218,31 @@ func TestDownloadGuardLargeMatchingSamplesStayReview(t *testing.T) {
 	}
 	if a.results[0].Status != "SAMPLED" {
 		t.Fatalf("sampled result should be review, got %#v", a.results[0])
+	}
+}
+
+func TestDownloadGuardLargeMatchingMediaSamplesContinueToFingerprintV901(t *testing.T) {
+	data := largeDeterministicPNG(t)
+	server := contentServer(data)
+	defer server.Close()
+	collection, download := t.TempDir(), t.TempDir()
+	local := filepath.Join(collection, "completely-renamed-local.png")
+	if err := os.WriteFile(local, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := RemoteItem{Name: "unrelated-remote-name.png", Size: int64(len(data)), Source: "BUNKR", DirectURL: server.URL}
+	a := guardTestApp(t, collection, download, remote)
+	a.cfg.FullVerifyMaxMB = 1
+	report, err := a.runDownloadGuard(context.Background(), a.results, download, guardModeSmart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := report.Decisions[0]
+	if decision.Verdict != guardDuplicate || decision.Method != "media-same-content" || decision.LocalPath != local {
+		t.Fatalf("matching samples prevented the media detector from confirming the duplicate: %#v", decision)
+	}
+	if decision.Detector == nil || decision.Detector.Classification != "ACELAȘI CONȚINUT" {
+		t.Fatalf("large media duplicate did not receive a final same-content classification: %#v", decision)
 	}
 }
 

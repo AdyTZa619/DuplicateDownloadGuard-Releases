@@ -132,3 +132,36 @@ Corecția separă explicit:
 Filtrul, sumarul, tabelul, selecția inteligentă și calculul bytes pentru download folosesc aceeași separare. Pentru cazul observat, sumarul așteptat în timpul progresului este `75 În analiză` și `1 De verificat`, nu `76 De confirmat`. Bariera JDownloader nu este relaxată.
 
 Verificări locale ale corecției: `go test ./...` trecut în 10,119 s; race țintit trecut în 1,595 s; `go vet ./...` trecut; 11/11 teste JS trecute; build Windows x64 cross-compilat 13.326.336 bytes, SHA-256 `1ee774e45c64ccc1c3339822c31007ef2c9b5907be3204afce23f69ac39dd986`. Testarea pe instalarea Windows din captură rămâne necesară.
+
+## Corecție detecție efectivă după 9.0.1-test.141
+
+Captura a evidențiat și un defect funcțional separat de starea provizorie: fișierele media mari cu mostre binare identice se opreau imediat la `SAMPLED / DE VERIFICAT`. Etapele perceptuale video/imagine nu mai erau executate, exact pe ramura folosită de fișierele reale mai mari decât limita de hash integral. În plus, un verdict media deja confirmat `ACELAȘI CONȚINUT` era rescris în `applyGuardDecisionV90` ca `POSSIBLE`, astfel încât sumarul îl putea număra din nou la `De confirmat`.
+
+Corecții:
+
+1. Mostrele binare identice rămân dovadă auxiliară, dar pentru video/imagine pipeline-ul continuă cu fingerprintul comun MEGA/Bunkr. Numai hash-ul integral rămâne `IDENTIC`; mostre plus dovadă perceptuală suficientă produc `ACELAȘI CONȚINUT / NU DESCĂRCA`.
+2. Dacă fingerprintul nu poate fi calculat, rezultatul rămâne sigur `SAMPLED / DE VERIFICAT`; mostrele singure nu sunt promovate la duplicat exact.
+3. Un verdict final `media-same-content` sau `media-version` rămâne `HAVE / AI DEJA`, cu scorul și calea locală păstrate; nu mai este retrogradat la `POSSIBLE`.
+4. Sumarul și filtrul `De confirmat` exclud rezultatele finale `IDENTIC`/`ACELAȘI CONȚINUT` care au fișier local prezent.
+5. Workerul de încălzire a cache-ului imagine nu mai este pornit inutil după o analiză deja completă; acest lucru elimină suprapunerea fără muncă utilă cu următoarea analiză foreground.
+
+Teste noi de regresie:
+
+- imagine Bunkr simulată, peste limita de hash integral, identică dar complet redenumită: trece din mostre la fingerprint și este blocată ca `ACELAȘI CONȚINUT`;
+- video MP4 real encodat, mărit peste limita implicită de 12 MiB, mutat și complet redenumit: trece din mostre la fingerprint și ajunge `ACELAȘI CONȚINUT / HAVE`;
+- verdict media final nu mai revine la `POSSIBLE` și nu mai intră în filtrul `De confirmat`;
+- fișier mare non-media cu mostre identice rămâne `DE VERIFICAT`, fără promovare nesigură.
+
+Rezultate locale după corecție:
+
+- corpus FFmpeg: **22/22 trecute**, inclusiv 19 duplicate/variante și 3 negative; false positive **0/3**, false negative **0/19**;
+- trafic corpus: 11.843.003 bytes prima analiză, 9.120.224 bytes analiza repetată/cache;
+- timpi corpus: prima analiză 2,245–17.016,982 ms; repetată 2,036–272,931 ms;
+- test video mare dedicat: trecut în 3,939 s;
+- `go test ./... -count=3`: trecut în 30,562 s;
+- race țintit detector/cache/JDownloader: trecut în 3,999 s;
+- `go vet ./...`: trecut;
+- verificare sintaxă JS și teste JS: **11/11 trecute**;
+- build Windows x64 cross-compilat: 9.477.120 bytes, SHA-256 `f534566948c8b44b95eb4bb819d106817c32f1dc1c5add06827fc2ecda41518a`.
+
+Trafic real MEGA/Bunkr consumat în această rundă: **0 bytes**. Windows desktop real, HDD-uri reale, MEGA real, Bunkr real și JDownloader real rămân **NEVERIFICATE**; candidatul poate fi publicat numai pe canalul TEST și nu este declarat validat end-to-end.
