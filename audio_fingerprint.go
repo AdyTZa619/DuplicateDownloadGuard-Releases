@@ -225,8 +225,8 @@ func pcmAudioSimilarityV901(a, b []uint32) int {
 		var total float64
 		matched := 0
 		for frame := 0; frame < n; frame++ {
-			ai := (a0+frame)*audioPCMStrideV901
-			bi := (b0+frame)*audioPCMStrideV901
+			ai := (a0 + frame) * audioPCMStrideV901
+			bi := (b0 + frame) * audioPCMStrideV901
 			if a[ai] == 0 || b[bi] == 0 {
 				continue
 			}
