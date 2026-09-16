@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.140",
+  "version": "9.0.1-test.141",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "cde48a4382b2cf1be4be0d00f8a8ef02f5f3c7347e2bd096d4db27037f862b90",
-  "notes": "TEST: Stabilize detector and Bunkr/JDownloader after TEST.139 (#97)",
-  "publishedAt": "2026-09-15T21:26:33.3893131Z",
+  "sha256": "26253458cefa2d24806db2eed0959000ab7a1606d52a65476dc4d456dec184b3",
+  "notes": "TEST: Separate detector progress from final review verdicts (#99)",
+  "publishedAt": "2026-09-16T07:43:02.4560958Z",
   "channel": "test"
 }
