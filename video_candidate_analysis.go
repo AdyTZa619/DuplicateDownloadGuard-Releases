@@ -121,7 +121,7 @@ func resolveVideoEvidenceV85(visualScore, secondScore int, remoteInfo, localInfo
 		return "media-same-content", " • ambele versiuni sunt fără audio, iar cadrele informative coincid 100%"
 	}
 
-	// Both have audio. If Chromaprint is unavailable, do not silently assume the
+	// Both have audio. If a perceptual audio fingerprint is unavailable, do not silently assume the
 	// soundtrack is the same and do not auto-block the download.
 	if !audio.Available {
 		return "media-looks-same", " • video foarte apropiat, dar audio nu a putut fi verificat perceptual"

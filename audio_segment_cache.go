@@ -14,6 +14,7 @@ import (
 )
 
 const maxLocalAudioSegmentCacheEntriesV85 = 512
+const localAudioFingerprintVersionV901 = 2
 
 type localAudioSegmentCacheEntryV85 struct {
 	Path        string   `json:"path"`
@@ -21,6 +22,7 @@ type localAudioSegmentCacheEntryV85 struct {
 	MTime       int64    `json:"mtime"`
 	StartMS     int64    `json:"startMs"`
 	DurationMS  int64    `json:"durationMs"`
+	Version     int      `json:"version"`
 	Fingerprint []uint32 `json:"fingerprint"`
 	CreatedAt   int64    `json:"createdAt"`
 }
@@ -42,7 +44,7 @@ func localAudioSegmentCacheFileV85(a *App) string {
 func audioSegmentKeyV85(path string, start, seconds float64) string {
 	startMS := int64(math.Round(start * 1000))
 	durationMS := int64(math.Round(seconds * 1000))
-	return pathKey(path) + "\x1f" + strconv.FormatInt(startMS, 10) + "\x1f" + strconv.FormatInt(durationMS, 10)
+	return pathKey(path) + "\x1f" + strconv.FormatInt(startMS, 10) + "\x1f" + strconv.FormatInt(durationMS, 10) + "\x1f" + strconv.Itoa(localAudioFingerprintVersionV901)
 }
 
 func ensureLocalAudioSegmentCacheLoadedV85(a *App) {
@@ -64,7 +66,7 @@ func ensureLocalAudioSegmentCacheLoadedV85(a *App) {
 	var rows map[string]localAudioSegmentCacheEntryV85
 	if json.Unmarshal(b, &rows) == nil && rows != nil {
 		for key, row := range rows {
-			if len(row.Fingerprint) >= 8 && row.Path != "" {
+			if row.Version == localAudioFingerprintVersionV901 && len(row.Fingerprint) >= 8 && row.Path != "" {
 				localAudioSegmentCacheStateV85.Entries[key] = row
 			}
 		}
@@ -80,7 +82,7 @@ func cachedLocalAudioSegmentV85(a *App, path string, start, seconds float64) ([]
 	key := audioSegmentKeyV85(path, start, seconds)
 	localAudioSegmentCacheStateV85.Lock()
 	row, ok := localAudioSegmentCacheStateV85.Entries[key]
-	if ok && (row.Size != st.Size() || row.MTime != st.ModTime().UnixNano() || len(row.Fingerprint) < 8) {
+	if ok && (row.Version != localAudioFingerprintVersionV901 || row.Size != st.Size() || row.MTime != st.ModTime().UnixNano() || len(row.Fingerprint) < 8) {
 		delete(localAudioSegmentCacheStateV85.Entries, key)
 		localAudioSegmentCacheStateV85.Dirty = true
 		localAudioSegmentCacheStateV85.Generation++
@@ -140,6 +142,7 @@ func cacheLocalAudioSegmentV85(a *App, path string, start, seconds float64, fing
 		MTime:       st.ModTime().UnixNano(),
 		StartMS:     int64(math.Round(start * 1000)),
 		DurationMS:  int64(math.Round(seconds * 1000)),
+		Version:     localAudioFingerprintVersionV901,
 		Fingerprint: append([]uint32(nil), fingerprint...),
 		CreatedAt:   time.Now().UnixNano(),
 	}
@@ -192,10 +195,17 @@ func flushLocalAudioSegmentCacheV85(a *App) error {
 }
 
 func (a *App) cachedLocalChromaprintSegmentV85(ctx context.Context, ff, path string, start, seconds float64) ([]uint32, error) {
+	// Kept for compatibility with older call sites. Chromaprint rows must not
+	// enter the versioned PCM cache because their binary representations are
+	// intentionally different.
+	return chromaprintSegmentV85(ctx, ff, path, start, seconds)
+}
+
+func (a *App) cachedLocalAudioFingerprintSegmentV901(ctx context.Context, ff, path string, start, seconds float64) ([]uint32, error) {
 	if fp, ok := cachedLocalAudioSegmentV85(a, path, start, seconds); ok {
 		return fp, nil
 	}
-	fp, err := chromaprintSegmentV85(ctx, ff, path, start, seconds)
+	fp, err := pcmAudioSegmentV901(ctx, ff, path, start, seconds)
 	if err != nil {
 		return nil, err
 	}
