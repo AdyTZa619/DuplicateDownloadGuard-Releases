@@ -71,15 +71,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $ffmpeg = Get-Command ffmpeg -ErrorAction Stop
+          $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if (-not $ffmpeg) {
+            choco install ffmpeg -y --no-progress --limit-output
+            if ($LASTEXITCODE -ne 0) { throw 'Instalarea FFmpeg a eșuat.' }
+            $ffmpeg = Get-Command ffmpeg -ErrorAction Stop
+          }
           Write-Host "FFmpeg: $($ffmpeg.Source)"
           $corpus = Join-Path $env:RUNNER_TEMP 'ddg-media-corpus'
           $report = Join-Path $env:RUNNER_TEMP 'ddg-corpus-report.json'
+          "DDG_CORPUS_REPORT=$report" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           python validation/generate_duplicate_corpus.py $corpus
           if ($LASTEXITCODE -ne 0) { throw 'Generarea corpusului FFmpeg a eșuat.' }
           "DDG_MEDIA_CORPUS=$corpus" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DDG_CORPUS_STRICT=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "DDG_CORPUS_REPORT=$report" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify formatting
         shell: pwsh
@@ -127,7 +132,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DDG-corpus-${{ github.sha }}
-          path: ${{ env.DDG_CORPUS_REPORT }}
+          path: ${{ runner.temp }}/ddg-corpus-report.json
           if-no-files-found: warn
           retention-days: 14
 
