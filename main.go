@@ -2155,8 +2155,23 @@ func resultAutoStatus(x Result) string {
 	return x.Status
 }
 
+// A row receives provisional detector evidence before the asynchronous content
+// worker reaches it. GuardAt is written only after evaluateDownloadGuard has
+// completed for that row. Do not present queued work as a final REVIEW verdict.
+func resultAnalysisPendingV901(x Result) bool {
+	if x.Manual || x.GuardAt > 0 || x.Detector == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(x.Detector.Classification), "DE VERIFICAT")
+}
+
+func resultConfirmedMissingV901(x Result) bool {
+	return x.GuardAt > 0 && strings.EqualFold(strings.TrimSpace(x.GuardVerdict), guardDownload) &&
+		x.Detector != nil && strings.EqualFold(strings.TrimSpace(x.Detector.Classification), "LIPSĂ")
+}
+
 func resultPendingReview(x Result) bool {
-	if x.Manual {
+	if x.Manual || resultAnalysisPendingV901(x) {
 		return false
 	}
 	s := resultAutoStatus(x)
@@ -2168,8 +2183,20 @@ func resultMatchesFilter(x Result, q, status string) bool {
 	status = strings.ToUpper(strings.TrimSpace(status))
 	if status != "" && status != "ALL" {
 		switch status {
+		case "ANALYZING", "PENDING":
+			if !resultAnalysisPendingV901(x) {
+				return false
+			}
 		case "REVIEW", "CONFIRM":
 			if !resultPendingReview(x) {
+				return false
+			}
+		case "MISSING":
+			if !resultConfirmedMissingV901(x) {
+				return false
+			}
+		case "DIFFERENT":
+			if resultAnalysisPendingV901(x) || x.Status != "DIFFERENT" {
 				return false
 			}
 		case "MANUAL":
@@ -2215,6 +2242,7 @@ func buildResultSummary(src []Result) map[string]any {
 	var totalBytes int64
 	for _, x := range src {
 		bucket := resultDecisionBucketV85130(x)
+		analysisPending := resultAnalysisPendingV901(x)
 		decision[bucket]++
 		bytesDecision[bucket] += x.Remote.Size
 		effective[x.Status]++
@@ -2241,15 +2269,18 @@ func buildResultSummary(src []Result) map[string]any {
 				workflow["AUTO_SAMPLED"]++
 			}
 		}
-		if resultPendingReview(x) {
+		if analysisPending {
+			workflow["ANALYZING"]++
+			bytesWorkflow["ANALYZING"] += x.Remote.Size
+		} else if resultPendingReview(x) {
 			workflow["REVIEW"]++
 			bytesWorkflow["REVIEW"] += x.Remote.Size
 		}
-		if x.Status == "MISSING" {
+		if resultConfirmedMissingV901(x) {
 			workflow["DOWNLOAD"]++
 			bytesWorkflow["DOWNLOAD"] += x.Remote.Size
 		}
-		if x.Status == "DIFFERENT" {
+		if !analysisPending && x.Status == "DIFFERENT" {
 			workflow["DIFFERENT"]++
 			bytesWorkflow["DIFFERENT"] += x.Remote.Size
 		}
@@ -2298,6 +2329,9 @@ func buildResultSummary(src []Result) map[string]any {
 }
 
 func resultDecisionBucketV85130(x Result) string {
+	if resultAnalysisPendingV901(x) {
+		return "ANALYZING"
+	}
 	auto := strings.ToUpper(strings.TrimSpace(resultAutoStatus(x)))
 	status := strings.ToUpper(strings.TrimSpace(x.Status))
 	manual := strings.ToUpper(strings.TrimSpace(x.ManualStatus))
@@ -2315,8 +2349,7 @@ func resultDecisionBucketV85130(x Result) string {
 			return "LOCAL"
 		}
 	}
-	if guard == "DOWNLOAD" || status == "MISSING" || status == "DIFFERENT" || auto == "MISSING" || auto == "DIFFERENT" ||
-		(x.Manual && (manual == "MISSING" || manual == "DIFFERENT")) {
+	if resultConfirmedMissingV901(x) {
 		return "MISSING"
 	}
 	return "REVIEW"
@@ -2447,11 +2480,11 @@ func smartRuleMatch(x Result, rule string) bool {
 	case "renamed":
 		return !x.Manual && x.LocalPath != "" && x.SameSize && x.SameExt && x.NameScore >= 50 && x.NameScore < 100
 	case "uncertain":
-		return !x.Manual && (resultAutoStatus(x) == "POSSIBLE" || resultAutoStatus(x) == "SAMPLED")
+		return !x.Manual && !resultAnalysisPendingV901(x) && (resultAutoStatus(x) == "POSSIBLE" || resultAutoStatus(x) == "SAMPLED")
 	case "missing":
-		return x.Status == "MISSING"
+		return resultConfirmedMissingV901(x)
 	case "different":
-		return x.Status == "DIFFERENT"
+		return !resultAnalysisPendingV901(x) && x.Status == "DIFFERENT"
 	case "manual":
 		return x.Manual
 	case "verified":

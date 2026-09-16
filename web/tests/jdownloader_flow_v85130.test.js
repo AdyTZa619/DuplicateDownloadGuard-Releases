@@ -168,9 +168,11 @@ test('earliest JD click guard sends IDs only to the guarded backend route', asyn
 
 test('Smart State never promotes provisional MISSING to final LIPSĂ', async () => {
   const {smart, row} = loadSmartState();
-  assert.equal(smart.finalState({status:'MISSING', detector:{classification:'DE VERIFICAT'}}), 'REVIEW');
+  assert.equal(smart.finalState({status:'POSSIBLE', detector:{classification:'DE VERIFICAT'}, guardAt:0}), 'ANALYZING');
+  assert.equal(smart.finalState({status:'POSSIBLE', detector:{classification:'DE VERIFICAT'}, guardAt:123, guardVerdict:'REVIEW'}), 'REVIEW');
+  assert.equal(smart.finalState({status:'MISSING', detector:{classification:'DE VERIFICAT'}}), 'ANALYZING');
   assert.equal(smart.finalState({status:'MISSING'}), 'REVIEW');
-  assert.equal(smart.finalState({guardVerdict:'DOWNLOAD', detector:{classification:'DE VERIFICAT'}}), 'REVIEW');
+  assert.equal(smart.finalState({guardVerdict:'DOWNLOAD', detector:{classification:'DE VERIFICAT'}, guardAt:123}), 'REVIEW');
   assert.equal(smart.finalState(row), 'DOWNLOAD');
   assert.equal(await smart.rememberBackendHandoff([{resultId:8, url:'https://bunkr.example/d/eight', name:'eight.mp4'}]), 1);
   assert.equal(smart.finalState(row), 'IN_JD');

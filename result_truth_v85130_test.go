@@ -100,7 +100,7 @@ func TestDecisionSummaryUsesOnlyCurrentLocalEvidenceV85130(t *testing.T) {
 		{Status: "HAVE", AutoStatus: "HAVE", LocalPath: "A.jpg", LocalPresent: true, SameSize: true, NameScore: 100, Remote: RemoteItem{Name: "A.jpg", Size: 100}},
 		{Status: "SAMPLED", AutoStatus: "SAMPLED", LocalPath: "B.jpg", LocalPresent: true, SameSize: true, Remote: RemoteItem{Name: "B.jpg", Size: 200}},
 		{Status: "HAVE", AutoStatus: "HAVE", LocalPath: "gone.jpg", LocalPresent: false, SameSize: true, NameScore: 100, Remote: RemoteItem{Name: "gone.jpg", Size: 300}},
-		{Status: "MISSING", AutoStatus: "MISSING", Remote: RemoteItem{Name: "D.jpg", Size: 400}},
+		{Status: "MISSING", AutoStatus: "MISSING", GuardAt: 1, GuardVerdict: guardDownload, Detector: &DuplicateEvidenceV90{Classification: "LIPSĂ"}, Remote: RemoteItem{Name: "D.jpg", Size: 400}},
 	}
 	summary := buildResultSummary(rows)
 	decision := summary["decision"].(map[string]int)

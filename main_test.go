@@ -251,7 +251,7 @@ func TestSummarySeparatesWorkflowFromEffectiveStatus(t *testing.T) {
 	rows := []Result{
 		{Status: "HAVE", AutoStatus: "HAVE", Remote: RemoteItem{Size: 100}},
 		{Status: "HAVE", AutoStatus: "HAVE", Manual: true, Remote: RemoteItem{Size: 200}},
-		{Status: "MISSING", AutoStatus: "MISSING", Remote: RemoteItem{Size: 300}},
+		{Status: "MISSING", AutoStatus: "MISSING", GuardAt: 1, GuardVerdict: guardDownload, Detector: &DuplicateEvidenceV90{Classification: "LIPSĂ"}, Remote: RemoteItem{Size: 300}},
 	}
 	s := buildResultSummary(rows)
 	wf := s["workflow"].(map[string]int)
