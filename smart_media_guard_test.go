@@ -85,6 +85,31 @@ func TestMediaEntryCountV85(t *testing.T) {
 	}
 }
 
+func TestPendingMediaDoesNotEraseStrongPositiveEvidenceV901(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      string
+		score     int
+		path      string
+		pending   int
+		finalizes bool
+	}{
+		{name: "strong image", kind: "image", score: 94, path: `D:\\photo.jpg`, pending: 7, finalizes: true},
+		{name: "weak image", kind: "image", score: 93, path: `D:\\photo.jpg`, pending: 7, finalizes: false},
+		{name: "video enters independent finalizer", kind: "video", score: 93, path: `D:\\clip.mkv`, pending: 2, finalizes: true},
+		{name: "weak video", kind: "video", score: 92, path: `D:\\clip.mkv`, pending: 2, finalizes: false},
+		{name: "no positive candidate", kind: "video", score: 99, pending: 2, finalizes: false},
+		{name: "complete index needs no bypass", kind: "video", score: 99, path: `D:\\clip.mkv`, pending: 0, finalizes: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pendingMediaCanStillFinalizeV901(tc.kind, tc.score, tc.path, tc.pending); got != tc.finalizes {
+				t.Fatalf("pendingMediaCanStillFinalizeV901(%q, %d, %q, %d)=%v, want %v", tc.kind, tc.score, tc.path, tc.pending, got, tc.finalizes)
+			}
+		})
+	}
+}
+
 func TestApplySameContentDecisionStaysConfirmedHaveV901(t *testing.T) {
 	row := Result{ID: 7, Status: "POSSIBLE", AutoStatus: "POSSIBLE", Remote: RemoteItem{Name: "remote.mp4"}}
 	decision := decorateGuardDecision(DownloadGuardDecision{

@@ -183,6 +183,35 @@ func mediaEntryCountV85(entries []FileEntry, kind string) int {
 	return n
 }
 
+// pendingMediaCanStillFinalizeV901 separates two different safety questions:
+//
+//   1. Can DDG prove that the remote item is missing? Every relevant local
+//      entry must have been excluded before that answer is safe.
+//   2. Can DDG prove that the remote item already exists? One sufficiently
+//      strong positive match is enough; unrelated unreadable/uncached files do
+//      not invalidate evidence already measured against that match.
+//
+// The old flow answered both questions with the first rule. Consequently one
+// unreadable file could turn every otherwise confirmed duplicate into
+// DE VERIFICAT. Keep the pending count for explainability and for fail-closed
+// LIPSĂ decisions, but allow a strong positive candidate to reach the normal
+// image/video finalizer.
+func pendingMediaCanStillFinalizeV901(kind string, bestScore int, bestPath string, pending int) bool {
+	if pending <= 0 || strings.TrimSpace(bestPath) == "" {
+		return false
+	}
+	switch kind {
+	case "image":
+		return bestScore >= 94
+	case "video":
+		// 93 is only an entry point to the video finalizer. It still needs the
+		// deeper frame/audio rules there before it can become ACELAȘI CONȚINUT.
+		return bestScore >= 93
+	default:
+		return false
+	}
+}
+
 func filepathExt(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if i := strings.LastIndex(name, "."); i >= 0 {
@@ -633,7 +662,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 		if err != nil {
 			return mediaReviewDecisionV85(res, "media-unverified", "Fingerprint-ul imaginii remote nu a putut fi calculat: "+err.Error(), localCount, res.LocalPath)
 		}
-		if pending > 0 {
+		if pending > 0 && !pendingMediaCanStillFinalizeV901(kind, bestScore, bestPath, pending) {
 			// Only incomplete/cancelled passes need background cache work. Starting
 			// a worker after every fully resolved image decision does no useful work
 			// and can overlap the next foreground analysis.
@@ -669,7 +698,7 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 			}
 			previousPending = pending
 		}
-		if pending > 0 {
+		if pending > 0 && !pendingMediaCanStillFinalizeV901(kind, bestScore, bestPath, pending) {
 			return incompleteMediaDecisionV90(res, bestScore, pending, "media-index-incomplete", fmt.Sprintf("Necesită verificare suplimentară: %d candidați locali încă neanalizați. Datele deja calculate sunt păstrate pentru următoarea verificare.", pending), len(candidates), bestPath)
 		}
 	}
@@ -682,6 +711,9 @@ func (a *App) mediaNearDuplicateDecision(ctx context.Context, res Result, entrie
 
 	d := DownloadGuardDecision{ResultID: res.ID, Name: res.Remote.Name, Verdict: guardReview, LocalPath: bestPath, Candidates: len(candidates), Similarity: bestScore, QualityHint: bestQuality}
 	d.Detector = &DuplicateEvidenceV90{Pending: pending, Signals: []string{bestNote}, DeepAnalyzed: deepAnalyzed, LocalCacheHits: localCacheHits}
+	if pending > 0 {
+		d.Detector.Signals = append(d.Detector.Signals, fmt.Sprintf("%d fișier(e) locale rămân neanalizate; acestea blochează numai verdictul LIPSĂ și nu anulează potrivirea pozitivă măsurată.", pending))
+	}
 	for _, e := range entries {
 		if pathKey(e.Path) == pathKey(bestPath) {
 			st, statErr := os.Stat(bestPath)

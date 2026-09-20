@@ -106,6 +106,43 @@ func TestExtensionlessRemoteImageUsesProviderContentTypeV901(t *testing.T) {
 	}
 }
 
+func TestUnreadableLocalImageDoesNotHideConfirmedDuplicateV901(t *testing.T) {
+	collection := t.TempDir()
+	img := patternedImageV901(29, 160, 90)
+	local := filepath.Join(collection, "renamed-local.jpg")
+	f, err := os.Create(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = jpeg.Encode(f, img, &jpeg.Options{Quality: 74}); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	if err = os.WriteFile(filepath.Join(collection, "unreadable-content.jpg"), []byte("not an image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var remoteBytes bytes.Buffer
+	if err = png.Encode(&remoteBytes, img); err != nil {
+		t.Fatal(err)
+	}
+	server := contentServer(remoteBytes.Bytes())
+	defer server.Close()
+
+	a := guardTestApp(t, collection, t.TempDir(), RemoteItem{})
+	a.runIndex(context.Background(), []string{collection}, "", 0)
+	entries := make([]FileEntry, 0, len(a.index))
+	for _, entry := range a.index {
+		entries = append(entries, entry)
+	}
+	result := Result{ID: 1, Remote: RemoteItem{Name: "completely-different.png", Size: int64(remoteBytes.Len()), Source: "HTTP", DirectURL: server.URL}}
+	d, ok := a.mediaNearDuplicateDecision(detectorCandidateContextV90(context.Background(), a, entries), result, entries, true)
+	if !ok || d.LocalPath != local || d.Verdict != guardDuplicate || d.Detector == nil || d.Detector.Classification != "ACELAȘI CONȚINUT" || d.Detector.Pending == 0 {
+		t.Fatalf("unreadable unrelated image erased positive duplicate evidence: %#v", d)
+	}
+}
+
 func TestBunkrUsesSameAutomaticDetectorAsOtherSourcesV901(t *testing.T) {
 	data := bytes.Repeat([]byte("shared-engine"), 1000)
 	a, _, local := sourceDetectorFixtureV90(t, data)
