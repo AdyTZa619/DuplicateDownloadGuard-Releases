@@ -185,11 +185,11 @@ func mediaEntryCountV85(entries []FileEntry, kind string) int {
 
 // pendingMediaCanStillFinalizeV901 separates two different safety questions:
 //
-//   1. Can DDG prove that the remote item is missing? Every relevant local
-//      entry must have been excluded before that answer is safe.
-//   2. Can DDG prove that the remote item already exists? One sufficiently
-//      strong positive match is enough; unrelated unreadable/uncached files do
-//      not invalidate evidence already measured against that match.
+//  1. Can DDG prove that the remote item is missing? Every relevant local
+//     entry must have been excluded before that answer is safe.
+//  2. Can DDG prove that the remote item already exists? One sufficiently
+//     strong positive match is enough; unrelated unreadable/uncached files do
+//     not invalidate evidence already measured against that match.
 //
 // The old flow answered both questions with the first rule. Consequently one
 // unreadable file could turn every otherwise confirmed duplicate into
