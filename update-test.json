@@ -1,8 +1,8 @@
 {
-  "version": "9.0.1-test.144",
+  "version": "9.0.1-test.145",
   "url": "https://raw.githubusercontent.com/AdyTZa619/DuplicateDownloadGuard-Releases/testing/test-releases/DuplicateDownloadGuard_PRO_TEST.exe",
-  "sha256": "58ec58c473ee5c9ed1c8f954b1f220d6b1c169226919a08a073250ce568473b8",
-  "notes": "TEST: Fix Windows audio fingerprint and enforce strict detector CI (#103)",
-  "publishedAt": "2026-09-16T21:25:00.5432672Z",
+  "sha256": "82c4e659cc0befe5feb7467874798a5f81fba650595681e1d006e66d2089e4f1",
+  "notes": "TEST: Fix DDG positive matches blocked by incomplete index (#104)",
+  "publishedAt": "2026-09-21T00:01:28.6968260Z",
   "channel": "test"
 }
