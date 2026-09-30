@@ -287,6 +287,7 @@
     loadFeatureModule('ddgGenericMediaPickerScriptV85114', '/feature_generic_media_picker_v85114.js');
     loadFeatureModule('ddgSourceFolderHintScriptV85114', '/feature_source_folder_hint_v85114.js');
     loadFeatureModule('ddgSourceHistoryScriptV85124', '/features/source_history_v85124.js');
+    loadFeatureModule('ddgDetectorSelfTestV901Script', '/detector_selftest_v901.js');
   }
 
   function ensureStyles() {
