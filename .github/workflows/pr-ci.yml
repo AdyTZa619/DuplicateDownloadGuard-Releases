@@ -124,6 +124,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:DDG_SELF_TEST = '1'
           go test ./...
           if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
 
