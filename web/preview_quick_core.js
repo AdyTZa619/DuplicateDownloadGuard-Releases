@@ -16,6 +16,7 @@
 
   function verdict(r) {
     if (!r) return '';
+    if (!r.manual && Number(r.guardAt || 0) <= 0 && String(r.detector?.classification || '').trim().toUpperCase() === 'DE VERIFICAT') return 'ÎN ANALIZĂ';
     const method = String(r.guardMethod || '');
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
     if (method === 'media-version') return 'ALTĂ VERSIUNE';
