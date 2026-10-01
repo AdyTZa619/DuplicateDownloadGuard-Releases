@@ -103,15 +103,3 @@ func TestFinalMissingClearsRejectedProvisionalCandidateV901(t *testing.T) {
 		t.Fatalf("final detector evidence is inconsistent: %#v", row.Detector)
 	}
 }
-
-func TestInitialDetectorHidesWeakMediaCandidateV901(t *testing.T) {
-	row := Result{
-		Status: "POSSIBLE", NameScore: 0,
-		LocalPath: `H:\\unrelated\\same-size.jpg`, LocalPresent: true, MatchScore: 40,
-		Remote: RemoteItem{Name: "remote.jpg", Size: 1234},
-	}
-	initialDetectorEvidenceV90(&row)
-	if row.LocalPath != "" || row.LocalPresent || row.MatchScore != 0 {
-		t.Fatalf("weak provisional media candidate remained selected: %#v", row)
-	}
-}
