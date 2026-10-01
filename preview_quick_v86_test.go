@@ -26,6 +26,8 @@ func TestPreviewQuickV86IsEmbeddedAndLoaded(t *testing.T) {
 		"visualScore",
 		"matchScore",
 		"ACELAȘI CONȚINUT",
+		"ÎN ANALIZĂ",
+		"Number(r.guardAt || 0) <= 0",
 		"Downloader intern (Auto); aria2 opțional",
 	} {
 		if !strings.Contains(s, required) {
