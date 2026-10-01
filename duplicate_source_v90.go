@@ -75,17 +75,6 @@ func initialDetectorEvidenceV90(r *Result) {
 	} else if r.Status == "HAVE" {
 		r.Status, r.Confidence = "POSSIBLE", "Conținut încă neverificat"
 	}
-	// A same-size/same-extension metadata hit with an unrelated name is only a
-	// search hint. Exposing it as the selected LOCAL preview made a score-zero
-	// file look like a plausible duplicate while the content worker was still
-	// queued. Candidate Explorer can still list it, but the main comparison must
-	// stay empty until content evidence selects a real candidate.
-	if (remoteItemMediaKind(r.Remote) == "image" || remoteItemMediaKind(r.Remote) == "video") &&
-		r.Status == "POSSIBLE" && r.NameScore < 55 && strings.TrimSpace(r.Remote.Hash) == "" {
-		r.LocalPath = ""
-		r.LocalPresent = false
-		r.MatchScore = 0
-	}
 	r.Detector = decorateDetectorEvidenceV90(d).Detector
 }
 func (a *App) startDuplicateScanV90(generation uint64, rows []Result) {
