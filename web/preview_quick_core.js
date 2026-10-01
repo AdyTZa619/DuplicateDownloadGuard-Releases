@@ -16,6 +16,7 @@
 
   function verdict(r) {
     if (!r) return '';
+    if (!r.manual && Number(r.guardAt || 0) <= 0 && String(r.detector?.classification || '').trim().toUpperCase() === 'DE VERIFICAT') return 'ÎN ANALIZĂ';
     const method = String(r.guardMethod || '');
     if (method === 'media-same-content') return 'ACELAȘI CONȚINUT';
     if (method === 'media-version') return 'ALTĂ VERSIUNE';
@@ -24,6 +25,12 @@
     if (method === 'download-history-source') return 'DESCĂRCAT ÎNAINTE';
     const s = r.status || r.autoStatus || '';
     return ({VERIFIED:'VERIFICAT',SAMPLED:'MOSTRE OK',HAVE:'AI DEJA',POSSIBLE:'POSIBIL',DIFFERENT:'DIFERIT',MISSING:'NU ÎL AI'})[s] || s;
+  }
+
+  function weakProvisionalCandidate(r) {
+    return Boolean(r && !r.manual && Number(r.guardAt || 0) <= 0 &&
+      String(r.detector?.classification || '').trim().toUpperCase() === 'DE VERIFICAT' &&
+      Number(r.matchScore || 0) === 0 && Number(r.nameScore || 0) < 55);
   }
 
   function scoreText(r) {
@@ -182,8 +189,9 @@
     const original = window.showDetail;
     if (typeof original !== 'function' || original.__previewQuickV86) return;
     const wrapped = async function(r) {
-      reset(r);
-      const out = await original.apply(this, arguments);
+	  const shown = weakProvisionalCandidate(r) ? {...r, localPath:'', localPresent:false, sameSize:false, sameExt:false} : r;
+	  reset(shown);
+	  const out = await original.call(this, shown);
       setTimeout(render, 0);
       return out;
     };

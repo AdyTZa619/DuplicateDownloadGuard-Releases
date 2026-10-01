@@ -750,9 +750,11 @@ func applyGuardDecisionV90(x *Result, decision DownloadGuardDecision, now int64)
 	x.GuardVerdict, x.GuardMethod, x.GuardReason, x.GuardAt = decision.Verdict, decision.Method, decision.Reason, now
 	x.MatchScore, x.VisualScore = 0, 0
 	x.Candidates = decision.Candidates
-	if decision.LocalPath != "" {
-		x.LocalPath = decision.LocalPath
-	}
+	// The completed detector decision owns the automatic candidate association.
+	// Always replace the provisional metadata path, including with an empty path.
+	// Otherwise a rejected score-zero candidate survives a final LIPSĂ decision
+	// and is misleadingly rendered in Compare Studio.
+	x.LocalPath = decision.LocalPath
 	switch decision.Verdict {
 	case guardDuplicate:
 		x.AutoReason = decision.Reason
