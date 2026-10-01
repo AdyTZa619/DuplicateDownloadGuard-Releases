@@ -84,3 +84,34 @@ func TestConfirmedSameContentIsNotCountedAsReviewV901(t *testing.T) {
 		t.Fatalf("confirmed duplicate summary is inconsistent: %#v", workflow)
 	}
 }
+
+func TestFinalMissingClearsRejectedProvisionalCandidateV901(t *testing.T) {
+	row := Result{
+		Status: "POSSIBLE", AutoStatus: "POSSIBLE",
+		LocalPath: `H:\\unrelated\\same-size.jpg`, LocalPresent: true,
+		Remote: RemoteItem{Name: "remote.jpg", Size: 1234},
+	}
+	decision := decorateGuardDecision(DownloadGuardDecision{
+		Verdict: guardDownload, Method: "full-sha256",
+		Reason: "Conținut diferit.",
+	})
+	applyGuardDecisionV90(&row, decision, 123)
+	if row.LocalPath != "" {
+		t.Fatalf("final LIPSĂ kept rejected provisional path %q", row.LocalPath)
+	}
+	if row.Detector == nil || row.Detector.Classification != "LIPSĂ" {
+		t.Fatalf("final detector evidence is inconsistent: %#v", row.Detector)
+	}
+}
+
+func TestInitialDetectorHidesWeakMediaCandidateV901(t *testing.T) {
+	row := Result{
+		Status: "POSSIBLE", NameScore: 0,
+		LocalPath: `H:\\unrelated\\same-size.jpg`, LocalPresent: true, MatchScore: 40,
+		Remote: RemoteItem{Name: "remote.jpg", Size: 1234},
+	}
+	initialDetectorEvidenceV90(&row)
+	if row.LocalPath != "" || row.LocalPresent || row.MatchScore != 0 {
+		t.Fatalf("weak provisional media candidate remained selected: %#v", row)
+	}
+}
