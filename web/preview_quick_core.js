@@ -27,6 +27,12 @@
     return ({VERIFIED:'VERIFICAT',SAMPLED:'MOSTRE OK',HAVE:'AI DEJA',POSSIBLE:'POSIBIL',DIFFERENT:'DIFERIT',MISSING:'NU ÎL AI'})[s] || s;
   }
 
+  function weakProvisionalCandidate(r) {
+    return Boolean(r && !r.manual && Number(r.guardAt || 0) <= 0 &&
+      String(r.detector?.classification || '').trim().toUpperCase() === 'DE VERIFICAT' &&
+      Number(r.matchScore || 0) === 0 && Number(r.nameScore || 0) < 55);
+  }
+
   function scoreText(r) {
     if (!r) return '';
     const visual = Number(r.visualScore || 0);
@@ -183,8 +189,9 @@
     const original = window.showDetail;
     if (typeof original !== 'function' || original.__previewQuickV86) return;
     const wrapped = async function(r) {
-      reset(r);
-      const out = await original.apply(this, arguments);
+	  const shown = weakProvisionalCandidate(r) ? {...r, localPath:'', localPresent:false, sameSize:false, sameExt:false} : r;
+	  reset(shown);
+	  const out = await original.call(this, shown);
       setTimeout(render, 0);
       return out;
     };
